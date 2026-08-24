@@ -1,0 +1,104 @@
+\documentclass[notitlepage]{revtex4-2}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\usepackage{xcolor}
+\geometry{a4paper, margin=1in}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage[margin=5pt]{subfig}
+\definecolor{darkgreen}{rgb}{0.00,0.50,0.25}
+\definecolor{darkblue}{rgb}{0.00,0.00,0.67}
+\usepackage[breaklinks,pdftitle={Optimal Parameters for LlamaLend Markets}, pdfauthor={curve.finance},colorlinks,urlcolor=blue,citecolor=darkgreen,linkcolor=darkblue]{hyperref}
+\usepackage{mathtools}
+\usepackage{tikz}
+\usepackage{listings}
+\graphicspath{{pdf/}}
+
+\setkeys{Gin}{scale=0.5}
+
+\begin{document}
+
+\begin{abstract}
+Proper parameter tuning is the foundation of a safe and efficient lending market. This document summarizes use the
+LLAMMA (Lending--Liquidating AMM Algorithm) simulator for analyzing historical data, modeling market behavior, and
+optimizing key parameters (fee, amplification parameter~$A$).
+\end{abstract}
+
+\section{Introduction}
+LlamaLend markets are \emph{permissionless} --- anyone can deploy them without special approval. However, creating
+a market requires expertise and responsibility; therefore, this functionality is not included in the default Curve UI
+and instead uses a factory contract.
+Before deployment, one should study the behavior of the collateral asset under different market regimes
+(bullish/bearish trends, volatility spikes) and run simulations. The \textbf{LLAMMA simulator} helps to:
+\begin{itemize}
+  \item analyze historical price data;
+  \item model different market scenarios under varying parameters;
+  \item assess risk and profitability;
+  \item optimize the key parameters ($A$, fee, and band count).
+\end{itemize}
+
+\subsection*{Quick Start}
+It's recommended to use pypy to do faster simulations. Create environment and install dependencies:
+
+\begin{verbatim}
+uv python install pypy@3.11
+uv venv --python pypy@3.11
+uv sync -p pypy@3.11
+\end{verbatim}
+
+Add pair to simulator/settings.py and import historical data:
+\begin{verbatim}
+python manage.py import_data {pair_name} (i.e. BTCUSDT)
+\end{verbatim}
+
+\section{Configuration Before Simulation}
+Two main simulations are used for market tuning: \texttt{2\_simulate\_A.py} (search for $A$) and
+\texttt{1\_simulate\_dynamic\_fee.py} (search for fee). Despite the numbering, you should \textbf{first} find $A$,
+and \textbf{then} find \texttt{fee}.
+
+Before running, variables are adjusted for the specific asset (ready-made examples exist in the repository).
+
+\subsection*{Key Variables}
+\begin{itemize}
+  \item \texttt{A=[int(a) for a in logspace(log10(10), log10(300), 50)]} Range of $A$ values scanned in \texttt{2\_simulate\_A.py}: 10 to 300 (50 points). Volatile assets require smaller $A$; correlated assets (e.g., stablecoins) use larger $A$.
+  \item \texttt{A=30} Fixed $A$ value for \texttt{1\_simulate\_fee.py}.
+  \item \texttt{range\_size=4} Number of bands. A minimum of 4 is recommended — representing the most conservative stress case.
+  \item \texttt{dynamic\_fee=0.002} Fee for the initial $A$ scan, calculated by difference of \((p_{oracle}-p)*d\_fee\).
+  \item \texttt{fee=logspace(log10(0.0001), log10(0.02), 20)} Range of fees for scanning during \texttt{1\_simulate\_fee.py}.
+  \item \texttt{min\_loan\_duration, max\_loan\_duration} Time in days. Example: $1/24/2=1/48$ days $\approx$ 30 minutes. Longer duration = slower arbitrage.
+  \item \texttt{samples=500000, n\_top\_samples=5} Number of Monte Carlo samples and averaging window (tail risk). For fee scans, you can lower \texttt{samples} and increase \texttt{n\_top\_samples} (e.g. $10^4$ and $10^3$).
+  \item \texttt{add\_reverse=true} Adds mirrored price data (balances up/down trends).
+  \item \texttt{Texp=600} EMA horizon (seconds), must match the oracle parameter (default NG pools = 600).
+\end{itemize}
+
+\section{Simulation and Parameter Optimization}
+\subsection{Optimal Amplification Parameter ($A$)}
+Run:
+\begin{lstlisting}[language=bash]
+python3 simulator/pairs/btcusd/simulate_a.py
+\end{lstlisting}
+The script plots two charts: losses and discount (for a given band count). The optimal $A$ is at the minimum of the
+orange curve (typically around $A\approx30$).
+
+\subsection{Optimal Fee}
+Run:
+\begin{lstlisting}[language=bash]
+python3 simulator/pairs/btcusd/simulate_dynamic_fee.py
+\end{lstlisting}
+The optimal fee corresponds to the minimum of the loss curve at fixed $A$ and band count.
+
+\subsection{Liquidation and Loan Discounts}
+The \texttt{liquidation\_discount} is taken as the y-value of the blue line under the orange curve’s minimum
+(e.g. $\approx0.07$). Then:
+\begin{flushleft}
+\[
+\begin{aligned}
+& \texttt{liquidation\_discount} \approx 0.07\\
+%
+& \texttt{loan\_discount} \approx \texttt{liquidation\_discount} + 0.03 \approx 0.10
+\end{aligned}
+\]
+\end{flushleft}
+
+
+\end{document}

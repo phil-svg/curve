@@ -1,0 +1,231 @@
+<h2 class="sr-only">Scatter of weekly CRV emission versus weekly protocol revenue for emitting Ethereum mainnet Curve gauges, log/linear toggle, excluding points under $10 on both axes. Revenue includes swap admin fees plus mint-rate yield on crvUSD held in the pool; crvUSD pools and crvUSD lending markets are separate categories. Swap pools link to curvemonitor.com.</h2>
+<div style="padding:0.5rem 0;">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:1rem;">
+    <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:0.9rem;"><div style="font-size:13px;color:var(--color-text-secondary);">Emissions / wk</div><div style="font-size:22px;font-weight:500;">$502,566</div></div>
+    <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:0.9rem;"><div style="font-size:13px;color:var(--color-text-secondary);">Revenue / wk (fees+crvUSD+lend)</div><div style="font-size:22px;font-weight:500;">~$122,988</div></div>
+    <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:0.9rem;"><div style="font-size:13px;color:var(--color-text-secondary);">Emission ÷ revenue</div><div style="font-size:22px;font-weight:500;">4.1×</div></div>
+    <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:0.9rem;"><div style="font-size:13px;color:var(--color-text-secondary);">crvUSD in these pools</div><div style="font-size:22px;font-weight:500;">$54.4M</div></div>
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap;">
+    <button id="bLog" onclick="setScale('log')" style="padding:6px 14px;">Log</button>
+    <button id="bLin" onclick="setScale('lin')" style="padding:6px 14px;">Linear</button>
+    <span id="lw" style="display:flex;gap:12px;margin-left:8px;font-size:12px;color:var(--color-text-secondary);flex-wrap:wrap;"></span>
+  </div>
+  <div style="position:relative;width:100%;height:380px;">
+    <canvas id="scx" role="img" aria-label="Scatter of weekly CRV emission versus weekly revenue per gauge, excluding points below $10 on both axes. Revenue includes swap fees plus crvUSD mint-rate yield. Click a swap pool to open it on curvemonitor.">Each point is a gauge: CRV emission vs weekly revenue (swap fees plus crvUSD sink yield), excluding sub-$10 dust. Click a swap pool to open it on curvemonitor.com.</canvas>
+  </div>
+  <div style="font-size:12px;color:var(--color-text-tertiary);margin-top:6px;">Excludes points under $10 on both axes. Revenue = swap admin fee + crvUSD-in-pool × 1.39%/yr avg mint rate; lending uses idle crvUSD × same rate. Click a swap pool to open it on curvemonitor.com.</div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+(function(){
+var R=0.0139, WK=52.14;
+var CRV={'0x4dece678ceceb27446b35c672dc7d61f30bad69e':15633055,'0x390f3595bca2df7d23783dfd126427cceb997bf4':21517463,'0x13e12bb0e6a2f1a3d6901a59a9d585e89a6243e1':11712324,'0xecb0f0d68c19bdaadaebe24f6752a4db34e2c2cb':233540,'0x4ebdf703948ddcea3b11f675b4d1fba9d2414a14':746117,'0xec977f46467a3021785cff88894886e617abd65b':590786,'0x2889302a794da87fbf1d6db415c1492194663d13':969212,'0x516c3ecfe45f0820653e08dd7c93633d71b93cb5':206236,'0x625e92624bc2d88619accc1788365a69767f6200':1446073,'0x027b40f5917fcd0eac57d7015e120096a5f92ca9':383270,'0x57064f49ad7123c92560882a45518374ad982e85':279224,'0xca546ae6c3b2bb9fba2b6e5eeb0881097cece5b0':111514,'0xefa939f4932cff8a92fd6a7c5fe52cd2ad77f3ec':34464,'0xb1c189dfde178fe9f90e72727837cc9289fb944f':16422,'0x635ef0056a597d13863b73825cca297236578595':529229,'0x9e641187391b7a5fe9ee193359408ca3894f68a2':148,'0x5b3ba844b3859f56524e99ae54857b36c8ae3efe':8};
+var DATA=`DOLA+sUSDe|49817|7677|58867928|0x744793b5110f6ca9cc7cdfe1ce16677c3eb192ef
+frxUSD+msUSD|34900|1440|14440631|0x9a9e2e70919c75d80aaaa1d483c46cdbb8ac4d1b
+msETH+WETH|32537|1513|13835502|0xa4c567c662349bec3d0fb94c4e7f85ba95e208e4
+FRAX+USDe|25073|210|54752718|0x5dc1bf6f1e983c0b21efb003c105133736fa0743
+CRV+cvxCRV|23571|456|5278531|0x971add32ea87f10bd192671630be3be8a11b8623
+MIM+3Crv|22438|570|9292111|0x5a6a4d54456819380173272a5e8e9b9904bdf41b
+USDC+crvUSD|22420|1267|20642503|0x4dece678ceceb27446b35c672dc7d61f30bad69e
+USDT+crvUSD|21395|2937|42540417|0x390f3595bca2df7d23783dfd126427cceb997bf4
+frxUSD+crvUSD|19813|552|15998249|0x13e12bb0e6a2f1a3d6901a59a9d585e89a6243e1
+msUSD+FRAXBP|15858|927|6118240|0xc3b19502f8c02be75f3f77fd673503520deb51dd
+pmUSD+frxUSD|14933|328|3565828|0xbf5047039f2980c21eb5692c790bad8a9533b900
+pmUSD+crvUSD|13361|429|3993532|0xecb0f0d68c19bdaadaebe24f6752a4db34e2c2cb
+WETH+CVX|11422|853|4835676|0xb576491f1e6e5e62f1d8f26062ee822b40b0e0d4
+reUSD+scrvUSD|10881|2568|8215328|0xc522a6606bba746d7960404f22a3db936b6f4f50
+ETH++WETH|9151|7018|13552948|0x2c683fad51da2cd17793219cc86439c1875c353e
+evaUSDT+evaUSDC|8710|6|3119109|0x3c0965582db7a0f660d491aa6174b9438f911c21
+alETH+frxETH|7563|328|6587511|0xb657b895b265c38c53fff00166cf7f6a3c70587d
+pmUSD+iREET|7304|111|741116|0x57129759d0e23116c1e7402dbc084e53d2e209a2
+alUSD+frxUSD|6778|25|4304313|0x17f9682c9cd1a448b31c0428f1d0783ed13a9fa3
+frxUSD+USG|6008|335|2457260|0xefc056790bb19702b2164ec6ea6ba3ae01d81195
+USDC+USG|5686|418|1895846|0x97ba10115da528c113462ede9c20d7adc806d93f
+DOLA+sUSDS|5493|687|5599973|0x8b83c4aa949254895507d09365229bc3a8c7f710
+Lending: sreUSD|5177|836|7722198|LEND
+reUSD+sfrxUSD|4533|1214|4191007|0xed785af60bed688baa8990cd5c4166221599a441
+Lending: sfrxUSD|4533|2188|5493335|LEND
+USDT+WBTC+WETH|4359|1417|12966343|0xf5f5b97624542d72a9e06f04804bf81baa15e2b4
+eUSD+USDC|4141|308|2679750|0x08bfa22bb3e024cdfeb3eca53c0cb93bf59c4147
+CRV+yCRV|4135|256|1074632|0x99f5acc8ec2da2bc0771c32814eff52b712de1e5
+frxETH+CVX|4113|175|1495535|0x47d5e1679fe5f0d9f0a657c6715924e33ce05093
+sDOLA+alUSD|3834|472|2235827|0x460638e6f7605b866736e38045c0de8294d7d87f
+USDC+USDf|3802|362|3557519|0x72310daaed61321b02b08a547150c07522c6a976
+USDC+WBTC+WETH|3614|1085|9123760|0x7f86bf177dd4f3494b841a37e810a34dd56c829b
+MUSD+crv2pool|3324|56|1321996|0xb5571e76693ba60110b5811dd650ffefce1c955f
+crvUSD+WETH+CRV|3271|552|2232610|0x4ebdf703948ddcea3b11f675b4d1fba9d2414a14
+ALCX+FRAXBP|3008|112|586182|0x4149d1038575ce235e03e03b39487a80fd709d31
+sfrxUSD+frxUSD|2938|2218|11802958|0xf292eb6c5dcb693eaaf392d0562a01c3710e5978
+frxUSD+evaUSDT|2847|7|883816|0x552827613fea5eada3871f83b2d407d50cb04116
+crvUSD+YB|2745|659|1165524|0xec977f46467a3021785cff88894886e617abd65b
+crvUSD+tBTC+wstETH|2722|748|2932359|0x2889302a794da87fbf1d6db415c1492194663d13
+frxUSD+USPC|2568|26|704559|0x96bca2cea58a8e08e7da5c9d68b8acbb28419d1d
+CRV+sdCRV|2562|992|943478|0xca0253a98d16e9c1e3614cafda19318ee69772d0
+alETH+WETH|2463|191|4526366|0x8efd02a0a40545f32dba5d664cbbc1570d3fedf6
+WETH+weETH|2386|3438|8148807|0xdb74dfdd3bb46be8ce6c33dc9d82777bcfc3ded5
+crvUSD+cvcrvUSD|2347|419|452016|0x516c3ecfe45f0820653e08dd7c93633d71b93cb5
+WBTC+cbBTC+hemiBTC|2191|28|4874372|0x66039342c66760874047c36943b1e2d8300363bb
+CVX+clevCVX|2188|2|350916|0xf9078fb962a7d13f55d40d49c8aa6472abd1a5a6
+WETH+RSUP|1962|30|420726|0xee351f12eae8c2b8b9d1b9bfd3c5dd565234578d
+USDC+USDT|1727|183|5955445|0x4f493b7de8aac7d55f71853688b1f7c8f0243c85
+OUSD+pmUSD|1684|46|302116|0x57690e5287d36733664caa21fa2dc48c156e962d
+YB+yYB|1663|58|252531|0x5ee9606e5611fd6ce14bd2bc12db70bd53dc9daa
+sdUSD+frxUSD|1604|198|411443|0x5e9ce43c5b1e2872755977e0a57eac44c0c0f951
+ETH+ETHx|1480|368|1453192|0x59ab5a5b5d617e478a2479b0cad80da7e2831492
+ETH+KP3R|1389|2|188432|0x21410232b484136404911780bc32756d5d1a9fa9
+msETH+OETH|1371|24|736342|0xb5b93dde9d87563184d31f3b7f85dd58404e2ee0
+frxUSD+avUSD|1353|102|1271947|0xf76329c6dc10fdfbee6ca520d0bf4d474e95e46e
+ETH+stETH|1350|5755|19741969|0x21e27a5e5513d6e65c4f830167390997aa84843a
+PYUSD+crvUSD|1294|57|1855967|0x625e92624bc2d88619accc1788365a69767f6200
+scrvUSD+sUSDe|1254|2098|2701115|0xd29f8980852c2c76fc3f6e96a7aa06e0bedcc1b1
+ynETHx+WETH|1209|828|990068|0xd65ed4bce447195187f37ce7d82f56adf1826f8f
+ynRWAx+USDC|1208|844|478791|0xf05bc5c38a8f5e3d98c72f11bc59e713f8a32228
+ynUSDx+scrvUSD|1208|627|245905|0xa256d38e73cce6e00447fa64a95069ea7d32f841
+ynRWAx+ynUSDx|1208|1648|653936|0xffd3b4d343a8964a5c3c1caac20f319c41a97bff
+OUSD+USDC|1184|101|1028166|0x6d18e1a7faeb1f0467a77c0d293872ab685426dc
+USD3+scrvUSD|1159|458|774916|0xe99810cd5adcd7b13455ae1be678b382d61f2d1e
+frxUSD+sUSDS|1143|835|1893246|0x81a2612f6dea269a6dd1f6deab45c5424ee2c4b7
+crvUSD+ZCHF|1011|263|877439|0x027b40f5917fcd0eac57d7015e120096a5f92ca9
+FXN+cvxFXN|979|136|651011|0x1062fd8ed633c1f080754c19317cb3912810b5e5
+evaUSDC+avUSD|928|5|482356|0x6c380152ee65d4f41eaf1a136aa882713f2524fe
+frxUSD+sUSDat|854|0|287003|0xcaf1969e9ba98c05113b75d8633a17196e2d02a5
+ETH+YFI|832|61|520805|0xc26b89a667578ec7b3f11b2f98d6fd15c07c54ba
+WETH+SDT|788|65|477083|0xa19bf6fbf05624282cb6ed498f4761f22e084edd
+WETH+SPC|771|9|185420|0x6dc8de7343d2e3b4e5ef9a196e946ae4d460e2d0
+OETH+WETH|768|0|56014607|0xcc7d5785ad5755b6164e21495e07adb0ff11c2a8
+YB+sdYB|738|112|162902|0x98b540fa89690969d111d045afca575c91519b1a
+WETH+frxETH|734|217|8076753|0x9c3b46c0ceb5b9e304fcd6d88fc50f7dd24b31bc
+OUSD+msUSD|678|14|266185|0x9afad25833d0f47b3a3d9204ddf965cb172de0cb
+ynRWAx+OUSD|649|540|265363|0xf75f2b5fc5f375e1ad3130dd0eec7219fe821204
+cbBTC+WBTC|641|39|3355995|0x839d6bdedff886404a6d7a788ef241e4e28f4802
+scrvUSD+sUSDS|618|927|1265202|0xfd1627e3f3469c8392c8c3a261d8f0677586e5e1
+crvUSD+sUSDe|615|341|658596|0x57064f49ad7123c92560882a45518374ad982e85
+alUSD+USDC|588|6|295759|0x1edd809bc939dc80630cd9f7aea2247a83440fe5
+OBUSD+USDC|588|0|39298|0x6865be0d0da507ea57684cee935cf22ea1d5a106
+frxUSD+scrvUSD|571|337|618824|0x4d968a5db8da0822a2f08840f553de4129aae5f3
+frxUSD+sDOLA|569|1390|1150554|0x9d8afd5ce19a3b948049468188f1de13951a4383
+WETH+CJPY|526|7|245708|0x592878b920101946fb5915ab97961bc546f211cc
+crvUSD+CJPY|526|7|240505|0xca546ae6c3b2bb9fba2b6e5eeb0881097cece5b0
+FRAX+USDC|466|101|5246710|0xdcef968d416a41cdac0ed8702fac8128a64241a2
+USD3+sUSDe|420|143|237571|0x964573b560da1ce5b10dd09a4723c5ccbe9f9688
+USD3+sUSDS|420|196|341087|0x65b05f6b0472b1f36a2f6d90a14cd21900851609
+Lending: fxSAVE|371|313|468797|LEND
+scrvUSD+sDOLA|336|512|397462|0x76a962ba6770068bcf454d34dde17175611e6637
+reUSD+fxUSD|336|27|665631|0xb0ef04ace97d350e24efa5139d2590d26a61a8dc
+frxUSD+OUSD|316|12|331022|0x68d03ed49800e92d7aa8ab171424007e55fd1f49
+BOLD+USDC|289|454|6958505|0xefc6516323fbd28e80b85a497b65a86243a54b3e
+frxUSD+srRoyUSDC|284|569|860533|0x310a9fd2906c6a3ee97289095b183f96309c56ae
+VSP+WETH|280|4|67728|0x20f858d88124857274994516eeac7720fe39b8ea
+CVX1+cvgCVX|230|1|55633|0xc50e191f703fb3160fc15d8b168a8c740fec3666
+uniETH+frxETH|187|45|447790|0x78c579a2dcfe10ae8b3c888a583337beb4d91733
+ETH+CLEV|173|5|213516|0x342d1c4aa76ea6f5e5871b7f11a019a0eb713a4f
+USDT+USDe|173|104|267413|0x5b03cccab7ba3010fa5cad23746cbf0794938e96
+SDT+cvgSDT|173|0|46931|0xc6628f00f29cc89a87bbee7554c4725611200fd7
+tBTC+cbBTC|139|107|1919677|0xae6ee608b297305abf3eb609b81febbb8f6a0bb3
+OGN+OETH|139|65|995333|0x56a344f1aa03943f536b94436de6a6e10116cf86
+WBTC+tBTC|131|793|9839398|0xb7ecb2aa52aa64a717180e030241bc75cd946726
+OUSD+USDT|111|39|138576|0xdcc3ec9af62dfcb63033243e90481eb18baeb897
+sUSD+sUSDe|108|137|3401340|0x4b5e827f4c0a1042272a11857a355da1f4ceebae
+USDC+savUSD|100|1162|1064987|0x2e1776968ec75bfd13dbc5b94ae57034d7e85fb9
+OUSD+avUSD|100|6|54448|0xb1e75b9c6367a27499cd59631d3b27224befde4f
+OUSD+USDe|84|2|37704|0xdbdc27b649239f9c5afdc92e57c2601a0ce71a89
+GUSD+3Crv|80|176|1066819|0x4f062658eaaf2c1ccf8c8e36d6824cdf41167956
+ETH+OETH|70|5|1210975|0x94b17476a93b3262d87b9a326965d1e91f9c13e7
+ETH+CTR|64|1|65889|0xf2f12b364f614925ab8e2c8bfc606edb9282ba09
+OETH+ARM-stETH|55|35|138632|0x95753095f15870acc0cb0ed224478ea61aeb0b8e
+OUSD+MUSD|55|0|23268|0x23b78dc3b1b0a27f3838219e97d806aae377a1b2
+OUSD+crvUSD|50|2|43818|0xefa939f4932cff8a92fd6a7c5fe52cd2ad77f3ec
+OUSD+eUSD|44|2|19269|0xcf8a5c32953d08c197f0a92676cfb59314b5c62e
+litUSD+sfrxUSD|41|1|1347|0x640bc08845ea4bd89842d51d48c8f53eac84cfa6
+EURA+EURC|40|8|360825|0xba3436fd341f2c8a928452db3c5a3670d1d5cc73
+EURA+EURT+EURS|35|115|495121|0xb9446c4ef5ebe66268da6700d26f96273de3d571
+Lending: wstETH|34|69|254349|LEND
+WETH+CVG|29|0|158|0x004c167d27ada24305b76d80762997fa6eb8d9b2
+sdeUSD+deUSD|26|0|0|0x2c7a1b4950fe369e79fb3471284d4a4e66fbea76
+WETH+T|25|87|434967|0x752ebeb79963cf0732e9c0fec72a49fd1defaeac
+EBTC+tBTC|20|14|251127|0x272bf7e4ce3308b1fb5e54d6a1fc32113619c401
+frxUSD+AZND|17|22|234996|0x16a973f8e466f44e9ea67e7e2d3166bd460ea852
+DOLA+FRAXPYUSD|16|0|8688|0xef484de8c07b6e2d732a92b5f78e81b38f99f95e
+OGN+OUSD+OETH|14|1|3872|0xb8ac7ce449ed72ff61de8043d67b507f9f523fa2
+USDT+WBTC+WETH(2)|14|1279|10586692|0xd51a44d3fae010294c616388b506acda1bfaae46
+crvUSD+VUSD|13|9|34836|0xb1c189dfde178fe9f90e72727837cc9289fb944f
+ETH+LDO|10|18|280560|0x9409280dc1e6d33ab7a8c6ec03e5763fb61772b5
+PAL+WETH|10|0|173|0x85847ef522d78efdbec8afb0045dc7d6982837c3
+WETH+pxETH|10|0|1894|0xc8eb2cf2f792f77af0cd9e203305a585e588179d
+WBTC+uniBTC|7|0|246|0x404fdada7fc68b5b633d184067c9643732f8a045
+ETH+frxETH|7|17|554962|0xa1f8a6807c402e4a15ef4eba36528a3fed24e577
+ynRWAx+fxUSD|6|9|5083|0xbdf86bd28cb3a8af5d46ccd2f56131be6718b1d8
+sUSD+FRAXBP|5|0|4839|0xe3c190c57b5959ae62efe3b6797058b76ba2f5ef
+zunBTC+tBTC|4|0|5|0x6fbc5ddc181240cb1d9bcec6fdea429036818035
+alUSD+3Crv|3|1|250878|0x43b4fdfd4ff969587185cdb6f0bd875c5fc83f8c
+frxUSD+USDf|3|0|5616|0x98e9599dab3a936c35de48e13e026ef4ea20b5e6
+GHO+crvUSD|3|63|741887|0x635ef0056a597d13863b73825cca297236578595
+MANA+WETH|3|0|319|0x27cb06f65d8b7228147375e15d37912b93b501cc
+OHM+FRAXBP|3|1|169370|0xfc1e8bf3e81383ef07be24c3fd146745719de48d
+WETH+AIOZ|3|7|17028|0x8d688646ebb400f7de2b713b80b6a58fcf35d2d9
+multiBTC+sbtc2Crv|3|0|11449|0x2863a328a0b7fc6040f11614fa0728587db8e353
+ETH+ALD|3|16|562781|0xbdfae7d2cf2e69e27b75a5287ecd3808f62b5a76
+YFI+sdYFI|2|0|7122|0x852b90239c5034b5bb7a5e54ef1bef3ce3359cc8
+yDAI+yUSDC+yUSDT+yTUSD|2|0|0|0x45f783cce6b7ff23b2ab2d70e416cdb7d6055f51
+dETH+frxETH|2|0|107|0x7c0d189e1fecb124487226dcba3748bd758f98e4
+ETH+PAL|2|0|923|0x75a6787c7ee60424358b449b539a8b774c9b4862
+USR+USDC|2|1|12781|0x3ee841f47947fefbe510366e4bbb49e145484195
+msUSD+fxUSD|1|192|1491455|0x138bb0f3208bd729a561f3786ddb97bbc69e6628
+cDAI+cUSDC|1|0|567975|0xa2b47e3d5c44877cca798226b7b8118f9bfb7a56
+thUSD+crvUSD|1|0|669|0x9e641187391b7a5fe9ee193359408ca3894f68a2
+crvUSD+WETH+LDO|1|0|25|0x5b3ba844b3859f56524e99ae54857b36c8ae3efe
+XAUt+PAXG|1|43|890742|0xc48a38499a90e3b883c509ca08ec1b540cdf15ee
+ebUSD+USDC|1|3|17651|0xd25f2cc6819fbd34641712122397efbaf9b6a6e2
+CRV+cvxCRV(2)|1|8|130192|0x9d0464996170c6b9e75eed71c68b99ddedf279e8
+BOBO+WETH|1|0|0|0x7a4adfbc173e2d4f224f11496b0d0ef86f336091
+pufETH+wstETH|1|1692|2274224|0xb3c8ce1ee157b0dcaa96897c9170aee6281706c9
+WACME+frxETH|1|0|682|0x7bbe7a17e501bb6542e975d8a163950149487fa3
+Lending: tBTC|1|24|22016|LEND`;
+var rows=DATA.split('\n').map(function(l){var p=l.split('|');var e=+p[1],sf=+p[2],t=+p[3],pool=p[4]||'';var o={name:p[0],e:e,t:t};if(pool==='LEND'){o.cat='lend';o.fee=t*R/WK;o.crvusd=t;o.pool='';o.swap=0;o.crvAdd=o.fee;}else{var cu=CRV[pool]||0;o.crvAdd=cu*R/WK;o.swap=sf;o.fee=sf+o.crvAdd;o.crvusd=cu;o.pool=pool;o.cat=cu>0?'crv':(e>o.fee?'sub':'eff');}return o;});
+var cats={sub:[],eff:[],crv:[],lend:[]};
+var dropped=0;
+rows.forEach(function(o){if(o.e<10&&o.fee<10){dropped++;return;}var x=o.fee>0?o.fee:0.6;cats[o.cat].push({x:x,y:o.e<1?1:o.e,name:o.name,e:o.e,fee:o.fee,swap:o.swap,crvAdd:o.crvAdd,crvusd:o.crvusd,t:o.t,pool:o.pool,cat:o.cat});});
+var dark=matchMedia('(prefers-color-scheme: dark)').matches;
+var tick=dark?'#9c9a92':'#73726c', grid=dark?'rgba(255,255,255,.08)':'rgba(0,0,0,.06)';
+document.getElementById('lw').innerHTML=
+ '<span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:50%;background:#378ADD;"></span>crvUSD pool ('+cats.crv.length+')</span>'+
+ '<span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:50%;background:#534AB7;"></span>Lending ('+cats.lend.length+')</span>'+
+ '<span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:50%;background:#D85A30;"></span>Subsidized ('+cats.sub.length+')</span>'+
+ '<span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:50%;background:#1D9E75;"></span>Earns ≥ paid ('+cats.eff.length+')</span>'+
+ '<span style="display:flex;align-items:center;gap:5px;"><span style="width:14px;height:0;border-top:1px dashed '+tick+';"></span>break-even</span>';
+function money(v){v=Math.round(v);if(v>=1000)return '$'+(v/1000)+'k';return '$'+v;}
+function tk(v){var n=Math.log10(v);if(Math.abs(n-Math.round(n))<0.01)return money(v);return '';}
+function openPool(p){if(!p)return;var u='https://curvemonitor.com/platform/pools/ethereum/'+p+'/overview';if(typeof openLink==='function')openLink(u);else window.open(u,'_blank');}
+function tip(d){if(d.name===undefined)return '';if(d.cat==='lend')return [d.name,'emission: $'+d.e.toLocaleString()+'/wk','interest on idle crvUSD: $'+Math.round(d.fee).toLocaleString()+'/wk','idle crvUSD: $'+Math.round(d.crvusd).toLocaleString()];if(d.cat==='crv')return [d.name,'emission: $'+d.e.toLocaleString()+'/wk','swap fee: $'+Math.round(d.swap).toLocaleString()+'/wk','crvUSD sink: $'+Math.round(d.crvAdd).toLocaleString()+'/wk','total rev: $'+Math.round(d.fee).toLocaleString()+'/wk','crvUSD in pool: $'+Math.round(d.crvusd).toLocaleString(),'→ open on curvemonitor'];return [d.name,'emission: $'+d.e.toLocaleString()+'/wk','admin fee: $'+Math.round(d.fee).toLocaleString()+'/wk','pool TVL: $'+Math.round(d.t).toLocaleString(),'→ open on curvemonitor'];}
+var chart=new Chart(document.getElementById('scx'),{
+ type:'scatter',
+ data:{datasets:[
+  {type:'line',data:[{x:0.6,y:0.6},{x:60000,y:60000}],borderColor:tick,borderDash:[5,5],borderWidth:1,pointRadius:0,fill:false,order:5},
+  {label:'crv',data:cats.crv,backgroundColor:'rgba(55,138,221,0.85)',pointRadius:5,pointHoverRadius:7,order:1},
+  {label:'lend',data:cats.lend,backgroundColor:'rgba(83,74,183,0.9)',pointRadius:6,pointHoverRadius:8,pointStyle:'rectRot',order:0},
+  {label:'sub',data:cats.sub,backgroundColor:'rgba(216,90,48,0.7)',pointRadius:4,pointHoverRadius:6,order:2},
+  {label:'eff',data:cats.eff,backgroundColor:'rgba(29,158,117,0.75)',pointRadius:4,pointHoverRadius:6,order:2}
+ ]},
+ options:{responsive:true,maintainAspectRatio:false,
+  onClick:function(e,els){if(!els.length)return;var el=els[0];var d=chart.data.datasets[el.datasetIndex].data[el.index];if(d&&d.pool)openPool(d.pool);},
+  onHover:function(e,els){var hit=els.length&&chart.data.datasets[els[0].datasetIndex].data[els[0].index].pool;e.native.target.style.cursor=hit?'pointer':'default';},
+  plugins:{legend:{display:false},tooltip:{callbacks:{label:function(it){return tip(it.raw);}}}},
+  scales:{
+   x:{type:'logarithmic',title:{display:true,text:'weekly revenue $ (fees + crvUSD yield) →',color:tick},grid:{color:grid},ticks:{color:tick,callback:tk}},
+   y:{type:'logarithmic',title:{display:true,text:'CRV emission $/week',color:tick},grid:{color:grid},ticks:{color:tick,callback:tk}}
+  }}
+});
+window.setScale=function(m){
+ var log=m==='log';
+ chart.options.scales.x.type=chart.options.scales.y.type=log?'logarithmic':'linear';
+ chart.options.scales.x.min=log?undefined:0;chart.options.scales.y.min=log?undefined:0;
+ chart.options.scales.x.ticks.callback=log?tk:money;chart.options.scales.y.ticks.callback=log?tk:money;
+ chart.data.datasets[0].data=log?[{x:0.6,y:0.6},{x:60000,y:60000}]:[{x:0,y:0},{x:8000,y:8000}];
+ chart.update();
+ document.getElementById('bLog').style.borderColor=log?'var(--color-border-info)':'';
+ document.getElementById('bLin').style.borderColor=log?'':'var(--color-border-info)';
+};
+setScale('log');
+})();
+</script>

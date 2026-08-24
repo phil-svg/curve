@@ -1,0 +1,3082 @@
+[
+  {
+    "blockNumber": 23549898,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130359,
+    "date": "21:05",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549899,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130371,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549900,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130383,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549901,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130395,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549902,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130407,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549903,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130419,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549904,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130431,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549905,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130443,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549906,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130455,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549907,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130467,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549908,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130479,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549909,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130491,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549910,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130503,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549911,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130515,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549912,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130527,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549913,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130539,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549914,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130551,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549915,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130563,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549916,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130575,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549917,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130587,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549918,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130599,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549919,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130611,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549920,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130623,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549921,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130635,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549922,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130647,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549923,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130659,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549924,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130671,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549925,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130683,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549926,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130695,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549927,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130707,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549928,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130719,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549929,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130731,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549930,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130743,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549931,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130755,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549932,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130767,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549933,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130779,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549934,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130791,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549935,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130803,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549936,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130815,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549937,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130827,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549938,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130839,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549939,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130851,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549940,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130863,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549941,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130875,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549942,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130887,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549943,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130899,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549944,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130911,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549945,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130923,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549946,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130935,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549947,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130947,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549948,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130959,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549949,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130971,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549950,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130983,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549951,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760130995,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549952,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131007,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549953,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131019,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549954,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131031,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549955,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131043,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549956,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131055,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549957,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131067,
+    "date": "21:17",
+    "badDebt": 14
+  },
+  {
+    "blockNumber": 23549958,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131079,
+    "date": "21:17",
+    "badDebt": 67
+  },
+  {
+    "blockNumber": 23549959,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131091,
+    "date": "21:18",
+    "badDebt": 71
+  },
+  {
+    "blockNumber": 23549960,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131103,
+    "date": "21:18",
+    "badDebt": 89
+  },
+  {
+    "blockNumber": 23549961,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131115,
+    "date": "21:18",
+    "badDebt": -2585
+  },
+  {
+    "blockNumber": 23549962,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131127,
+    "date": "21:18",
+    "badDebt": -2585
+  },
+  {
+    "blockNumber": 23549963,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131139,
+    "date": "21:18",
+    "badDebt": -2585
+  },
+  {
+    "blockNumber": 23549964,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131151,
+    "date": "21:19",
+    "badDebt": -2585
+  },
+  {
+    "blockNumber": 23549965,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131163,
+    "date": "21:19",
+    "badDebt": -2272
+  },
+  {
+    "blockNumber": 23549966,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131175,
+    "date": "21:19",
+    "badDebt": 337
+  },
+  {
+    "blockNumber": 23549967,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131187,
+    "date": "21:19",
+    "badDebt": 10330
+  },
+  {
+    "blockNumber": 23549968,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131199,
+    "date": "21:19",
+    "badDebt": 16374
+  },
+  {
+    "blockNumber": 23549969,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131211,
+    "date": "21:20",
+    "badDebt": 15378
+  },
+  {
+    "blockNumber": 23549970,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131223,
+    "date": "21:20",
+    "badDebt": 24218
+  },
+  {
+    "blockNumber": 23549971,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131235,
+    "date": "21:20",
+    "badDebt": 34632
+  },
+  {
+    "blockNumber": 23549972,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131247,
+    "date": "21:20",
+    "badDebt": 78312
+  },
+  {
+    "blockNumber": 23549973,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131259,
+    "date": "21:20",
+    "badDebt": 88731
+  },
+  {
+    "blockNumber": 23549974,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131271,
+    "date": "21:21",
+    "badDebt": 88986
+  },
+  {
+    "blockNumber": 23549975,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131283,
+    "date": "21:21",
+    "badDebt": 88986
+  },
+  {
+    "blockNumber": 23549976,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131295,
+    "date": "21:21",
+    "badDebt": 103003
+  },
+  {
+    "blockNumber": 23549977,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131307,
+    "date": "21:21",
+    "badDebt": 150779
+  },
+  {
+    "blockNumber": 23549978,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131319,
+    "date": "21:21",
+    "badDebt": 150779
+  },
+  {
+    "blockNumber": 23549979,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131331,
+    "date": "21:22",
+    "badDebt": 163164
+  },
+  {
+    "blockNumber": 23549980,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131343,
+    "date": "21:22",
+    "badDebt": 163164
+  },
+  {
+    "blockNumber": 23549981,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131355,
+    "date": "21:22",
+    "badDebt": 213746
+  },
+  {
+    "blockNumber": 23549982,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131367,
+    "date": "21:22",
+    "badDebt": 189768
+  },
+  {
+    "blockNumber": 23549983,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131379,
+    "date": "21:22",
+    "badDebt": 232512
+  },
+  {
+    "blockNumber": 23549984,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131391,
+    "date": "21:23",
+    "badDebt": 399115
+  },
+  {
+    "blockNumber": 23549985,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131403,
+    "date": "21:23",
+    "badDebt": 371380
+  },
+  {
+    "blockNumber": 23549986,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131415,
+    "date": "21:23",
+    "badDebt": 406923
+  },
+  {
+    "blockNumber": 23549987,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131427,
+    "date": "21:23",
+    "badDebt": 458131
+  },
+  {
+    "blockNumber": 23549988,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131439,
+    "date": "21:23",
+    "badDebt": 458131
+  },
+  {
+    "blockNumber": 23549989,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131451,
+    "date": "21:24",
+    "badDebt": 458131
+  },
+  {
+    "blockNumber": 23549990,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131463,
+    "date": "21:24",
+    "badDebt": 464081
+  },
+  {
+    "blockNumber": 23549991,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131475,
+    "date": "21:24",
+    "badDebt": 468669
+  },
+  {
+    "blockNumber": 23549992,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131487,
+    "date": "21:24",
+    "badDebt": 471398
+  },
+  {
+    "blockNumber": 23549993,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131499,
+    "date": "21:24",
+    "badDebt": 462094
+  },
+  {
+    "blockNumber": 23549994,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131511,
+    "date": "21:25",
+    "badDebt": 462094
+  },
+  {
+    "blockNumber": 23549995,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131523,
+    "date": "21:25",
+    "badDebt": 431636
+  },
+  {
+    "blockNumber": 23549996,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131535,
+    "date": "21:25",
+    "badDebt": 563626
+  },
+  {
+    "blockNumber": 23549997,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131547,
+    "date": "21:25",
+    "badDebt": 548219
+  },
+  {
+    "blockNumber": 23549998,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131559,
+    "date": "21:25",
+    "badDebt": 534576
+  },
+  {
+    "blockNumber": 23549999,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131571,
+    "date": "21:26",
+    "badDebt": 534886
+  },
+  {
+    "blockNumber": 23550000,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131583,
+    "date": "21:26",
+    "badDebt": 543857
+  },
+  {
+    "blockNumber": 23550001,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131595,
+    "date": "21:26",
+    "badDebt": 537308
+  },
+  {
+    "blockNumber": 23550002,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131607,
+    "date": "21:26",
+    "badDebt": 555863
+  },
+  {
+    "blockNumber": 23550003,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131619,
+    "date": "21:26",
+    "badDebt": 555863
+  },
+  {
+    "blockNumber": 23550004,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131631,
+    "date": "21:27",
+    "badDebt": 558535
+  },
+  {
+    "blockNumber": 23550005,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131643,
+    "date": "21:27",
+    "badDebt": 537860
+  },
+  {
+    "blockNumber": 23550006,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131655,
+    "date": "21:27",
+    "badDebt": 554880
+  },
+  {
+    "blockNumber": 23550007,
+    "LiquidationDiscount": 8,
+    "timestamp": 1760131667,
+    "date": "21:27",
+    "badDebt": 554880
+  },
+  {
+    "blockNumber": 23549898,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130359,
+    "date": "21:05",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549899,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130371,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549900,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130383,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549901,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130395,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549902,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130407,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549903,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130419,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549904,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130431,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549905,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130443,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549906,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130455,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549907,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130467,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549908,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130479,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549909,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130491,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549910,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130503,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549911,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130515,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549912,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130527,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549913,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130539,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549914,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130551,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549915,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130563,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549916,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130575,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549917,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130587,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549918,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130599,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549919,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130611,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549920,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130623,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549921,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130635,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549922,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130647,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549923,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130659,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549924,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130671,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549925,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130683,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549926,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130695,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549927,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130707,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549928,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130719,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549929,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130731,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549930,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130743,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549931,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130755,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549932,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130767,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549933,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130779,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549934,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130791,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549935,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130803,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549936,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130815,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549937,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130827,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549938,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130839,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549939,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130851,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549940,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130863,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549941,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130875,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549942,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130887,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549943,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130899,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549944,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130911,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549945,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130923,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549946,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130935,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549947,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130947,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549948,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130959,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549949,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130971,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549950,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130983,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549951,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760130995,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549952,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131007,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549953,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131019,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549954,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131031,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549955,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131043,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549956,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131055,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549957,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131067,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549958,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131079,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549959,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131091,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549960,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131103,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549961,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131115,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549962,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131127,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549963,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131139,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549964,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131151,
+    "date": "21:19",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549965,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131163,
+    "date": "21:19",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549966,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131175,
+    "date": "21:19",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549967,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131187,
+    "date": "21:19",
+    "badDebt": 2
+  },
+  {
+    "blockNumber": 23549968,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131199,
+    "date": "21:19",
+    "badDebt": 2
+  },
+  {
+    "blockNumber": 23549969,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131211,
+    "date": "21:20",
+    "badDebt": 10
+  },
+  {
+    "blockNumber": 23549970,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131223,
+    "date": "21:20",
+    "badDebt": 12
+  },
+  {
+    "blockNumber": 23549971,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131235,
+    "date": "21:20",
+    "badDebt": 14
+  },
+  {
+    "blockNumber": 23549972,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131247,
+    "date": "21:20",
+    "badDebt": 14
+  },
+  {
+    "blockNumber": 23549973,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131259,
+    "date": "21:20",
+    "badDebt": 15
+  },
+  {
+    "blockNumber": 23549974,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131271,
+    "date": "21:21",
+    "badDebt": 15
+  },
+  {
+    "blockNumber": 23549975,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131283,
+    "date": "21:21",
+    "badDebt": 15
+  },
+  {
+    "blockNumber": 23549976,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131295,
+    "date": "21:21",
+    "badDebt": 16
+  },
+  {
+    "blockNumber": 23549977,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131307,
+    "date": "21:21",
+    "badDebt": 3121
+  },
+  {
+    "blockNumber": 23549978,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131319,
+    "date": "21:21",
+    "badDebt": 3121
+  },
+  {
+    "blockNumber": 23549979,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131331,
+    "date": "21:22",
+    "badDebt": 3356
+  },
+  {
+    "blockNumber": 23549980,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131343,
+    "date": "21:22",
+    "badDebt": 3356
+  },
+  {
+    "blockNumber": 23549981,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131355,
+    "date": "21:22",
+    "badDebt": 53938
+  },
+  {
+    "blockNumber": 23549982,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131367,
+    "date": "21:22",
+    "badDebt": 47843
+  },
+  {
+    "blockNumber": 23549983,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131379,
+    "date": "21:22",
+    "badDebt": 58784
+  },
+  {
+    "blockNumber": 23549984,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131391,
+    "date": "21:23",
+    "badDebt": 101427
+  },
+  {
+    "blockNumber": 23549985,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131403,
+    "date": "21:23",
+    "badDebt": 100366
+  },
+  {
+    "blockNumber": 23549986,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131415,
+    "date": "21:23",
+    "badDebt": 100366
+  },
+  {
+    "blockNumber": 23549987,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131427,
+    "date": "21:23",
+    "badDebt": 132096
+  },
+  {
+    "blockNumber": 23549988,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131439,
+    "date": "21:23",
+    "badDebt": 132096
+  },
+  {
+    "blockNumber": 23549989,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131451,
+    "date": "21:24",
+    "badDebt": 132096
+  },
+  {
+    "blockNumber": 23549990,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131463,
+    "date": "21:24",
+    "badDebt": 134841
+  },
+  {
+    "blockNumber": 23549991,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131475,
+    "date": "21:24",
+    "badDebt": 139428
+  },
+  {
+    "blockNumber": 23549992,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131487,
+    "date": "21:24",
+    "badDebt": 140257
+  },
+  {
+    "blockNumber": 23549993,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131499,
+    "date": "21:24",
+    "badDebt": 137525
+  },
+  {
+    "blockNumber": 23549994,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131511,
+    "date": "21:25",
+    "badDebt": 137525
+  },
+  {
+    "blockNumber": 23549995,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131523,
+    "date": "21:25",
+    "badDebt": 128266
+  },
+  {
+    "blockNumber": 23549996,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131535,
+    "date": "21:25",
+    "badDebt": 256956
+  },
+  {
+    "blockNumber": 23549997,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131547,
+    "date": "21:25",
+    "badDebt": 262307
+  },
+  {
+    "blockNumber": 23549998,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131559,
+    "date": "21:25",
+    "badDebt": 255020
+  },
+  {
+    "blockNumber": 23549999,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131571,
+    "date": "21:26",
+    "badDebt": 255331
+  },
+  {
+    "blockNumber": 23550000,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131583,
+    "date": "21:26",
+    "badDebt": 264117
+  },
+  {
+    "blockNumber": 23550001,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131595,
+    "date": "21:26",
+    "badDebt": 260410
+  },
+  {
+    "blockNumber": 23550002,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131607,
+    "date": "21:26",
+    "badDebt": 271624
+  },
+  {
+    "blockNumber": 23550003,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131619,
+    "date": "21:26",
+    "badDebt": 271624
+  },
+  {
+    "blockNumber": 23550004,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131631,
+    "date": "21:27",
+    "badDebt": 274296
+  },
+  {
+    "blockNumber": 23550005,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131643,
+    "date": "21:27",
+    "badDebt": 263055
+  },
+  {
+    "blockNumber": 23550006,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131655,
+    "date": "21:27",
+    "badDebt": 280075
+  },
+  {
+    "blockNumber": 23550007,
+    "LiquidationDiscount": 12,
+    "timestamp": 1760131667,
+    "date": "21:27",
+    "badDebt": 280075
+  },
+  {
+    "blockNumber": 23549898,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130359,
+    "date": "21:05",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549899,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130371,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549900,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130383,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549901,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130395,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549902,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130407,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549903,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130419,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549904,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130431,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549905,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130443,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549906,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130455,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549907,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130467,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549908,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130479,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549909,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130491,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549910,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130503,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549911,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130515,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549912,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130527,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549913,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130539,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549914,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130551,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549915,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130563,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549916,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130575,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549917,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130587,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549918,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130599,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549919,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130611,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549920,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130623,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549921,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130635,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549922,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130647,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549923,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130659,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549924,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130671,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549925,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130683,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549926,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130695,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549927,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130707,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549928,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130719,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549929,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130731,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549930,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130743,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549931,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130755,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549932,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130767,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549933,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130779,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549934,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130791,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549935,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130803,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549936,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130815,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549937,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130827,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549938,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130839,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549939,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130851,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549940,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130863,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549941,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130875,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549942,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130887,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549943,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130899,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549944,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130911,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549945,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130923,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549946,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130935,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549947,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130947,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549948,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130959,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549949,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130971,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549950,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130983,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549951,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760130995,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549952,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131007,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549953,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131019,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549954,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131031,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549955,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131043,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549956,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131055,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549957,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131067,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549958,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131079,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549959,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131091,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549960,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131103,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549961,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131115,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549962,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131127,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549963,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131139,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549964,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131151,
+    "date": "21:19",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549965,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131163,
+    "date": "21:19",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549966,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131175,
+    "date": "21:19",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549967,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131187,
+    "date": "21:19",
+    "badDebt": 2
+  },
+  {
+    "blockNumber": 23549968,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131199,
+    "date": "21:19",
+    "badDebt": 2
+  },
+  {
+    "blockNumber": 23549969,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131211,
+    "date": "21:20",
+    "badDebt": 10
+  },
+  {
+    "blockNumber": 23549970,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131223,
+    "date": "21:20",
+    "badDebt": 12
+  },
+  {
+    "blockNumber": 23549971,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131235,
+    "date": "21:20",
+    "badDebt": 14
+  },
+  {
+    "blockNumber": 23549972,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131247,
+    "date": "21:20",
+    "badDebt": 14
+  },
+  {
+    "blockNumber": 23549973,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131259,
+    "date": "21:20",
+    "badDebt": 15
+  },
+  {
+    "blockNumber": 23549974,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131271,
+    "date": "21:21",
+    "badDebt": 15
+  },
+  {
+    "blockNumber": 23549975,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131283,
+    "date": "21:21",
+    "badDebt": 15
+  },
+  {
+    "blockNumber": 23549976,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131295,
+    "date": "21:21",
+    "badDebt": 16
+  },
+  {
+    "blockNumber": 23549977,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131307,
+    "date": "21:21",
+    "badDebt": 20
+  },
+  {
+    "blockNumber": 23549978,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131319,
+    "date": "21:21",
+    "badDebt": 20
+  },
+  {
+    "blockNumber": 23549979,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131331,
+    "date": "21:22",
+    "badDebt": 21
+  },
+  {
+    "blockNumber": 23549980,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131343,
+    "date": "21:22",
+    "badDebt": 21
+  },
+  {
+    "blockNumber": 23549981,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131355,
+    "date": "21:22",
+    "badDebt": 21
+  },
+  {
+    "blockNumber": 23549982,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131367,
+    "date": "21:22",
+    "badDebt": 19
+  },
+  {
+    "blockNumber": 23549983,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131379,
+    "date": "21:22",
+    "badDebt": 22
+  },
+  {
+    "blockNumber": 23549984,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131391,
+    "date": "21:23",
+    "badDebt": 35
+  },
+  {
+    "blockNumber": 23549985,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131403,
+    "date": "21:23",
+    "badDebt": 32
+  },
+  {
+    "blockNumber": 23549986,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131415,
+    "date": "21:23",
+    "badDebt": 32
+  },
+  {
+    "blockNumber": 23549987,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131427,
+    "date": "21:23",
+    "badDebt": 34
+  },
+  {
+    "blockNumber": 23549988,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131439,
+    "date": "21:23",
+    "badDebt": 34
+  },
+  {
+    "blockNumber": 23549989,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131451,
+    "date": "21:24",
+    "badDebt": 34
+  },
+  {
+    "blockNumber": 23549990,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131463,
+    "date": "21:24",
+    "badDebt": 1455
+  },
+  {
+    "blockNumber": 23549991,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131475,
+    "date": "21:24",
+    "badDebt": 6042
+  },
+  {
+    "blockNumber": 23549992,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131487,
+    "date": "21:24",
+    "badDebt": 6086
+  },
+  {
+    "blockNumber": 23549993,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131499,
+    "date": "21:24",
+    "badDebt": 6070
+  },
+  {
+    "blockNumber": 23549994,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131511,
+    "date": "21:25",
+    "badDebt": 6070
+  },
+  {
+    "blockNumber": 23549995,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131523,
+    "date": "21:25",
+    "badDebt": 5569
+  },
+  {
+    "blockNumber": 23549996,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131535,
+    "date": "21:25",
+    "badDebt": 132896
+  },
+  {
+    "blockNumber": 23549997,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131547,
+    "date": "21:25",
+    "badDebt": 146824
+  },
+  {
+    "blockNumber": 23549998,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131559,
+    "date": "21:25",
+    "badDebt": 142337
+  },
+  {
+    "blockNumber": 23549999,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131571,
+    "date": "21:26",
+    "badDebt": 142648
+  },
+  {
+    "blockNumber": 23550000,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131583,
+    "date": "21:26",
+    "badDebt": 151434
+  },
+  {
+    "blockNumber": 23550001,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131595,
+    "date": "21:26",
+    "badDebt": 149091
+  },
+  {
+    "blockNumber": 23550002,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131607,
+    "date": "21:26",
+    "badDebt": 156780
+  },
+  {
+    "blockNumber": 23550003,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131619,
+    "date": "21:26",
+    "badDebt": 156780
+  },
+  {
+    "blockNumber": 23550004,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131631,
+    "date": "21:27",
+    "badDebt": 159452
+  },
+  {
+    "blockNumber": 23550005,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131643,
+    "date": "21:27",
+    "badDebt": 153019
+  },
+  {
+    "blockNumber": 23550006,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131655,
+    "date": "21:27",
+    "badDebt": 170039
+  },
+  {
+    "blockNumber": 23550007,
+    "LiquidationDiscount": 16,
+    "timestamp": 1760131667,
+    "date": "21:27",
+    "badDebt": 170039
+  },
+  {
+    "blockNumber": 23549898,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130359,
+    "date": "21:05",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549899,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130371,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549900,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130383,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549901,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130395,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549902,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130407,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549903,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130419,
+    "date": "21:06",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549904,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130431,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549905,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130443,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549906,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130455,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549907,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130467,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549908,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130479,
+    "date": "21:07",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549909,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130491,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549910,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130503,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549911,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130515,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549912,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130527,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549913,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130539,
+    "date": "21:08",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549914,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130551,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549915,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130563,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549916,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130575,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549917,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130587,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549918,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130599,
+    "date": "21:09",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549919,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130611,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549920,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130623,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549921,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130635,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549922,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130647,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549923,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130659,
+    "date": "21:10",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549924,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130671,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549925,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130683,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549926,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130695,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549927,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130707,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549928,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130719,
+    "date": "21:11",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549929,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130731,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549930,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130743,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549931,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130755,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549932,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130767,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549933,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130779,
+    "date": "21:12",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549934,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130791,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549935,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130803,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549936,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130815,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549937,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130827,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549938,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130839,
+    "date": "21:13",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549939,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130851,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549940,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130863,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549941,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130875,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549942,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130887,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549943,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130899,
+    "date": "21:14",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549944,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130911,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549945,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130923,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549946,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130935,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549947,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130947,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549948,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130959,
+    "date": "21:15",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549949,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130971,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549950,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130983,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549951,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760130995,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549952,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131007,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549953,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131019,
+    "date": "21:16",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549954,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131031,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549955,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131043,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549956,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131055,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549957,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131067,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549958,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131079,
+    "date": "21:17",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549959,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131091,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549960,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131103,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549961,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131115,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549962,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131127,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549963,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131139,
+    "date": "21:18",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549964,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131151,
+    "date": "21:19",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549965,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131163,
+    "date": "21:19",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549966,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131175,
+    "date": "21:19",
+    "badDebt": 1
+  },
+  {
+    "blockNumber": 23549967,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131187,
+    "date": "21:19",
+    "badDebt": 2
+  },
+  {
+    "blockNumber": 23549968,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131199,
+    "date": "21:19",
+    "badDebt": 2
+  },
+  {
+    "blockNumber": 23549969,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131211,
+    "date": "21:20",
+    "badDebt": 10
+  },
+  {
+    "blockNumber": 23549970,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131223,
+    "date": "21:20",
+    "badDebt": 12
+  },
+  {
+    "blockNumber": 23549971,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131235,
+    "date": "21:20",
+    "badDebt": 14
+  },
+  {
+    "blockNumber": 23549972,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131247,
+    "date": "21:20",
+    "badDebt": 14
+  },
+  {
+    "blockNumber": 23549973,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131259,
+    "date": "21:20",
+    "badDebt": 15
+  },
+  {
+    "blockNumber": 23549974,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131271,
+    "date": "21:21",
+    "badDebt": 15
+  },
+  {
+    "blockNumber": 23549975,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131283,
+    "date": "21:21",
+    "badDebt": 15
+  },
+  {
+    "blockNumber": 23549976,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131295,
+    "date": "21:21",
+    "badDebt": 16
+  },
+  {
+    "blockNumber": 23549977,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131307,
+    "date": "21:21",
+    "badDebt": 20
+  },
+  {
+    "blockNumber": 23549978,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131319,
+    "date": "21:21",
+    "badDebt": 20
+  },
+  {
+    "blockNumber": 23549979,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131331,
+    "date": "21:22",
+    "badDebt": 21
+  },
+  {
+    "blockNumber": 23549980,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131343,
+    "date": "21:22",
+    "badDebt": 21
+  },
+  {
+    "blockNumber": 23549981,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131355,
+    "date": "21:22",
+    "badDebt": 21
+  },
+  {
+    "blockNumber": 23549982,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131367,
+    "date": "21:22",
+    "badDebt": 19
+  },
+  {
+    "blockNumber": 23549983,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131379,
+    "date": "21:22",
+    "badDebt": 22
+  },
+  {
+    "blockNumber": 23549984,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131391,
+    "date": "21:23",
+    "badDebt": 35
+  },
+  {
+    "blockNumber": 23549985,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131403,
+    "date": "21:23",
+    "badDebt": 32
+  },
+  {
+    "blockNumber": 23549986,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131415,
+    "date": "21:23",
+    "badDebt": 32
+  },
+  {
+    "blockNumber": 23549987,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131427,
+    "date": "21:23",
+    "badDebt": 34
+  },
+  {
+    "blockNumber": 23549988,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131439,
+    "date": "21:23",
+    "badDebt": 34
+  },
+  {
+    "blockNumber": 23549989,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131451,
+    "date": "21:24",
+    "badDebt": 34
+  },
+  {
+    "blockNumber": 23549990,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131463,
+    "date": "21:24",
+    "badDebt": 34
+  },
+  {
+    "blockNumber": 23549991,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131475,
+    "date": "21:24",
+    "badDebt": 3671
+  },
+  {
+    "blockNumber": 23549992,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131487,
+    "date": "21:24",
+    "badDebt": 3699
+  },
+  {
+    "blockNumber": 23549993,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131499,
+    "date": "21:24",
+    "badDebt": 3602
+  },
+  {
+    "blockNumber": 23549994,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131511,
+    "date": "21:25",
+    "badDebt": 3602
+  },
+  {
+    "blockNumber": 23549995,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131523,
+    "date": "21:25",
+    "badDebt": 3289
+  },
+  {
+    "blockNumber": 23549996,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131535,
+    "date": "21:25",
+    "badDebt": 3338
+  },
+  {
+    "blockNumber": 23549997,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131547,
+    "date": "21:25",
+    "badDebt": 3032
+  },
+  {
+    "blockNumber": 23549998,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131559,
+    "date": "21:25",
+    "badDebt": 2932
+  },
+  {
+    "blockNumber": 23549999,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131571,
+    "date": "21:26",
+    "badDebt": 3242
+  },
+  {
+    "blockNumber": 23550000,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131583,
+    "date": "21:26",
+    "badDebt": 12029
+  },
+  {
+    "blockNumber": 23550001,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131595,
+    "date": "21:26",
+    "badDebt": 11824
+  },
+  {
+    "blockNumber": 23550002,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131607,
+    "date": "21:26",
+    "badDebt": 13989
+  },
+  {
+    "blockNumber": 23550003,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131619,
+    "date": "21:26",
+    "badDebt": 13989
+  },
+  {
+    "blockNumber": 23550004,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131631,
+    "date": "21:27",
+    "badDebt": 16661
+  },
+  {
+    "blockNumber": 23550005,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131643,
+    "date": "21:27",
+    "badDebt": 17754
+  },
+  {
+    "blockNumber": 23550006,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131655,
+    "date": "21:27",
+    "badDebt": 34773
+  },
+  {
+    "blockNumber": 23550007,
+    "LiquidationDiscount": 20,
+    "timestamp": 1760131667,
+    "date": "21:27",
+    "badDebt": 34773
+  }
+]

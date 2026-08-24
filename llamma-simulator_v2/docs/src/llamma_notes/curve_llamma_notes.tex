@@ -1,0 +1,173 @@
+\documentclass[notitlepage]{revtex4-2}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\usepackage{xcolor}
+\geometry{a4paper, margin=1in}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage[margin=5pt]{subfig}
+\definecolor{darkgreen}{rgb}{0.00,0.50,0.25}
+\definecolor{darkblue}{rgb}{0.00,0.00,0.67}
+\usepackage[breaklinks,pdftitle={Llamma Invariant}, pdfauthor={Curve.finance},colorlinks,urlcolor=blue,citecolor=darkgreen,linkcolor=darkblue]{hyperref}
+\usepackage{mathtools}
+\usepackage{tikz}
+\graphicspath{{pdf/}}
+
+\setkeys{Gin}{scale=0.5}
+
+\begin{document}
+
+\section*{Curve Stablecoin: Intuition of the Liquidation AMM (LLAMMA)}
+
+\bigskip
+
+We consider two assets: \(Y\) (e.g. \(\mathrm{ETH}\)) and \(X\) (USD). Let the market price be
+\(p\) (measured in units of \(X/Y\)). We denote by \(p_0\) the current oracle/market price and
+fix two thresholds \(p_\downarrow < p_\uparrow\) that determine the liquidation band.
+We also use the notations
+\([USD]=X\), \([ETH]=Y\), and a portfolio \(P=[USD,\,ETH]=[X,\,Y]\).
+
+\subsection*{Idea and Zones}
+
+\begin{center}
+\begin{tikzpicture}[scale=1.05]
+  % axes
+  \draw[->] (0,0) -- (10,0) node[below]{$p$};
+  \draw[->] (0,0) -- (0,4) node[left]{$p^{\mathrm{cell}}$};
+  % diagonal
+  \draw[thick] (0,0) -- (9.2,3.2) node[above right] {$p^{\mathrm{cell}}\!\approx p_0$};
+  % vertical markers
+  \draw[dashed] (2,0) -- (2,3) node[above] {$p_\downarrow$};
+  \draw[dashed] (6.5,0) -- (6.5,3.6) node[above] {$p_\uparrow$};
+  % zones
+  \node at (1.1,2.7) {\small Zone \(X\)};
+  \node at (4.2,1.3) {\small Zone \(X\&Y\)};
+  \node at (8.0,2.2) {\small Zone \(Y\)};
+  % dot for current p0
+  \fill (4.8,1.7) circle (1.2pt) node[below right] {$p_0$};
+\end{tikzpicture}
+\end{center}
+
+The key idea is to use a special AMM for liquidations.
+This makes liquidations smoother than discrete jumps of a traditional trigger.
+The inventory inside the AMM cell (``bucket'') depends on the price \(p_0\) relative to the band.
+We partition the \(p\)-line into three zones:
+
+\begin{itemize}
+  \item \textbf{Zone \(Y\)}: the cell holds only \(Y\).
+        If the true price were in the \(X\)-region, one could buy \(Y\) on the market at
+        price \(\lesssim p_{\mathrm{sell}}\) and sell into the cell at \(\gtrsim p_{\mathrm{cell}}\).
+  \item \textbf{Zone \(X\)}: the cell holds only \(X\).
+        If the true price were in the \(Y\)-region, one could buy in the cell at
+        \(\lesssim p_{\mathrm{cell}}\) and sell on the market at \(\gtrsim p_0\).
+  \item \textbf{Zone \(X\&Y\)}: the cell holds a mix of \(X\) and \(Y\); trading happens inside.
+\end{itemize}
+
+Intuitively, when the external price \(p_0\) is high (to the right),
+the cell should contain mostly \(Y\) (collateral);
+when \(p_0\) is low (to the left), the cell should contain mostly \(X\) (stablecoin received in liquidation).
+
+\subsection*{Making the Band Depend on \(p_0\)}
+
+To achieve the above behavior we let the cell's internal
+``buy'' and ``sell'' thresholds depend on the external price \(p_0\).
+Introduce two functions
+\[
+p^{\mathrm{cell}}_{\uparrow}(p_0),\qquad
+p^{\mathrm{cell}}_{\downarrow}(p_0),
+\]
+which play the role of the cell's upper/lower effective prices.  We require the
+following monotonicity around the band edges \(p_\uparrow\) and \(p_\downarrow\):
+\begin{align*}
+& p^{\mathrm{cell}}_{\uparrow}(p_0) < p_0 \quad \text{when } p_0 < p_\downarrow,\\
+& p^{\mathrm{cell}}_{\uparrow}(p_0) = p_0 \quad \text{when } p_0 = p_\downarrow,\\
+& p^{\mathrm{cell}}_{\uparrow}(p_0) > p_0 \quad \text{when } p_0 > p_\downarrow;
+\end{align*}
+and symmetrically
+\begin{align*}
+& p^{\mathrm{cell}}_{\downarrow}(p_0) < p_0 \quad \text{when } p_0 < p_\uparrow,\\
+& p^{\mathrm{cell}}_{\downarrow}(p_0) = p_0 \quad \text{when } p_0 = p_\uparrow,\\
+& p^{\mathrm{cell}}_{\downarrow}(p_0) > p_0 \quad \text{when } p_0 > p_\uparrow.
+\end{align*}
+
+\subsection*{Invariant (schematic form)}
+
+Let \(X\) and \(Y\) denote the current reserves inside the cell.
+The liquidation AMM maintains an invariant of the form
+\begin{equation}
+\label{eq:inv-base}
+\bigl(X + \alpha(p_0)\bigr)\,\bigl(Y + \beta(p_0)\bigr) \equiv I,
+\end{equation}
+where \(I>0\) is constant along a trade and the shifts \(\alpha,\beta\) depend on \(p_0\)
+in such a way that the cell gradually moves between the pure-\(X\) and pure-\(Y\) states as \(p_0\)
+crosses the band.
+
+Functions \(\alpha(p_0)\) and \(\beta(p_0)\) can be any functions that satisfy conditions above. For simplicity, we assume that
+\(p^{\mathrm{cell}}_{\uparrow} = p_0^3 / p_\downarrow^2\) and \(p^{\mathrm{cell}}_{\downarrow} = p_0^3 / p_\uparrow^2\).
+
+Our invariant becomes:
+
+\begin{equation}
+\label{eq:inv-1}
+\left(X + \frac{\sqrt{I\,p_0^{3}}}{p_{\uparrow}}\right)
+\left(Y + \sqrt{\frac{I}{p_0^{3}}}\,p_{\downarrow}\right)
+= I
+\end{equation}
+
+Then let's assume that \(I = p_0 * (A\,y_0)^2\), where y0 is some function of \(p_0\) and is measured in [Y]:
+
+\begin{equation}
+\label{eq:inv-2}
+\left(X + \frac{p_0^{2}}{p_{\uparrow}}\,A\,y_0\right)
+\left(Y + \frac{p_{\downarrow}}{p_0}\,A\,y_0\right) = p_0\,A^2\,y_0^{2}
+\end{equation}
+
+Let's break cells following way:
+
+\begin{equation}
+\label{eq:inv-3}
+\frac{p_{\downarrow}}{p_{\uparrow}} = \frac{A - 1}{A},
+\qquad A = \text{const (for example } 100\text{)}
+\end{equation}
+
+Then:
+
+\begin{equation}
+\label{eq:inv-4}
+\left(X + \frac{p_0^{2}}{p_{\uparrow}}\,A\,y_0 \right)
+\left(Y + \frac{p_{\uparrow}}{p_0}\,\frac{A - 1}{A}\,A\,y_0\right) = p_0\,A^2\,y_0^{2}
+\end{equation}
+
+Let's expand the brackets:
+
+\begin{align*}
+\label{eq:inv-5}
+&\left(X + \frac{p_0^{2}}{p_{\uparrow}}A y_0 \right)
+\left(Y + \frac{p_{\uparrow}}{p_0}(A - 1) y_0\right)
+= p_0 A^2 y_0^{2} \notag\\[6pt]
+%
+\Rightarrow\;&
+XY
++ X\left(\frac{p_{\uparrow}}{p_0}(A - 1) y_0\right)
++ Y\left(\frac{p_0^{2}}{p_{\uparrow}}A y_0\right)
++ \left(\frac{p_0^{2}}{p_{\uparrow}}A y_0\right)
+  \left(\frac{p_{\uparrow}}{p_0}(A - 1) y_0\right)
+= p_0 A^2 y_0^{2} \\[6pt]
+%
+\Rightarrow\;&
+XY
++ X\,p_{\uparrow}\frac{A - 1}{p_0}y_0
++ Y\,\frac{p_0^{2}A}{p_{\uparrow}}y_0
++ p_0 A (A - 1) y_0^{2}
+= p_0 A^2 y_0^{2}. \notag
+\end{align*}
+
+And we get the original quadratic equation for \(y_0\):
+\begin{equation}
+\label{eq:inv-final}
+y_0^{2}\left(p_0\,A\right)
+- y_0\left(p_{\uparrow}\frac{A - 1}{p_0}X + \frac{p_0^{2}A}{p_{\uparrow}}Y\right)
+- XY = 0
+\end{equation}
+
+\end{document}

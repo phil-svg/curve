@@ -1,0 +1,20 @@
+\contentsline {title}{}{1}{section*.1}%
+\tocdepth@munge 
+\contentsline {section}{\numberline {}Contents}{1}{section*.2}%
+\tocdepth@restore 
+\contentsline {section}{\numberline {I}Introduction}{2}{section*.3}%
+\contentsline {section}{\numberline {II}Installation and Setup}{2}{section*.4}%
+\contentsline {subsection}{\numberline {}Quick Start}{2}{section*.5}%
+\contentsline {section}{\numberline {III}Configuration Before Simulation}{2}{section*.6}%
+\contentsline {subsection}{\numberline {}Key Variables}{2}{section*.7}%
+\contentsline {section}{\numberline {IV}Simulation and Parameter Optimization}{2}{section*.8}%
+\contentsline {subsection}{\numberline {A}Optimal Amplification Parameter ($A$)}{2}{section*.9}%
+\contentsline {subsection}{\numberline {B}Optimal Fee}{3}{section*.10}%
+\contentsline {subsection}{\numberline {C}Liquidation and Loan Discounts}{3}{section*.11}%
+\contentsline {subsection}{\numberline {D}Example Summary}{3}{section*.12}%
+\contentsline {section}{\numberline {V}Telegram Bot}{3}{section*.13}%
+\contentsline {section}{\numberline {VI}General Recommendations}{3}{section*.14}%
+\contentsline {subsection}{\numberline {A}Parameter Choice vs. Volatility}{3}{section*.15}%
+\contentsline {subsection}{\numberline {B}Balancing Profitability and Safety}{3}{section*.16}%
+\contentsline {subsection}{\numberline {C}Testing on Historical Data}{3}{section*.17}%
+\contentsline {section}{\numberline {}Conclusion}{4}{section*.18}%
