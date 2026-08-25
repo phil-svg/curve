@@ -4406,12 +4406,59 @@ window.loadBadDebtTab = async function () {
   const esc4 = s => String(s ?? "").replace(/[&<>"]/g,
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+  // Affected lenders: who the market's bad debt lands on, pro-rata over
+  // vault shares (gauge stakers folded in by the fetcher).
+  const EXPLORER = { ethereum: "https://etherscan.io",
+    optimism: "https://optimistic.etherscan.io",
+    arbitrum: "https://arbiscan.io", fraxtal: "https://fraxscan.com",
+    sonic: "https://sonicscan.org" };
+  const addrLink = (chain, addr) => {
+    const base = EXPLORER[chain];
+    const a = esc4(addr);
+    return base ? `<a href="${base}/address/${a}" target="_blank"
+      rel="noopener" style="font-family:ui-monospace,monospace">${a}</a>`
+      : `<span style="font-family:ui-monospace,monospace">${a}</span>`;
+  };
+  const usd0 = v => Math.round(v ?? 0).toLocaleString();
+
+  function lendersHtml(L, m) {
+    const head = `<div class="note" style="margin:10px 0 6px">`;
+    if (!L)
+      return head + `lenders: not scanned yet — the refresh cycle builds
+        them</div>`;
+    if (L.error)
+      return head + `lenders: scan unavailable (${esc4(L.error)})</div>`;
+    if (!L.lenders || !L.lenders.length)
+      return head + `lenders: none — the vault holds no shares</div>`;
+    let h = `<details open style="margin:10px 0 6px">
+      <summary class="note" style="cursor:pointer">lenders
+        (${L.n_lenders})` +
+      (L.coverage_pct != null ? ` <span style="color:#e3b341">&#9888;
+        scan covers ${L.coverage_pct}% of the shares</span>` : "") +
+      `</summary>
+      <table class="study" style="font-size:11px; margin-top:6px"><tr>
+        <th style="text-align:left">lender</th><th>supplied $</th>
+        <th>shortfall $</th></tr>` +
+      L.lenders.map(r => `<tr>
+        <td style="text-align:left">${addrLink(m.chain, r.addr)}${r.via_gauge
+            ? ` <span style="color:#8b949e">(via gauge)</span>` : ""}</td>
+        <td>${usd0(r.supplied_usd)}</td>
+        <td style="color:#f85149"><b>${usd0(r.loss_usd)}</b></td>
+      </tr>`).join("");
+    if (L.others)
+      h += `<tr><td style="text-align:left; color:#8b949e">
+        &hellip; ${L.others.n} smaller lenders</td><td></td>
+        <td style="color:#f85149">${usd0(L.others.loss_usd)}</td></tr>`;
+    return h + `</table></details>`;
+  }
+
   async function render() {
-    let bd, mkts;
+    let bd, mkts, lend;
     try {
-      [bd, mkts] = await Promise.all([
+      [bd, mkts, lend] = await Promise.all([
         fetch("/baddebt").then(r => r.json()),
         fetch("/markets").then(r => r.json()).catch(() => null),
+        fetch("/lenders").then(r => r.json()).catch(() => null),
       ]);
     } catch (e) { note.textContent = "failed to load: " + e; return; }
     if (!bd || !bd.markets) {
@@ -4452,18 +4499,24 @@ window.loadBadDebtTab = async function () {
           style="text-align:left; background:#0d1117; padding:8px 12px">
         <div class="note" style="margin:0 0 6px">controller
           <span style="font-family:ui-monospace,monospace">${esc4(m.controller)}</span>
-          · oracle price ${m.oracle_price != null ? "$" + m.oracle_price : "—"}</div>
-        <table class="study" style="font-size:11px"><tr>
-          <th style="text-align:left">user</th><th>coll $</th><th>soft-liq $</th>
+          · oracle price ${m.oracle_price != null ? "$" + m.oracle_price : "—"}</div>` +
+        lendersHtml((lend && lend.markets
+                     && lend.markets[`${m.chain}:${m.controller}`]) || null,
+                    m) +
+        `<details open style="margin:10px 0 6px">
+          <summary class="note" style="cursor:pointer">borrowers
+            (${m.n_underwater} underwater)</summary>
+        <table class="study" style="font-size:11px; margin-top:6px"><tr>
+          <th style="text-align:left">borrower</th><th>coll $</th><th>soft-liq $</th>
           <th>debt $</th><th>backing $</th><th>shortfall $</th></tr>` +
         m.underwater.map(u => `<tr>
-          <td style="text-align:left; font-family:ui-monospace,monospace">${esc4(u.addr)}</td>
-          <td>${u.y_usd.toLocaleString()}</td>
-          <td>${u.x_usd.toLocaleString()}</td>
-          <td>${u.debt_usd.toLocaleString()}</td>
-          <td>${u.backing_usd.toLocaleString()}</td>
-          <td style="color:#f85149"><b>${u.shortfall_usd.toLocaleString()}</b></td>
-        </tr>`).join("") + `</table></td></tr>`;
+          <td style="text-align:left">${addrLink(m.chain, u.addr)}</td>
+          <td>${usd0(u.y_usd)}</td>
+          <td>${usd0(u.x_usd)}</td>
+          <td>${usd0(u.debt_usd)}</td>
+          <td>${usd0(u.backing_usd)}</td>
+          <td style="color:#f85149"><b>${usd0(u.shortfall_usd)}</b></td>
+        </tr>`).join("") + `</table></details></td></tr>`;
     }
     html += "</table>";
     // Bottom summary: the ecosystem-wide number and how widespread it is.
@@ -4494,7 +4547,7 @@ window.loadBadDebtTab = async function () {
         const d = r.nextElementSibling;
         d.style.display = d.style.display === "none" ? "" : "none";
       });
-    note.textContent = "click a market for its underwater positions";
+    note.textContent = "click a market for its lenders and borrowers";
   }
 
   await render();

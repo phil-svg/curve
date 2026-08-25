@@ -36,7 +36,8 @@ from common import rpc_url, sel  # noqa: E402  (mainnet RPC + keccak selector)
 
 OUT = HERE / "data" / "markets.json"
 
-OP_RPCS = ["https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com",
+OP_RPCS = ["https://optimism.gateway.tenderly.co", "https://mainnet.optimism.io",
+           "https://optimism-rpc.publicnode.com",
            "https://optimism.drpc.org", "https://1rpc.io/op"]
 
 # Public RPC pools per chain. Fraxtal's providers 403 the default urllib

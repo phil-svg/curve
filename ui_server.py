@@ -560,6 +560,18 @@ def _do_refresh():
         print(f"[ui] cleanup refreshed in {time.time() - t1:.1f} s")
     except Exception as e:
         print(f"[ui] cleanup refresh FAILED: {str(e)[:300]}")
+    # Affected lenders of the bad-debt markets (vault-share Transfer scan,
+    # incremental after the first backfill via data/lenders_scan.json).
+    t2 = time.time()
+    try:
+        p = subprocess.run([PY, str(HERE / "fetchers" / "fetch_lenders.py")],
+                           capture_output=True, text=True, timeout=1800)
+        if p.returncode != 0:
+            raise RuntimeError((p.stderr or p.stdout or "").strip()[-300:]
+                               or f"exit code {p.returncode}")
+        print(f"[ui] lenders refreshed in {time.time() - t2:.1f} s")
+    except Exception as e:
+        print(f"[ui] lenders refresh FAILED: {str(e)[:300]}")
     # Re-render the Spring-Cleaning + Current-Params charts from the fresh
     # markets.json — the same matplotlib PNGs that live in images/.
     for script in ("plot_ltv_vs_tvl.py", "plot_discounts_vs_tvl.py",
@@ -1051,11 +1063,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             _http_json(self, 200, json.loads(f.read_text()))
             return
-        if self.path in ("/cleanup", "/baddebt"):
-            # Both emitted by fetch_cleanup.py on the hourly refresh cycle.
+        if self.path in ("/cleanup", "/baddebt", "/lenders"):
+            # cleanup/baddebt from fetch_cleanup.py, lenders from
+            # fetch_lenders.py — all on the refresh cycle.
             f = HERE / "data" / (self.path[1:] + ".json")
             if not f.exists():
-                _http_json(self, 404, {"error": "run fetchers/fetch_cleanup.py first"})
+                _http_json(self, 404, {"error": "not built yet — the "
+                                                "refresh cycle writes it"})
                 return
             _http_json(self, 200, json.loads(f.read_text()))
             return
