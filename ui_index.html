@@ -849,10 +849,11 @@
       </select></div>
     <div class="sldl-k"><div class="note">data <button class="hb-i sldl-i"
         data-info="data" type="button" aria-label="about the data series">i</button></div>
-      <select id="sldl_src" style="width:120px" disabled>
-        <option value="zchf" selected>ZCHF</option>
-      </select>
-      <span class="note" id="sldl_src_days"></span></div>
+      <div style="display:flex; align-items:center; gap:5px">
+        <select id="sldl_src" style="width:120px">
+          <option value="zchf" selected>ZCHF</option>
+        </select><span class="note" id="sldl_src_days"></span>
+      </div></div>
     <div class="sldl-k"><div class="note">worst % <button class="hb-i sldl-i"
         data-info="tail" type="button" aria-label="what worst % means">i</button></div>
       <input id="sldl_tail" type="number" value="0.05" step="0.01" min="0.001" max="50"></div>
@@ -911,7 +912,12 @@
   <!-- Markets ranked by utilization: what share of the lender-provided
        borrowed token is out on loan. 100% + real debt = lenders locked. -->
   <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px">
-    <span class="note">min TVL $</span>
+    <div class="seg" id="hu_ver">
+      <button type="button" data-ver="" class="on">All</button>
+      <button type="button" data-ver="LLV1">v1</button>
+      <button type="button" data-ver="LLV2">v2</button>
+    </div>
+    <span class="note" style="margin-left:6px">min TVL $</span>
     <input id="hu_mintvl" type="number" value="10000" step="1000" min="0"
            style="width:100px"
            title="markets with TVL below this are excluded — type a number and hit enter">
@@ -3515,8 +3521,12 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
       if (t.dataset.view === "home") requestAnimationFrame(layoutHome);
       // deep link: /<tab-label> (e.g. /yb_, /pegkeeper, /sldl) so a reload
       // lands on the same tab
-      if (!t.__fromUrl)
+      if (!t.__fromUrl) {
         history.replaceState(null, "", "/" + (TAB_PATHS[t.dataset.view] || ""));
+        // tabs with URL state (high util) re-append their selection
+        if (t.dataset.view === "hutil" && window.__huSyncUrl)
+          window.__huSyncUrl();
+      }
       t.__fromUrl = false;
     });
   }
@@ -3577,8 +3587,10 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
   // The tab loaders (loadYbTab etc.) are defined in later script blocks,
   // so the URL-driven click must wait until the whole page has parsed.
   window.addEventListener("DOMContentLoaded", () => {
+    // first segment = tab; later segments are tab state (e.g.
+    // /util/v2/daily-dao-rev), read by the tab's own loader
     const seg = decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g, ""))
-      .toLowerCase();
+      .toLowerCase().split("/")[0];
     const view = Object.keys(TAB_PATHS).find(k => TAB_PATHS[k].toLowerCase() === seg)
       || TAB_ALIASES[seg];
     if (view && view !== "home") {
@@ -4626,9 +4638,6 @@ window.loadSldlTab = async function loadSldlTab() {
   document.getElementById("sldl_src").addEventListener("change", updSrcDays);
   document.getElementById("sldl_model").addEventListener("change", () => {
     const v2 = document.getElementById("sldl_model").value === "v2";
-    const src = document.getElementById("sldl_src");
-    if (v2) src.value = "zchf";
-    src.disabled = v2;
     document.getElementById("sldl_hl").value = v2 ? 3603 : 1200;
     updSrcDays();
   });
@@ -5271,7 +5280,35 @@ window.loadHighUtilTab = async function loadHighUtilTab() {
   const esc = s => String(s).replace(/[&<>"]/g,
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const usd = v => v == null ? "—" : "$" + Math.round(v).toLocaleString();
-  let rows = [], showAll = false, sortKey = null;
+  let rows = [], showAll = true, sortKey = null;
+
+  // URL state: /util[/v1|/v2][/<column-slug>], e.g. /util/v2/daily-dao-rev
+  // = LLV2 markets sorted by daily DAO rev. Segments in any order; "all"
+  // and the default utilization ranking are omitted from the URL.
+  const KEY2SLUG = { market: "market", butil: "borrow-util",
+    lutil: "lending-util", bapr: "borrow-apr", lapr: "lending-apr",
+    borrowed: "borrowed", avail: "available", tvl: "tvl", loans: "loans",
+    rev: "daily-dao-rev" };
+  const SLUG2KEY = Object.fromEntries(
+    Object.entries(KEY2SLUG).map(([k, s]) => [s, k]));
+  const VERSEG = { v1: "LLV1", v2: "LLV2", all: "" };
+  let verInit = "";
+  for (const s of decodeURIComponent(location.pathname)
+      .toLowerCase().split("/").slice(2)) {
+    if (s in VERSEG) verInit = VERSEG[s];
+    else if (s in SLUG2KEY) sortKey = SLUG2KEY[s];
+  }
+  if (verInit)
+    for (const b of document.querySelectorAll("#hu_ver button"))
+      b.classList.toggle("on", b.dataset.ver === verInit);
+  function updUrl() {
+    const ver = document.querySelector("#hu_ver .on")?.dataset.ver || "";
+    const parts = ["util"];
+    if (ver) parts.push(ver === "LLV1" ? "v1" : "v2");
+    if (sortKey && KEY2SLUG[sortKey]) parts.push(KEY2SLUG[sortKey]);
+    history.replaceState(null, "", "/" + parts.join("/"));
+  }
+  window.__huSyncUrl = updUrl;
 
   // click-to-sort (descending) — one value function per column
   const lendUtil = m => (m.borrow_cap > 0 && m.total_debt != null
@@ -5364,7 +5401,7 @@ window.loadHighUtilTab = async function loadHighUtilTab() {
     body.innerHTML = h + "</table>";
     for (const th of body.querySelectorAll("th[data-k]"))
       th.addEventListener("click", () => {
-        sortKey = th.dataset.k; sortRows(); draw();
+        sortKey = th.dataset.k; sortRows(); draw(); updUrl();
       });
     if (sortKey) {
       const th = body.querySelector(`th[data-k="${sortKey}"]`);
@@ -5395,9 +5432,11 @@ window.loadHighUtilTab = async function loadHighUtilTab() {
     function refilter() {
       const minTvl = Math.max(0,
         +document.getElementById("hu_mintvl").value || 0);
+      const verSel = document.querySelector("#hu_ver .on")?.dataset.ver || "";
       rows = [];
       let nEmpty = 0, nBad = 0, nTvl = 0;
       for (const m of all) {
+        if (verSel && m.ver !== verSel) continue;
         if (m.utilization_pct == null) { nEmpty++; continue; }
         if (badSet.has(`${m.chain}:${m.controller}`.toLowerCase())) {
           nBad++; continue;
@@ -5419,6 +5458,12 @@ window.loadHighUtilTab = async function loadHighUtilTab() {
       if (e.key === "Enter") refilter();
     });
     inp.addEventListener("change", refilter);
+    for (const b of document.querySelectorAll("#hu_ver button"))
+      b.addEventListener("click", () => {
+        for (const o of document.querySelectorAll("#hu_ver button"))
+          o.classList.toggle("on", o === b);
+        refilter(); updUrl();
+      });
     refilter();
   } catch (e) {
     meta.textContent = "failed to load markets: " + e.message;

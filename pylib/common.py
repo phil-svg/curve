@@ -79,6 +79,8 @@ SELECTORS: dict[str, str] = {
     "read_user_tick_numbers(address)": "0xfec3c866",  # placeholder
     "get_sum_xy(address)": "0xaea70dcc",  # placeholder
     "get_x_down(address)": "0x63f81aa3",  # placeholder
+    # ERC-20
+    "balanceOf(address)": "0x70a08231",
     # Controller (users iteration)
     "n_loans()": "0x6ce7f6ff",
     "loans(uint256)": "0x2b9a2dd0",  # placeholder

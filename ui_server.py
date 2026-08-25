@@ -170,6 +170,7 @@ def _pk_refresh() -> None:
         j = _get(f"{P}/crvusd/pegkeepers/ethereum")
         px = _get(f"{P}/usd_price/ethereum/{CRVUSD}")["data"]
         keepers = j.get("keepers", [])
+        rpc_error = None
         try:
             from fetch_markets import Rpc, _num
             res = Rpc("ethereum").mq(
@@ -184,11 +185,12 @@ def _pk_refresh() -> None:
         except Exception as e:
             for k in keepers:
                 k["unused_mint"] = k["ceiling"] = None
-            j["rpc_error"] = str(e)[:200]
+            rpc_error = str(e)[:200]
         _PK_CACHE["data"] = {
             "keepers": keepers,
             "crvusd_usd": px.get("usd_price"),
             "price_updated": px.get("last_updated"),
+            "rpc_error": rpc_error,
             "fetched_at": int(time.time()),
         }
         _PK_CACHE["at"] = time.time()
@@ -952,9 +954,12 @@ class Handler(BaseHTTPRequestHandler):
         # NAVIGATION (Accept: text/html) gets the page — fetch() sends */*
         # and falls through to the API below.
         seg = self.path.split("?")[0].strip("/").lower()
+        # tabs may carry state segments (/util/v2/daily-dao-rev); the page
+        # reads them. /map/* stays with the bundle handler below.
+        head = seg.split("/")[0]
         wants_page = "text/html" in (self.headers.get("Accept") or "")
-        if self.path in ("/", "/index.html") or (seg in self.TAB_PATHS
-                                                  and wants_page):
+        if self.path in ("/", "/index.html") or (
+                head in self.TAB_PATHS and head != "map" and wants_page):
             body = INDEX_HTML.read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1299,7 +1304,8 @@ class Handler(BaseHTTPRequestHandler):
                 # model: v1 (llamma-simulator, the published reference
                 # table) or v2 (llamma-simulator_v2, the ZCHF gov post:
                 # on-chain oracle limiter, dyn-fee mult 0.25, hl 3603 s).
-                # v2 runs only on the author's ZCHF data (sweep_v2_table.py).
+                # v2 sources: the author's ZCHF data, or any packed USD
+                # kline series (oracle = EMA(mid) with aggregate 1.0).
                 model = str(p.get("model", "v1"))
                 if model not in ("v1", "v2"):
                     model = "v1"
@@ -1319,6 +1325,13 @@ class Handler(BaseHTTPRequestHandler):
                            "--texp", str(num("oracle_hl", 3603, 30, 86400)),
                            "--realities", str(realities),
                            "--progress-out", str(SLDL_PROG)]
+                    if source != "zchf":
+                        if not (fx_klines and fx_klines.exists()):
+                            _http_json(self, 400,
+                                       {"error": f"{source}: v2 needs a "
+                                                 "file-backed kline series"})
+                            return
+                        cmd += ["--klines-file", str(fx_klines)]
                     with _run_lock:
                         SLDL_PROG.unlink(missing_ok=True)
                         try:

@@ -5,8 +5,8 @@ lives inside this directory.
 
 ## Requirements
 
-- Python 3.11+ with `matplotlib` and `numpy`
-  (`pip install matplotlib numpy`)
+- Python 3.11+ with `matplotlib`, `numpy` and `pycryptodome`
+  (`pip install matplotlib numpy pycryptodome`)
 - The C++ sim engines — built once from `cpp-src/` (see Run below;
   binaries land in `bin/`).
 
