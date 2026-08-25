@@ -99,14 +99,25 @@ def flat_grid(t0_ms: int, t1_ms: int) -> np.ndarray:
     return out
 
 
-def sample_rates() -> tuple[np.ndarray, dict[str, np.ndarray]]:
-    """Daily NAV rate per token via one historic multicall per day."""
+def sample_rates(prev: tuple | None = None
+                 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """Daily NAV rate per token via one historic multicall per day. The day
+    grid is anchored at SPAN_START, so a previous run's (day_s, rates) cache
+    aligns by index — only the days beyond it are sampled."""
     rpc = Rpc("ethereum")
     head, head_ts = rpc.head()
     t0 = int(time.mktime(time.strptime(SPAN_START, "%Y-%m-%d")))
     days = np.arange(t0, head_ts - 3600, 86_400, dtype="i8")
     names = list(TOKENS)
     rates = {n: np.full(len(days), np.nan) for n in names}
+    start = 0
+    if prev is not None and len(prev[0]) and prev[0][0] == days[0]:
+        start = min(len(prev[0]), len(days))
+        for n in names:
+            if n in prev[1]:
+                rates[n][:start] = prev[1][n][:start]
+        print(f"[nav] rates cache: {start} days reused, "
+              f"{len(days) - start} to sample")
     from concurrent.futures import ThreadPoolExecutor
 
     def one(i):
@@ -122,24 +133,23 @@ def sample_rates() -> tuple[np.ndarray, dict[str, np.ndarray]]:
         if i % 50 == 0:
             print(f"[nav] sampled day {i}/{len(days)}", flush=True)
     with ThreadPoolExecutor(8) as ex:
-        list(ex.map(one, range(len(days))))
+        list(ex.map(one, range(start, len(days))))
     return days.astype("f8") * 1000.0, rates
 
 
 def main() -> None:
     cache = ROOT / "tmp" / "nav_rates.json"
-    if cache.exists() and time.time() - cache.stat().st_mtime < 86400:
+    prev = None
+    if cache.exists():
         j = json.loads(cache.read_text())
-        day_ms = np.array(j["day_ms"])
-        rates = {k: np.array([np.nan if v is None else v for v in vv])
-                 for k, vv in j["rates"].items()}
-        print(f"[nav] rates from cache ({len(day_ms)} days)")
-    else:
-        day_ms, rates = sample_rates()
-        cache.write_text(json.dumps({
-            "day_ms": day_ms.tolist(),
-            "rates": {k: [None if np.isnan(v) else v for v in vv]
-                      for k, vv in rates.items()}}))
+        prev = (np.array(j["day_ms"], dtype="i8") // 1000,
+                {k: np.array([np.nan if v is None else v for v in vv])
+                 for k, vv in j["rates"].items()})
+    day_ms, rates = sample_rates(prev)
+    cache.write_text(json.dumps({
+        "day_ms": day_ms.tolist(),
+        "rates": {k: [None if np.isnan(v) else v for v in vv]
+                  for k, vv in rates.items()}}))
 
     feeds: dict[str, np.ndarray] = {}
     for key in {u for _, _, u in TOKENS.values() if u} | {"PAXG"}:

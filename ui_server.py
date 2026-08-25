@@ -493,6 +493,31 @@ def _kl_sources() -> dict:
             for n, (p, d) in best.items()}
 
 
+def _kl_daily() -> None:
+    """Daily top-up of the S.L./D.L. price histories (fetchers/
+    update_klines.py: Binance API append + incremental NAV rebuild) at
+    04:10 local time. Takes _run_lock so a running sweep never sees a
+    series swapped under it."""
+    while True:
+        now = time.time()
+        lt = time.localtime(now)
+        nxt = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday,
+                           4, 10, 0, 0, 0, -1))
+        if nxt <= now:
+            nxt += 86_400
+        time.sleep(nxt - now)
+        try:
+            with _run_lock:
+                p = subprocess.run(
+                    [PY, str(HERE / "fetchers" / "update_klines.py")],
+                    capture_output=True, text=True, timeout=3600)
+            tail = ((p.stdout or "") + (p.stderr or ""))[-1500:]
+            print(f"[ui] klines daily update rc={p.returncode}\n{tail}",
+                  flush=True)
+        except Exception as e:
+            print(f"[ui] klines daily update failed: {e}", flush=True)
+
+
 def _next_hour_at(minute: int, after: float) -> float:
     # anchored to minute-of-hour, stepping by the refresh interval (30 min
     # -> fires at :MM and :MM+30 of every hour)
@@ -1481,6 +1506,7 @@ def main():
     print(f"[ui] scratch  {SCRATCH}")
     threading.Thread(target=_refresher, daemon=True).start()
     threading.Thread(target=_pk_warm, daemon=True).start()
+    threading.Thread(target=_kl_daily, daemon=True).start()
 
     # pre-warm the yb_ tab's default window so the first click is instant
     def _yb_warm():
