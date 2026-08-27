@@ -39,20 +39,36 @@ LEAD_DAYS = 7                # window: crash day - 7 .. crash day + 7
 TAIL_DAYS = 7
 
 
-def worst_crash_day(daily: list[list]) -> dict | None:
-    """Deepest daily LOW vs the previous close, on the venue-ratio candles
-    ([t,o,h,l,c]). Wick-aware — this is what the close-only metrics missed."""
-    best = None
+def worst_crash_days(daily: list[list], n: int = 3,
+                     min_gap_days: int = 8) -> list[dict]:
+    """The n deepest daily LOWs vs the previous close, on the venue-ratio
+    candles ([t,o,h,l,c]). Wick-aware — this is what close-only metrics
+    missed. Ranked crashes are distinct events: a candidate within
+    min_gap_days of an already-picked day is the same crash, not a new
+    one."""
+    cands = []
     for k in range(1, len(daily)):
         prev_c = daily[k - 1][4]
         low = daily[k][3]
         if prev_c <= 0 or low <= 0:
             continue
-        drop = low / prev_c - 1
-        if best is None or drop < best["drop"]:
-            best = {"drop": drop, "day": daily[k][0] - daily[k][0] % DAY,
-                    "prev_close": prev_c, "low": low}
-    return best
+        cands.append({"drop": low / prev_c - 1,
+                      "day": daily[k][0] - daily[k][0] % DAY,
+                      "prev_close": prev_c, "low": low})
+    cands.sort(key=lambda c: c["drop"])
+    out: list[dict] = []
+    for c in cands:
+        if any(abs(c["day"] - o["day"]) < min_gap_days * DAY for o in out):
+            continue
+        out.append(c)
+        if len(out) >= n:
+            break
+    return out
+
+
+def worst_crash_day(daily: list[list]) -> dict | None:
+    ws = worst_crash_days(daily, n=1)
+    return ws[0] if ws else None
 
 
 def fetch_minutes(chain: str, pool: str, base: str, quote: str,
@@ -72,12 +88,13 @@ def fetch_minutes(chain: str, pool: str, base: str, quote: str,
     return [[t_, out[t_]] for t_ in sorted(out)]
 
 
-def build_window(key: str, force: bool = False) -> dict:
-    """Resolve `key` against data/candles.json, find the worst crash day,
-    fetch the minute path, cache and return it."""
+def build_window(key: str, force: bool = False, rank: int = 0) -> dict:
+    """Resolve `key` against data/candles.json, find the rank-th worst
+    crash day (0 = worst), fetch the minute path, cache and return it."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     safe = key.replace(":", "_").replace("/", "_")
-    cache = CACHE_DIR / f"{safe}.json"
+    cache = CACHE_DIR / (f"{safe}.json" if rank == 0
+                         else f"{safe}_r{rank}.json")
 
     series = json.loads(CANDLES.read_text())["series"]
     s = series.get(key)
@@ -86,9 +103,10 @@ def build_window(key: str, force: bool = False) -> dict:
     daily = s.get("candles_quote") or []
     if len(daily) < 3:
         raise ValueError("series has too few daily candles")
-    w = worst_crash_day(daily)
-    if w is None or w["drop"] >= -0.001:
-        raise ValueError("no crash on record for this series")
+    ws = [w for w in worst_crash_days(daily, n=3) if w["drop"] < -0.001]
+    if rank >= len(ws):
+        raise ValueError(f"only {len(ws)} distinct crashes on record")
+    w = ws[rank]
 
     t0 = w["day"] - LEAD_DAYS * DAY
     t1 = w["day"] + (TAIL_DAYS + 1) * DAY
@@ -97,6 +115,13 @@ def build_window(key: str, force: bool = False) -> dict:
             c = json.loads(cache.read_text())
             # still the same crash day and the same window span -> reuse
             if c.get("window_from") == t0 and c.get("window_to") == t1:
+                if "crashes" not in c:      # pre-ranking cache: annotate
+                    c["rank"] = rank
+                    c["crashes"] = [
+                        {"day_utc": time.strftime("%Y-%m-%d",
+                                                  time.gmtime(x["day"])),
+                         "drop": round(x["drop"], 4)} for x in ws]
+                    cache.write_text(json.dumps(c))
                 return c
         except (json.JSONDecodeError, OSError):
             pass
@@ -109,6 +134,11 @@ def build_window(key: str, force: bool = False) -> dict:
     lows = min(p[1] for p in pts)
     out = {
         "key": key,
+        "rank": rank,
+        # the ranked menu (distinct events >= 8 days apart), for the UI
+        "crashes": [{"day_utc": time.strftime("%Y-%m-%d",
+                                              time.gmtime(x["day"])),
+                     "drop": round(x["drop"], 4)} for x in ws],
         "base_symbol": s["base_symbol"],
         "fetched_at": int(time.time()),
         "window_from": t0,

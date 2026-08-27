@@ -44,14 +44,71 @@ OP_RPCS = ["https://optimism.gateway.tenderly.co", "https://mainnet.optimism.io"
 # User-Agent, hence the curl UA in Rpc.raw.
 CHAIN_RPCS = {
     "optimism": OP_RPCS,
-    "arbitrum": ["https://arb1.arbitrum.io/rpc",
+    "arbitrum": ["https://arbitrum.gateway.tenderly.co",
+                 "https://arb1.arbitrum.io/rpc",
                  "https://arbitrum-one-rpc.publicnode.com",
                  "https://arbitrum.drpc.org", "https://1rpc.io/arb"],
     "fraxtal":  ["https://rpc.frax.com", "https://fraxtal-rpc.publicnode.com",
                  "https://fraxtal.drpc.org"],
     "sonic":    ["https://rpc.soniclabs.com", "https://sonic-rpc.publicnode.com",
                  "https://sonic.drpc.org"],
+    "base":     ["https://mainnet.base.org", "https://base-rpc.publicnode.com",
+                 "https://base.drpc.org", "https://base.gateway.tenderly.co"],
+    "polygon":  ["https://polygon-bor-rpc.publicnode.com",
+                 "https://polygon-rpc.com", "https://polygon.drpc.org"],
+    "avalanche": ["https://avalanche-c-chain-rpc.publicnode.com",
+                  "https://api.avax.network/ext/bc/C/rpc"],
+    "fantom":   ["https://rpcapi.fantom.network", "https://fantom.drpc.org",
+                 "https://fantom-rpc.publicnode.com"],
+    "xdai":     ["https://gnosis-rpc.publicnode.com", "https://rpc.gnosischain.com"],
+    "bsc":      ["https://bsc-rpc.publicnode.com", "https://bsc-dataseed.bnbchain.org"],
+    "celo":     ["https://forno.celo.org", "https://celo-rpc.publicnode.com"],
+    "kava":     ["https://evm.kava.io", "https://kava-evm-rpc.publicnode.com"],
+    "x-layer":  ["https://rpc.xlayer.tech", "https://xlayerrpc.okx.com"],
+    "hyperliquid": ["https://rpc.hyperliquid.xyz/evm"],
 }
+
+# Dwellir per-chain endpoints (verified against the account 2026-08-27):
+# prepended when the mainnet RPC is a Dwellir URL, reusing its key.
+_DWELLIR_SLUGS = {
+    "arbitrum": "api-arbitrum-mainnet-archive",
+    "optimism": "api-optimism-mainnet-archive",
+    "base":     "api-base-mainnet-archive",
+    "polygon":  "api-polygon-mainnet-full",
+    "xdai":     "api-gnosis-mainnet",
+    "celo":     "api-celo-mainnet-archive",
+}
+try:
+    _u = rpc_url()
+    if ".dwellir.com" in _u:
+        _key = _u.rstrip("/").rsplit("/", 1)[-1]
+        for _ch, _slug in _DWELLIR_SLUGS.items():
+            CHAIN_RPCS.setdefault(_ch, []).insert(
+                0, f"https://{_slug}.n.dwellir.com/{_key}")
+except Exception:
+    pass
+
+# any WEB3_HTTP_<CHAIN> in the env/.env becomes that chain's first
+# provider (e.g. WEB3_HTTP_AVALANCHE, WEB3_HTTP_BSC, WEB3_HTTP_HYPERLIQUID)
+def _env_chain_rpcs() -> None:
+    lines = []
+    envf = HERE / ".env"
+    if envf.exists():
+        lines += envf.read_text().splitlines()
+    lines += [f"{k}={v}" for k, v in os.environ.items()
+              if k.startswith("WEB3_HTTP_")]
+    for line in lines:
+        if not line.startswith("WEB3_HTTP_") or "=" not in line:
+            continue
+        name, url = line.split("=", 1)
+        ch = name[len("WEB3_HTTP_"):].lower().replace("_", "-")
+        url = url.strip()
+        if ch in ("mainnet", "ethereum") or not url:
+            continue
+        lst = CHAIN_RPCS.setdefault(ch, [])
+        if url not in lst:
+            lst.insert(0, url)
+_env_chain_rpcs()
 
 FACTORIES = [
     # (group, chain, factory, kind)
@@ -355,7 +412,8 @@ def load_tokens(rpc: Rpc, addrs: list[str], cache: dict) -> None:
 
 
 CTRL_FNS = ("loan_discount()", "liquidation_discount()", "total_debt()",
-            "n_loans()", "borrow_cap()")  # borrow_cap: V2-only, reverts on V1
+            "n_loans()", "borrow_cap()", "admin_percentage()",
+            "admin_fees()")  # borrow_cap/admin_*: V2-only, revert on V1
 # rate()/get_rate_mul(): the sim used to inherit the CRV market's 13% APR and
 # 0.6% AMM fee for every market because the reference snapshot supplies them.
 AMM_FNS = ("A()", "fee()", "price_oracle()", "rate()", "get_rate_mul()")
@@ -387,7 +445,8 @@ def read_markets_bulk(rpc: Rpc, chain: str, raw: list[tuple], toks: dict,
     by_i: dict[int, dict | None] = {}
     usd = usd or {}
     for k, (i, c, a, coll, borrowed) in enumerate(ok):
-        (ld, liq, debt, n_loans, cap, A, fee, price, rate, rate_mul,
+        (ld, liq, debt, n_loans, cap, admin_pct, admin_acc, A, fee,
+         price, rate, rate_mul,
          coll_bal, avail_bal) = (_num(res[k * W + j]) for j in range(W))
         if ld is None or A is None:
             by_i[i] = None
@@ -426,6 +485,12 @@ def read_markets_bulk(rpc: Rpc, chain: str, raw: list[tuple], toks: dict,
             "borrow_cap_usd": (round(cap / 10 ** bt["decimals"] * b_usd)
                                if (cap is not None and b_usd) else None),
             "n_loans": n_loans,
+            # LLV2 only: DAO's share of the borrow interest + what has
+            # accrued so far (both revert -> None on V1)
+            "admin_fee_share_pct": (round(admin_pct / 1e16, 4)
+                                    if admin_pct is not None else None),
+            "admin_fees_accrued": (admin_acc / 10 ** bt["decimals"]
+                                   if admin_acc is not None else None),
             "available_borrowed": (avail_bal / 10 ** bt["decimals"]
                                    if avail_bal is not None else None),
             "available_usd": (round(avail_bal / 10 ** bt["decimals"] * b_usd)
@@ -478,6 +543,19 @@ def attach_venues_bulk(rpc: Rpc, pools: list[dict], chain: str,
             v["wrapper"] = dict(m["collateral"])
             v["base_decimals"] = toks[u]["decimals"]
             m["venue"] = v
+    # the venue pool's oracle time constant (ma_exp_time on stableswap-ng,
+    # ma_time on cryptoswap — both T/ln2, so half-life = value * ln 2)
+    vs = [m["venue"] for m in ms if m.get("venue")]
+    for fn, half in (("ma_exp_time()", False), ("ma_time()", False),
+                     ("ma_half_time()", True)):   # cryptoswap v1: half-life
+        todo = [v for v in vs if "ma_exp_time" not in v]
+        if not todo:
+            break
+        res = rpc.mq([(v["pool"], fn, None) for v in todo])
+        for v, r in zip(todo, res):
+            n = _num(r)
+            if n and 0 < n < 10 ** 7:
+                v["ma_exp_time"] = round(n / 0.6931471805599453) if half                     else n
 
 
 def _words(r: str | None) -> list[int]:

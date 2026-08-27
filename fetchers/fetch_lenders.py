@@ -50,8 +50,8 @@ def creation_block(rpc: Rpc, addr: str, head: int) -> int:
 
 
 def transfer_tos(rpc: Rpc, addrs: list[str], frm: int, to: int,
-                 budget: list[int], step: int | None = None
-                 ) -> dict[str, set[str]]:
+                 budget: list[int], step: int | None = None,
+                 deadline: float | None = None) -> dict[str, set[str]]:
     """Transfer recipients per contract for [frm, to] in one address-array
     getLogs pass, splitting the range when a provider rejects it (a stated
     "max(imum) block range N" is used directly). `step` forces a chunk size
@@ -65,12 +65,14 @@ def transfer_tos(rpc: Rpc, addrs: list[str], frm: int, to: int,
         out: dict[str, set[str]] = {}
         for lo in range(frm, to + 1, step):
             part = transfer_tos(rpc, addrs, lo, min(lo + step - 1, to),
-                                budget, step)
+                                budget, step, deadline)
             for a, s in part.items():
                 out.setdefault(a, set()).update(s)
         return out
     if budget[0] <= 0:
         raise RuntimeError("log-scan request budget exhausted")
+    if deadline is not None and time.time() > deadline:
+        raise RuntimeError("log-scan deadline exceeded")
     budget[0] -= 1
     try:
         logs = rpc.raw("eth_getLogs", [{
@@ -93,7 +95,8 @@ def transfer_tos(rpc: Rpc, addrs: list[str], frm: int, to: int,
         out = {}
         for lo in range(frm, to + 1, sub):
             part = transfer_tos(rpc, addrs, lo,
-                                min(lo + sub - 1, to), budget)
+                                min(lo + sub - 1, to), budget,
+                                deadline=deadline)
             for a, s in part.items():
                 out.setdefault(a, set()).update(s)
         return out

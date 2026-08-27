@@ -40,7 +40,8 @@ def load_rows(field: str):
             tag = {"ethereum": "", "optimism": " ·op", "arbitrum": " ·arb",
                    "fraxtal": " ·frax", "sonic": " ·sonic"}
             name += tag.get(m["chain"], " ·" + m["chain"])
-            rows.append((m.get("market_tvl_usd") or 0, v, grp, name))
+            rows.append((m.get("market_tvl_usd") or 0, v, grp, name,
+                         m["collateral"]["addr"], m["chain"]))
     rows.sort(key=lambda r: r[0])          # ascending: smallest left
     return rows
 
@@ -57,7 +58,7 @@ def draw(field: str, nice: str, out_name: str, note: str) -> None:
                    edgecolors="#0d1117", linewidths=.8, zorder=3,
                    label={"LLV1": "LLV1 (mint markets)",
                           "LLV2": "LLV2 (lend markets)"}[grp])
-    for i, (_tvl, v, _g, _n) in enumerate(rows):
+    for i, (_tvl, v, _g, _n, *_x) in enumerate(rows):
         ax.plot([0, v], [i, i], color="#30363d", lw=1, zorder=1)
 
     ax.set_yticks(range(len(rows)))
@@ -84,6 +85,8 @@ def draw(field: str, nice: str, out_name: str, note: str) -> None:
     IMAGES.mkdir(parents=True, exist_ok=True)
     out = IMAGES / out_name
     fig.tight_layout()
+    from token_icons import icons_left_of_yticklabels
+    icons_left_of_yticklabels(ax, [(r[4], r[5]) for r in rows])
     fig.savefig(out, dpi=140, facecolor=fig.get_facecolor())
     plt.close(fig)
     print(f"wrote {out}  ({len(rows)} markets)")

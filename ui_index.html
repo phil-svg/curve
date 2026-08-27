@@ -48,7 +48,7 @@
   .arrow-btn:disabled { opacity:.35; cursor:default; background:#21262d; color:#c9d1d9; }
   .runbar { margin:0 0 14px 0; }
   .runbar #go { width:100%; }
-  .runbar #replay_span_wrap { margin-top:8px; }
+  .runbar #replay_span_wrap, .runbar #replay_rank_wrap { margin-top:8px; }
   .autorun {
     display:none; align-items:center; gap:8px; margin:6px 0 0 0;
     font-size:12px; color:#c9d1d9; user-select:none; cursor:pointer;
@@ -294,13 +294,11 @@
   </button>
   <nav class="tabs">
     <button type="button" class="tab" data-view="sim">Bad-debt sim</button>
-    <button type="button" class="tab" data-view="markets">Market-Oracles</button>
-    <button type="button" class="tab" data-view="cleaning">Spring-Cleaning</button>
-    <button type="button" class="tab" data-view="params">Current Params</button>
     <button type="button" class="tab" data-view="baddebt">Bad Debt</button>
     <button type="button" class="tab" data-view="sldl">S.L. / D.L.</button>
-    <button type="button" class="tab" data-view="hutil">High Util</button>
     <button type="button" class="tab" data-view="pegkeeper">Pegkeeper</button>
+    <button type="button" class="tab" data-view="lp">Pools</button>
+    <button type="button" class="tab" data-view="llm">Lending Markets</button>
     <button type="button" class="tab" data-view="yb">yb_</button>
     <button type="button" class="tab" data-view="map">Map</button>
   </nav>
@@ -425,6 +423,12 @@
            window sits with the button because changing it re-runs immediately. -->
       <div class="runbar">
         <button id="go" class="primary" type="submit">Run sim</button>
+        <div id="replay_rank_wrap">
+          <label>Crash to replay</label>
+          <select id="replay_rank">
+            <option value="0" selected>worst on record</option>
+          </select>
+        </div>
         <div id="replay_span_wrap">
           <label>Replay window</label>
           <select id="replay_span">
@@ -573,10 +577,9 @@
 
       <fieldset>
         <legend>Health / Liquidations</legend>
-        <label>ma_time (s, EMA half-life)</label>
-        <input id="ma_time_s" type="number" step="1" value="600">
-        <div class="note">Health oracle = EMA of the VENUE's spot (the pool is
-        what on-chain oracles read), seeded at start spot.</div>
+        <label>ma_exp_time (s, venue oracle)</label>
+        <input id="ma_exp_time_s" type="number" step="1" value="866">
+        <div class="note" id="ma_note"></div>
         <label>liquidation_discount (%)</label>
         <input id="liquidation_discount_pct" type="number" step="1" value="8">
         <div class="note">Settlement threshold. Soft-liq always on.</div>
@@ -622,6 +625,14 @@
          and equation live in one place next to the numbers they explain. -->
     <div class="healthbar" id="healthbar"></div>
     <div class="chart-wrap">
+      <div class="chart-title">Collateral price — $</div>
+      <svg id="pricechart" viewBox="0 0 900 220" preserveAspectRatio="none"></svg>
+      <div class="legend">
+        <div class="legend-item"><span class="swatch" style="background:#8b949e"></span>spot</div>
+        <div class="legend-item"><span class="swatch" style="background:#1f6feb"></span>oracle</div>
+      </div>
+    </div>
+    <div class="chart-wrap">
       <div class="chart-title">
         Bad debt per block — $
         <span id="nobaddebt" class="badge">no bad debt</span>
@@ -630,14 +641,6 @@
       <div id="tooltip"></div>
       <div class="legend">
         <div class="legend-item"><span class="swatch" style="background:#ED7D31"></span>bad debt</div>
-      </div>
-    </div>
-    <div class="chart-wrap">
-      <div class="chart-title">Collateral price — $</div>
-      <svg id="pricechart" viewBox="0 0 900 220" preserveAspectRatio="none"></svg>
-      <div class="legend">
-        <div class="legend-item"><span class="swatch" style="background:#8b949e"></span>spot</div>
-        <div class="legend-item"><span class="swatch" style="background:#1f6feb"></span>oracle</div>
       </div>
     </div>
     <div class="chart-wrap">
@@ -776,49 +779,9 @@
      market's full price-oracle chain — addresses, node types (pool / vault /
      chainlink / agg / wrapper) and every EMA time found at any layer.
      Data: /markets (fetch_markets.py) + /oracles (fetch_oracles.py). -->
-<div id="view_markets" style="display:none">
-  <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px">
-    <div class="seg" id="mk_group">
-      <button type="button" data-grp="LLV1" class="on">LLV1</button>
-      <button type="button" data-grp="LLV2">LLV2</button>
-    </div>
-    <div class="note" id="mk_note">loading…</div>
-  </div>
-  <div class="note" id="mk_usd_note" style="display:none; margin:-4px 0 10px;
-       max-width:720px">
-    <b>USD</b> — does crvUSD itself get priced in USD, or is it assumed to be
-    $1? <span style="color:#3fb950">green</span>: the oracle path yields clean
-    USD — it includes the crvUSD/USD aggregator, or touches no crvUSD pool at
-    all. <span style="color:#f85149">red</span>: the spot price is read from a
-    crvUSD pool with no aggregator, so the "USD" price is really denominated
-    in crvUSD and silently assumes crvUSD&nbsp;=&nbsp;$1.
-  </div>
-  <div id="mk_llv1"></div>
-  <div id="mk_llv2" style="display:none"></div>
-</div>
-
-<!-- Spring-Cleaning: legacy markets (max opening LTV < 60%) still holding
-     collateral or debt, on every chain — who is in them, how underwater, and
-     when each address last touched its loan. Plus the three parameter charts
-     over ALL markets (LLV1 + LLV2, all chains). Auto-refreshes: the server
-     rebuilds /markets and /cleanup hourly, and this view re-pulls both every
-     5 minutes while open. -->
-<div id="view_cleaning" style="display:none">
-  <div class="note" id="cl_note" style="margin-bottom:10px">loading…</div>
-  <div id="cl_charts"></div>
-</div>
-
-<!-- Current Params: the live on-chain LLAMMA A + AMM base fee per market,
-     same matplotlib-PNG pipeline as Spring-Cleaning (values fetched hourly
-     via Multicall3 by fetch_markets.py, charts re-rendered each cycle). -->
-<div id="view_params" style="display:none">
-  <div class="note" id="pm_note" style="margin-bottom:10px">loading…</div>
-  <div id="pm_charts"></div>
-</div>
-
 <!-- Bad Debt: every market on every chain (any LTV tier) where positions'
-     debt exceeds their backing, marked at the AMM oracle. Same auto-refresh
-     scheme as Spring-Cleaning. -->
+     debt exceeds their backing, marked at the AMM oracle. Rebuilt on the
+     hourly server cycle; the view re-pulls every 5 minutes while open. -->
 <div id="view_baddebt" style="display:none">
   <div class="note" id="bd_note" style="margin-bottom:10px">loading…</div>
   <div id="bd_body"></div>
@@ -841,6 +804,8 @@
     .sldl-k .hb-i { margin-left:4px; }
   </style>
   <div style="display:flex; align-items:end; gap:12px; flex-wrap:wrap; margin-bottom:12px">
+    <span id="sldl_src_logo" style="display:inline-flex;
+      align-self:center; margin-right:2px"></span>
     <div class="sldl-k"><div class="note">model <button class="hb-i sldl-i"
         data-info="model" type="button" aria-label="which AMM model">i</button></div>
       <select id="sldl_model" style="width:70px">
@@ -852,7 +817,8 @@
       <div style="display:flex; align-items:center; gap:5px">
         <select id="sldl_src" style="width:120px">
           <option value="zchf" selected>ZCHF</option>
-        </select><span class="note" id="sldl_src_days"></span>
+        </select><span class="note"
+          id="sldl_src_days"></span>
       </div></div>
     <div class="sldl-k"><div class="note">worst % <button class="hb-i sldl-i"
         data-info="tail" type="button" aria-label="what worst % means">i</button></div>
@@ -908,27 +874,6 @@
   <div id="sldl_body2" style="margin-top:24px"></div>
 </div>
 
-<div id="view_hutil" style="display:none">
-  <!-- Markets ranked by utilization: what share of the lender-provided
-       borrowed token is out on loan. 100% + real debt = lenders locked. -->
-  <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px">
-    <div class="seg" id="hu_ver">
-      <button type="button" data-ver="" class="on">All</button>
-      <button type="button" data-ver="LLV1">v1</button>
-      <button type="button" data-ver="LLV2">v2</button>
-    </div>
-    <span class="note" style="margin-left:6px">min TVL $</span>
-    <input id="hu_mintvl" type="number" value="10000" step="1000" min="0"
-           style="width:100px"
-           title="markets with TVL below this are excluded — type a number and hit enter">
-    <span class="note" id="hu_meta" style="margin-left:6px"></span>
-  </div>
-  <div id="hu_body"></div>
-  <button id="hu_all" class="primary" type="button"
-          style="display:none; margin-top:12px; width:auto; padding:6px 22px">
-    show all</button>
-</div>
-
 <div id="view_pegkeeper" style="display:none">
   <!-- crvUSD PegKeepers: mint crvUSD into their stable pair when crvUSD
        trades rich, pull and burn when it trades cheap. debt = crvUSD
@@ -937,12 +882,94 @@
   <div id="pk_body"></div>
 </div>
 
+<div id="view_llm" style="display:none">
+  <!-- LLM: every LlamaLend market with its security surface — contracts,
+       oracle chain + the LP situation of the pools it reads, exit
+       liquidity, borrowers, immutable vs DAO-set parameters, and daily
+       history since inception (Curve prices API, no RPC). -->
+  <style>
+    #lm_body .pill { display:inline-block; padding:1px 7px; font-size:10px;
+      border:1px solid #30363d; border-radius:10px; color:#8b949e;
+      background:#0d1117; vertical-align:1px; }
+    #lm_body .lm-head:hover { background:#1c2129; border-radius:7px; }
+    #lm_body [id^="sec-"] { scroll-margin-top:70px; }
+    #lm_body .lm-sec:hover { filter:brightness(1.35); }
+    #lm_body tr.lm-trow td { transition:background .08s; }
+    #lm_body tr.lm-trow:hover td {
+      box-shadow:inset 0 0 0 999px rgba(88,166,255,.09); }
+    #lm_body tr.lm-trow td:first-child b { color:#58a6ff; }
+    #lm_body tr.lm-trow:hover td:first-child b {
+      text-decoration:underline; }
+    #lm_body tr.lm-trow .lm-go { color:#58a6ff; opacity:.55;
+      font-weight:700; margin-left:6px; }
+    #lm_body tr.lm-trow:hover .lm-go { opacity:1; }
+    #lm_body .lm-clk { transition:transform .1s, box-shadow .1s,
+      border-color .1s; cursor:pointer; }
+    #lm_body .lm-clk:hover { border-color:#58a6ff !important;
+      transform:translateY(-2px); box-shadow:0 6px 16px rgba(1,4,9,.55); }
+    #lm_body .lm-open { border:1px solid #58a6ff; color:#58a6ff;
+      border-radius:4px; padding:1px 8px; font-size:10.5px;
+      font-weight:600; white-space:nowrap; }
+    #lm_body .lm-clk:hover .lm-open, #lm_body .lmb-row:hover .lm-open {
+      background:#1f6feb; border-color:#1f6feb; color:#fff; }
+    #lm_body .lmb-row { cursor:pointer; border-radius:6px;
+      transition:background .08s; }
+    #lm_body .lmb-row:hover { background:#1c2129; }
+    #lm_body .lmb-row:hover b { color:#58a6ff;
+      text-decoration:underline; }
+  </style>
+  <div id="lm_controls" style="display:flex; flex-wrap:nowrap;
+       align-items:center; gap:10px; margin-bottom:6px">
+    <div style="flex:1 1 0; min-width:0; display:flex;
+        justify-content:flex-start">
+      <div class="seg" id="lm_ver" style="display:inline-flex">
+        <button type="button" data-ver="" class="on">All</button>
+        <button type="button" data-ver="LLV1">v1</button>
+        <button type="button" data-ver="LLV2">v2</button>
+      </div>
+    </div>
+    <input id="lm_search" type="text" spellcheck="false"
+           placeholder="search — name / symbol / address"
+           title="matches market names, token symbols, and any contract
+                  address (controller, AMM, vault, gauge, policy, oracle)"
+           style="flex:0 1 680px; min-width:160px; padding:7px 12px;
+                  background:#0d1117; border:1px solid #30363d;
+                  border-radius:6px; color:#e6edf3; font-size:12.5px">
+    <div style="flex:1 1 0; min-width:0; display:flex; align-items:center;
+        gap:6px; justify-content:flex-end">
+      <span class="note" style="margin:0; white-space:nowrap">min TVL $</span>
+      <input id="lm_mintvl" type="number" value="10000" step="1000" min="0"
+             style="width:100px"
+             title="markets with TVL below this are hidden">
+    </div>
+  </div>
+  <div class="note" id="lm_meta" style="margin-bottom:8px"></div>
+  <div id="lm_body">loading…</div>
+</div>
+
 <div id="view_map" style="display:none">
   <!-- curve-map bundle served from /map/; iframe src set on first open so
        the page does not load it upfront -->
   <iframe id="map_frame" data-src="/map/index.html"
           style="width:100%; height:calc(100vh - 130px); border:none;
                  border-radius:8px; background:#0d1117"></iframe>
+</div>
+
+<!-- LP: end-user distribution of the flagship pools. Wrappers (gauge,
+     Lido StakingRewards, Convex reward pools, YB gauge) are unwrapped to
+     wallets by fetchers/fetch_lp.py, event-driven on the refresh cycle. -->
+<div id="view_lp" style="display:none">
+  <div class="note" id="lp_note" style="margin-bottom:8px">loading…</div>
+  <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+              margin-bottom:14px">
+    <input id="lp_search" type="text" spellcheck="false"
+           placeholder="search — name / pool / coin / LP"
+           title="matches pool names and addresses, coin symbols / names / addresses, and LP wallet addresses or labels — a matched LP's slice is ringed in the pie"
+           style="flex:1; min-width:240px; max-width:620px; padding:7px 10px;
+                  background:#0d1117; color:#e6edf3; border:1px solid #30363d;
+                  border-radius:6px; font-size:12.5px">
+  </div>
+  <div id="lp_body"></div>
 </div>
 
 <div id="view_yb" style="display:none">
@@ -1108,13 +1135,17 @@ function replayPath() {
 // server per venue series: the collateral's worst wick day ± its week, as a %
 // path of the window's first close. First fetch per market takes ~20 s.
 const CRASH_WINDOWS = {};
-async function crashWindowFor(key, symbol) {
-  if (CRASH_WINDOWS[key]) return CRASH_WINDOWS[key];
+const RANK_WORDS = ["worst", "2nd worst", "3rd worst"];
+let crashSeries = null;      // {key, symbol} of the picked market's venue
+async function crashWindowFor(key, symbol, rank = 0) {
+  const ck = `${key}#${rank}`;
+  if (CRASH_WINDOWS[ck]) return CRASH_WINDOWS[ck];
   const note = document.getElementById("replay_note");
   note.style.display = "";
-  note.textContent = `fetching minute candles for ${symbol}'s worst crash ` +
-    `(one-time per market, ~20 s)…`;
-  const r = await fetch(`/crashwindow?key=${encodeURIComponent(key)}`);
+  note.textContent = `fetching minute candles for ${symbol}'s `
+    + `${RANK_WORDS[rank]} crash (one-time per market, ~20 s)…`;
+  const r = await fetch(`/crashwindow?key=${encodeURIComponent(key)}`
+    + `&rank=${rank}`);
   const j = await r.json();
   if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
   const shape = {
@@ -1124,10 +1155,40 @@ async function crashWindowFor(key, symbol) {
     fromDay: j.window_from_utc, toDay: j.window_to_utc,
     crashDay: j.crash_day_utc, symbol: j.base_symbol,
     minute: true, nPoints: j.n_points,
+    rank: j.rank || 0, crashes: j.crashes || [],
   };
-  CRASH_WINDOWS[key] = shape;
+  CRASH_WINDOWS[ck] = shape;
   return shape;
 }
+
+// the ranked crash menu, filled from whichever window last loaded
+function fillRankMenu(shape) {
+  const sel = document.getElementById("replay_rank");
+  const cur = sel.value;
+  const cs = shape.crashes.length
+    ? shape.crashes
+    : [{ day_utc: shape.crashDay, drop: shape.drop }];
+  sel.innerHTML = cs.map((c, i) =>
+    `<option value="${i}">${RANK_WORDS[i]} — ${c.day_utc} `
+    + `(${(c.drop * 100).toFixed(1)}%)</option>`).join("");
+  sel.value = cs[+cur] ? cur : "0";
+  sel.disabled = cs.length < 2 || !isReplay();
+}
+
+// ma_exp_time -> human terms: pools store the oracle EMA as ma_exp_time =
+// T/ln2; the effective half-life is value * ln 2.
+function updMaNote() {
+  const v = +document.getElementById("ma_exp_time_s").value || 0;
+  const half = v * Math.LN2;
+  const mins = half / 60;
+  document.getElementById("ma_note").innerHTML =
+    `= EMA half-life <b>${Math.round(half)} s</b> (&asymp; ` +
+    (mins < 90 ? `${mins.toFixed(1)} min` : `${(mins / 60).toFixed(1)} h`) +
+    `). On-chain value from the venue pool when a market is picked. ` +
+    `Health oracle = EMA of the VENUE's spot, seeded at start spot.`;
+}
+document.getElementById("ma_exp_time_s").addEventListener("input", updMaNote);
+updMaNote();
 
 // Reflect the current mode: the linear inputs are meaningless while replaying
 // a real history, so they go away instead of sitting there lying.
@@ -1137,10 +1198,11 @@ function applyReplayUI(fallbackWhy) {
   // Stays put whether or not replay is active — hiding it made the control
   // look deleted on page load, before a market has been picked. Disabled and
   // dimmed instead, so its position and current value are always readable.
-  {
-    const w = document.getElementById("replay_span_wrap");
-    const sel = document.getElementById("replay_span");
-    sel.disabled = !on;
+  for (const [wid, sid] of [["replay_span_wrap", "replay_span"],
+                            ["replay_rank_wrap", "replay_rank"]]) {
+    const w = document.getElementById(wid);
+    const sel = document.getElementById(sid);
+    sel.disabled = !on || (sid === "replay_rank" && sel.options.length < 2);
     w.style.opacity = on ? "1" : "0.45";
     w.title = on ? "" : "applies when replaying a real crash";
   }
@@ -1160,8 +1222,12 @@ function applyReplayUI(fallbackWhy) {
       ? sl.pct.filter((v, i) => i && v === sl.pct[i - 1]).length / (sl.pct.length - 1)
       : 0;
     note.innerHTML = r.minute
-      ? `Replaying <b style="color:#c9d1d9">${esc(r.symbol)}</b>'s worst real ` +
-        `crash at minute resolution: crash day ${esc(r.crashDay)}, ` +
+      ? `Replaying <b style="color:#c9d1d9">${esc(r.symbol)}</b>'s ` +
+        `<b>${RANK_WORDS[r.rank || 0]}</b> real crash at minute resolution ` +
+        `(a "crash" = the deepest single-day wick — the day's low vs the ` +
+        `previous close — in the venue's stored daily history, ~2 years; ` +
+        `ranked crashes are distinct events ≥ 8 days apart): ` +
+        `crash day ${esc(r.crashDay)}, ` +
         `<b>${spanH < 48 ? spanH.toFixed(1) + " h" : (spanH / 24).toFixed(1) + " d"}</b>` +
         ` window bottoming <b style="color:#f85149">${(sl.drop * 100).toFixed(1)}%</b>` +
         ` below its start <b>${hrs(atH)} in</b> (the window opens a third of its` +
@@ -1189,7 +1255,9 @@ function currentParams() {
     ...marketParams,
     tvl_usd:                 +document.getElementById("tvl_usd").value,
     A_raw:                   +document.getElementById("A_raw").value,
-    ma_time_s:               +document.getElementById("ma_time_s").value,
+    // the engine wants the EMA half-life; pools store ma_exp_time = T/ln2
+    ma_time_s:               +document.getElementById("ma_exp_time_s").value
+                             * Math.LN2,
     liquidation_discount_pct:+document.getElementById("liquidation_discount_pct").value,
     discount_x_sl:           document.getElementById("disc_x_sl").checked,
     pinned_ladder:           document.getElementById("pinned_ladder").checked,
@@ -3061,7 +3129,7 @@ document.getElementById("f").addEventListener("submit", async (ev) => {
     for (const k in o) if (ids.has(k)) out[k] = o[k];        // snapshot shape
     const num = k => (o[k] === null || o[k] === undefined || o[k] === "") ? null : +o[k];
     const put = (id, v) => { if (v !== null && isFinite(v)) out[id] = v; };
-    for (const k of ["tvl_usd", "A_raw", "ma_time_s", "liquidation_discount_pct",
+    for (const k of ["tvl_usd", "A_raw", "ma_exp_time_s", "liquidation_discount_pct",
                      "crash_start_spot", "crash_end_spot", "collateral_usd",
                      "debt_usd", "n_bands", "loan_discount_pct", "llamma_A", "ss_A"])
       put(k, num(k));
@@ -3115,8 +3183,7 @@ document.getElementById("f").addEventListener("submit", async (ev) => {
     document.getElementById("crash_duration_min")
       .dispatchEvent(new Event("input", { bubbles: true }));
     inBox.value = ""; showIn(false);
-    note.textContent = `Imported ${cnt} fields — running.`;
-    document.getElementById("f").requestSubmit();
+    note.textContent = `Imported ${cnt} fields — press Run sim.`;
   });
 
   document.getElementById("cfg_save").addEventListener("click", () => {
@@ -3130,8 +3197,7 @@ document.getElementById("f").addEventListener("submit", async (ev) => {
     const nm = list.value;
     if (!nm) { note.textContent = "Pick a config."; return; }
     apply(read()[nm] || {});
-    note.textContent = `Loaded "${nm}".`;
-    document.getElementById("f").requestSubmit();   // loading a config IS the ask
+    note.textContent = `Loaded "${nm}" — press Run sim.`;
   });
   document.getElementById("cfg_del").addEventListener("click", () => {
     const nm = list.value;
@@ -3345,9 +3411,22 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
     if (refreshCapNow) refreshCapNow();
     if (studyPickMarket) studyPickMarket(m, ver.value);   // sync the study tab
 
+    if (m.venue && m.venue.ma_exp_time) {
+      document.getElementById("ma_exp_time_s").value = m.venue.ma_exp_time;
+      updMaNote();
+    }
+    const SCAN = { ethereum: ["etherscan", "https://etherscan.io"],
+      arbitrum: ["arbiscan", "https://arbiscan.io"],
+      optimism: ["etherscan", "https://optimistic.etherscan.io"],
+      base: ["basescan", "https://basescan.org"],
+      fraxtal: ["fraxscan", "https://fraxscan.com"],
+      sonic: ["sonicscan", "https://sonicscan.org"] }[m.chain]
+      || ["explorer", "https://etherscan.io"];
     const venueHtml = m.venue
       ? ` · venue <a href="${esc(m.venue.monitor_url)}" target="_blank"` +
-        ` style="color:#58a6ff">${esc(m.venue.name)}</a>` +
+        ` style="color:#58a6ff; font-weight:600">${esc(m.venue.name)}</a>` +
+        ` <a href="${SCAN[1]}/address/${esc(m.venue.pool)}" target="_blank"` +
+        ` rel="noopener" style="color:#58a6ff; font-weight:600">[${SCAN[0]}]</a>` +
         ` $${m.venue.pair_tvl_usd.toLocaleString()}` +
         ` ${esc(m.venue.pool_type)}` +
         (m.venue.pool_type === "cryptoswap" ? `/${m.venue.n_coins} A_raw ${m.venue.A}`
@@ -3357,18 +3436,10 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
       : " · venue: none found — set the pool by hand";
     // Write the note BEFORE any slow await, so the panel never shows one
     // market's parameters under another market's description.
-    note.innerHTML =
-      esc(`${m.collateral.symbol}/${m.borrowed.symbol} · ${m.chain} · A ${m.llamma_A}` +
-        ` · ld ${m.loan_discount_pct}% · liq ${m.liquidation_discount_pct}%` +
-        (m.amm_fee_pct != null ? ` · fee ${m.amm_fee_pct}%` : "") +
-        (m.amm_rate_apr_pct != null ? ` · rate ${m.amm_rate_apr_pct}%` : "") +
-        (px != null ? ` · px $${px}` : "") +
-        (m.borrow_cap_usd != null ? ` · cap $${m.borrow_cap_usd.toLocaleString()}` : "") +
-        (m.total_debt_usd != null ? ` · debt $${m.total_debt_usd.toLocaleString()}`
-                                    + ` (${m.total_debt.toLocaleString()} ${m.borrowed.symbol})` : "") +
-        (debtBasis ? ` · sim debt = ${debtBasis}` : "") +
-        (m.n_loans != null ? ` · ${m.n_loans} loans` : "") +
-        ` · ${short(m.controller)}` + capNote) + venueHtml;
+    note.innerHTML = `<span style="display:flex; align-items:center;
+        gap:6px; margin:16px 0 -12px">${pairImgs(m, 22)}
+      <b>${esc(m.collateral.symbol)}/${esc(m.borrowed.symbol)}</b>
+      <span style="color:#8b949e">${esc(m.chain)}</span></span>`;
 
     // Crash schedule: replay this collateral's worst REAL crash at minute
     // resolution. The first fetch for a market walks ~56 API pages (~20 s),
@@ -3379,7 +3450,12 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
     if (m.venue && m.venue.base_addr) {
       const key = `${m.chain}:${m.venue.pool}:${m.venue.base_addr}:${m.venue.quote_addr}`
         + (m.venue.wrapper ? `:${m.venue.wrapper.addr}` : "");
-      try { replayShape = await crashWindowFor(key, m.collateral.symbol); }
+      crashSeries = { key, symbol: m.collateral.symbol };
+      document.getElementById("replay_rank").value = "0";
+      try {
+        replayShape = await crashWindowFor(key, m.collateral.symbol, 0);
+        fillRankMenu(replayShape);
+      }
       catch (e) {
         replayShape = null;
         why = `${m.collateral.symbol}: ${String(e.message || e).slice(0, 120)} — ` +
@@ -3393,9 +3469,8 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
     pendingMarketLabel = `${m.collateral.symbol}/${m.borrowed.symbol}`;
     marketTokens = { coll: m.collateral.symbol, borrowed: m.borrowed.symbol };
     syncSoftLiqLegend();
-    // Picking a market IS the request to see it: run straight away rather
-    // than making the user press Run to get any visuals.
-    document.getElementById("f").requestSubmit();
+    // nothing runs on its own — the Run sim button is the only trigger
+    document.getElementById("status").textContent = "market loaded — press Run sim.";
   }
   ver.addEventListener("change", refill);
   list.addEventListener("change", apply);
@@ -3489,29 +3564,30 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
   const pct = (v, dp = 1) => v == null ? "—" : (v * 100).toFixed(dp) + "%";
 
   // -- view switching -------------------------------------------------------
-  const VIEWS = ["home", "sim", "study", "markets", "cleaning", "params", "baddebt",
-                 "sldl", "hutil", "pegkeeper", "yb", "map"];
+  const VIEWS = ["home", "sim", "study", "baddebt",
+                 "sldl", "pegkeeper", "lp", "llm", "yb", "map"];
   for (const t of document.querySelectorAll(".tab")) {
     t.addEventListener("click", () => {
       for (const o of document.querySelectorAll(".tab")) o.classList.toggle("on", o === t);
       for (const v of VIEWS)
         $("view_" + v).style.display = t.dataset.view === v ? "" : "none";
-      if (t.dataset.view === "markets" && typeof loadMarketsTab === "function"
-          && !window.__mkLoaded) { window.__mkLoaded = true; loadMarketsTab(); }
-      if (t.dataset.view === "cleaning" && typeof loadCleaningTab === "function"
-          && !window.__clLoaded) { window.__clLoaded = true; loadCleaningTab(); }
-      if (t.dataset.view === "params" && typeof loadParamsTab === "function"
-          && !window.__pmLoaded) { window.__pmLoaded = true; loadParamsTab(); }
       if (t.dataset.view === "baddebt" && typeof loadBadDebtTab === "function"
           && !window.__bdLoaded) { window.__bdLoaded = true; loadBadDebtTab(); }
       if (t.dataset.view === "sldl" && typeof loadSldlTab === "function"
           && !window.__slLoaded) { window.__slLoaded = true; loadSldlTab(); }
-      if (t.dataset.view === "hutil" && typeof loadHighUtilTab === "function"
-          && !window.__huLoaded) { window.__huLoaded = true; loadHighUtilTab(); }
       if (t.dataset.view === "pegkeeper" && typeof loadPegkeeperTab === "function"
           && !window.__pkLoaded) { window.__pkLoaded = true; loadPegkeeperTab(); }
       if (t.dataset.view === "yb" && typeof loadYbTab === "function"
           && !window.__ybLoaded) { window.__ybLoaded = true; loadYbTab(); }
+      if (t.dataset.view === "lp" && typeof loadLpTab === "function"
+          && !window.__lpLoaded) { window.__lpLoaded = true; loadLpTab(); }
+      if (t.dataset.view === "llm") {
+        if (typeof loadLlmTab === "function" && !window.__lmLoaded) {
+          window.__lmLoaded = true; loadLlmTab();
+        } else if (!t.__fromUrl && window.__lmShowList) {
+          window.__lmShowList();   // tab click = back to the full list
+        }
+      }
       if (t.dataset.view === "map") {
         const fr = document.getElementById("map_frame");
         if (fr && !fr.src) fr.src = fr.dataset.src;
@@ -3524,8 +3600,6 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
       if (!t.__fromUrl) {
         history.replaceState(null, "", "/" + (TAB_PATHS[t.dataset.view] || ""));
         // tabs with URL state (high util) re-append their selection
-        if (t.dataset.view === "hutil" && window.__huSyncUrl)
-          window.__huSyncUrl();
       }
       t.__fromUrl = false;
     });
@@ -3575,15 +3649,52 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
   // ("S.L. / D.L." drops the slash). Matched case-insensitively; the
   // server serves index.html for any of these paths.
   const TAB_PATHS = { home: "", sim: "sim",
-                      markets: "oracles", cleaning: "cleaning",
-                      params: "params", baddebt: "bad-debt",
-                      sldl: "sldl", hutil: "util",
-                      pegkeeper: "pegkeeper", yb: "yb", map: "map" };
+                      baddebt: "bad-debt",
+                      sldl: "sldl",
+                      pegkeeper: "pegkeeper", lp: "pools",
+                      llm: "lending-markets",
+                      yb: "yb", map: "map" };
   // pre-rename bookmarks (/S.L.-D.L., /yb_ …) keep working
-  const TAB_ALIASES = { "bad-debt-sim": "sim", "market-oracles": "markets",
-                        "spring-cleaning": "cleaning",
-                        "current-params": "params", "s.l.-d.l.": "sldl",
-                        "high-util": "hutil", "yb_": "yb" };
+  const TAB_ALIASES = { "bad-debt-sim": "sim", "s.l.-d.l.": "sldl",
+                        lp: "lp",
+                        "high-util": "llm", util: "llm", llm: "llm",
+                        "yb_": "yb" };
+  // ---- token logos (curve-assets CDN), shared by every tab ---------------
+  window.__tokIdx = {};
+  window.tokImg = (addr, chain, size = 19) => {
+    if (!addr) return "";
+    const dir = (!chain || chain === "ethereum") ? "assets"
+      : "assets-" + chain;
+    return `<img src="https://cdn.jsdelivr.net/gh/curvefi/curve-assets/images/${dir}/${String(addr).toLowerCase()}.png"
+      onerror="this.style.display='none'"
+      style="width:${size}px; height:${size}px; border-radius:50%;
+             vertical-align:-3px; background:#0d1117;
+             margin-right:3px">`;
+  };
+  window.symImg = (sym, chain, size = 19) => {
+    const e = window.__tokIdx[String(sym || "").toUpperCase()];
+    return e ? tokImg(e.addr, chain || e.chain, size) : "";
+  };
+  window.pairImgs = (m, size = 19) => !m ? "" :
+    tokImg(m.collateral && m.collateral.addr, m.chain, size)
+    + tokImg(m.borrowed && m.borrowed.addr, m.chain, size);
+  window.__tokReady = (async () => {
+    try {
+      const [mk, lp] = await Promise.all([
+        fetch("/markets").then(r => r.json()).catch(() => null),
+        fetch("/lp").then(r => r.json()).catch(() => null)]);
+      for (const lst of Object.values((mk && mk.groups) || {}))
+        for (const m of lst)
+          for (const t of [m.collateral, m.borrowed])
+            if (t && t.symbol && t.addr && !window.__tokIdx[t.symbol.toUpperCase()])
+              window.__tokIdx[t.symbol.toUpperCase()] = { addr: t.addr, chain: m.chain };
+      for (const p of Object.values((lp && lp.pools) || {}))
+        for (const c of (p.coins || []))
+          if (c.s && c.a && !window.__tokIdx[c.s.toUpperCase()])
+            window.__tokIdx[c.s.toUpperCase()] = { addr: c.a, chain: p.chain };
+    } catch (_) {}
+  })();
+
   // The tab loaders (loadYbTab etc.) are defined in later script blocks,
   // so the URL-driven click must wait until the whole page has parsed.
   window.addEventListener("DOMContentLoaded", () => {
@@ -4134,7 +4245,25 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
 
 document.getElementById("replay_span").addEventListener("change", () => {
   applyReplayUI();
-  if (replayShape) document.getElementById("f").requestSubmit();
+  if (replayShape)
+    document.getElementById("status").textContent = "window changed — press Run sim.";
+});
+document.getElementById("replay_rank").addEventListener("change", async () => {
+  if (!crashSeries) return;
+  const rank = +document.getElementById("replay_rank").value || 0;
+  try {
+    replayShape = await crashWindowFor(crashSeries.key, crashSeries.symbol,
+                                       rank);
+    fillRankMenu(replayShape);
+    applyReplayUI();
+    if (isReplay())
+      document.getElementById("status").textContent = "crash changed — press Run sim.";
+  } catch (e) {
+    const note = document.getElementById("replay_note");
+    note.style.display = "";
+    note.textContent = `crash #${rank + 1}: `
+      + String(e.message || e).slice(0, 120);
+  }
 });
 document.getElementById("crash_mode").addEventListener("change", () => {
   const note = document.getElementById("replay_note");
@@ -4157,245 +4286,6 @@ for (const id of Object.keys(HOVER_GEOM)) attachHover(id);
 document.addEventListener("click", () => {
   document.querySelectorAll(".hb-item.open").forEach(x => x.classList.remove("open"));
 });
-
-// ---- Markets tab -----------------------------------------------------------
-// LLV1 and LLV2 listed strictly apart. Per market: the whole oracle chain from
-// AMM.price_oracle_contract() down — every node's address, type and any EMA
-// time it applies. Data comes pre-walked from /oracles (fetch_oracles.py).
-window.loadMarketsTab = async function () {
-  const note = document.getElementById("mk_note");
-  let mkts, orcs;
-  try {
-    [mkts, orcs] = await Promise.all([
-      fetch("/markets").then(r => r.json()),
-      fetch("/oracles").then(r => r.json()).catch(() => null),
-    ]);
-  } catch (e) { note.textContent = "failed to load: " + e; return; }
-  const O = (orcs && orcs.markets) || {};
-  const esc2 = s => String(s ?? "").replace(/[&<>"]/g,
-    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const EXPL = { ethereum: "https://etherscan.io/address/",
-                 optimism: "https://optimistic.etherscan.io/address/",
-                 arbitrum: "https://arbiscan.io/address/",
-                 fraxtal:  "https://fraxscan.com/address/",
-                 sonic:    "https://sonicscan.org/address/" };
-  const aLink = (chain, addr, short = true) => addr
-    ? `<a href="${EXPL[chain] || "#"}${esc2(addr)}" target="_blank" rel="noopener"
-         style="color:#58a6ff; text-decoration:none; font-family:ui-monospace,monospace">` +
-      esc2(short ? addr.slice(0, 10) + "…" : addr) + `</a>` : "—";
-  const TYPE_C = { pool: "#58a6ff", chainlink: "#e3b341",
-                   "chainlink-agg": "#c9973e", vault: "#7bc98a",
-                   rate: "#6fd1c0", agg: "#b06fd1", wrapper: "#8b949e",
-                   unknown: "#f85149", error: "#f85149" };
-  const badge = t => `<span style="background:${TYPE_C[t] || "#6e7681"}22;
-      color:${TYPE_C[t] || "#8b949e"}; border:1px solid ${TYPE_C[t] || "#6e7681"}55;
-      border-radius:6px; padding:0 5px; font-size:10px; font-weight:600">${esc2(t)}</span>`;
-  const maStr = ma => Object.entries(ma || {})
-    .map(([k, v]) => `${esc2(k)}=${v}s`).join(" · ");
-  const CHAINS = ["ethereum", "optimism", "arbitrum", "fraxtal", "sonic"];
-
-  // Two <tr>s per market: the data row (click to expand) and a hidden detail
-  // row carrying the per-node oracle table. A real table, so every column
-  // lines up down the whole list.
-  function marketRows(m) {
-    const key = `${m.chain}:${m.controller}`;
-    const o = O[key];
-    const nodes = (o && o.nodes) || {};
-    const addrs = Object.keys(nodes);
-    // EMA column: deduped by (value, getter), with a multiplicity count —
-    // "866s ma_exp_time ×6" instead of six identical entries. The @-node
-    // detail lives in the expanded table.
-    const emaCount = {};
-    for (const a of addrs)
-      for (const [k, v] of Object.entries(nodes[a].ma || {}))
-        emaCount[`${v}s ${k}`] = (emaCount[`${v}s ${k}`] || 0) + 1;
-    const emaCell = Object.entries(emaCount)
-      .map(([k, c]) => esc2(k) + (c > 1 ? ` ×${c}` : "")).join(", ");
-    const typeSet = [...new Set(addrs.map(a => nodes[a].type))]
-      .filter(t => t !== "unknown" || addrs.length === 1);
-    const name = `${m.collateral.symbol}/${m.borrowed.symbol}`;
-    const tvl = m.market_tvl_usd != null ? usdShort(m.market_tvl_usd) : "—";
-    const debt = m.total_debt_usd != null ? usdShort(m.total_debt_usd) : "—";
-    // USD-denomination check. Green: the path converts to clean USD — either
-    // the crvUSD aggregator sits in the graph (pool price × AGG price), or no
-    // crvUSD pool appears at all (feed already USD/stable-denominated).
-    // Red: spot is read from a crvUSD pool and nothing converts it, so the
-    // "price" the market prices health with is in crvUSD, not USD.
-    const hasAgg = addrs.some(a => nodes[a].type === "agg");
-    const hasCrvPool = addrs.some(a => nodes[a].type === "pool" &&
-      ((nodes[a].meta?.symbol || nodes[a].label || "").toUpperCase().includes("CRVUSD")));
-    const usdCell = !addrs.length ? "—"
-      : (hasAgg || !hasCrvPool)
-        ? `<span style="color:#70AD47; font-weight:700; font-size:13px" title="${hasAgg
-            ? "clean USD: crvUSD aggregator in the path (pool price × AGG price)"
-            : "clean USD: no crvUSD pool in the path — feed already USD/stable-denominated"}">✓</span>`
-        : `<span style="color:#f85149; font-weight:700; font-size:13px" title="priced in crvUSD: spot comes from a crvUSD pool and no aggregator converts it to USD">✗</span>`;
-    const inner = addrs.map(a => {
-      const n = nodes[a];
-      const refs = Object.entries(n.refs || {})
-        .map(([g, ra]) => `<span style="color:#8b949e">${esc2(g)}→</span>` +
-                          `${esc2(ra.slice(0, 8))}…`).join("  ");
-      const meta = [];
-      if (n.meta) {
-        if (n.meta.description) meta.push(esc2(n.meta.description));
-        if (n.meta.family) meta.push(esc2(n.meta.family) +
-          (n.meta.A ? ` A=${n.meta.A}` : ""));
-        if (n.meta.symbol && !n.meta.description) meta.push(esc2(n.meta.symbol));
-      }
-      if (!n.meta?.description && n.label && !meta.length) meta.push(esc2(n.label));
-      return `<tr>
-        <td style="text-align:left">${aLink(m.chain, a)}</td>
-        <td style="text-align:left">${badge(n.type)}</td>
-        <td style="text-align:left; color:#c9d1d9">${meta.join(" · ") || "—"}</td>
-        <td style="text-align:left; color:#e3b341">${maStr(n.ma) || "—"}</td>
-        <td style="text-align:left; font-size:10px; color:#6e7681">${refs || "—"}</td>
-      </tr>`;
-    }).join("");
-    return `<tr class="mkt-row" style="cursor:pointer">
-        <td style="text-align:left"><b>${esc2(name)}</b></td>
-        <td style="text-align:left; color:#8b949e">${esc2(m.chain)}</td>
-        <td>${tvl}</td>
-        <td>${debt}</td>
-        <td>${usdCell}</td>
-        <td style="text-align:left">${o && o.root ? aLink(m.chain, o.root) : "—"}</td>
-        <td style="text-align:left">${typeSet.map(badge).join(" ")}</td>
-        <td style="text-align:left; color:#e3b341; font-size:10.5px">${emaCell
-          || (o ? '<span style="color:#8b949e">none (raw feed)</span>' : "not walked")}</td>
-      </tr>
-      <tr class="mkt-detail" style="display:none"><td colspan="8"
-          style="text-align:left; background:#0d1117; padding:8px 12px">
-        <div class="note" style="margin:0 0 6px">controller ${aLink(m.chain, m.controller, false)}
-          · amm ${aLink(m.chain, m.amm, false)}</div>
-        ${addrs.length ? `<table class="study"><tr>
-            <th style="text-align:left">address</th><th style="text-align:left">type</th>
-            <th style="text-align:left">what</th><th style="text-align:left">EMA</th>
-            <th style="text-align:left">references</th></tr>${inner}</table>`
-          : `<div class="note">no oracle graph — run fetch_oracles.py</div>`}
-      </td></tr>`;
-  }
-
-  const HEAD = `<tr>
-      <th style="text-align:left">market</th><th style="text-align:left">chain</th>
-      <th>TVL</th><th>debt</th>
-      <th title="green: oracle path yields clean USD (crvUSD aggregator included, or no crvUSD pool in path). red: spot read from a crvUSD pool with no aggregator - price is in crvUSD">USD <button type="button"
-        class="hb-i" aria-label="what USD means here"
-        onclick="event.stopPropagation(); const n = document.getElementById('mk_usd_note');
-                 n.style.display = n.style.display === 'none' ? 'block' : 'none';">i</button></th>
-      <th style="text-align:left">oracle root</th>
-      <th style="text-align:left">venue types</th>
-      <th style="text-align:left">EMA</th></tr>`;
-  for (const [grp, el] of [["LLV1", "mk_llv1"], ["LLV2", "mk_llv2"]]) {
-    const ms = (mkts.groups[grp] || []);
-    const byChain = {};
-    for (const m of ms) (byChain[m.chain] = byChain[m.chain] || []).push(m);
-    const counts = CHAINS.filter(c => byChain[c])
-      .map(c => `${c} ${byChain[c].length}`).join(" · ");
-    let html = `<div class="chart-title" style="font-size:14px">
-        ${grp} — ${grp === "LLV1" ? "one-way lending" : "LlamaLend V2"}
-        (${ms.length} markets · ${counts})</div>
-      <table class="study" style="font-size:12px">` + HEAD;
-    for (const c of CHAINS) {
-      if (!byChain[c]) continue;
-      html += `<tr><td colspan="7" style="text-align:left; font-weight:600;
-          color:#c9d1d9; background:#161b22; padding:6px 8px">${esc2(c)}
-          <span style="color:#8b949e; font-weight:400">· ${byChain[c].length} markets</span></td></tr>`;
-      html += byChain[c].slice()
-        .sort((a, b) => (b.market_tvl_usd || 0) - (a.market_tvl_usd || 0))
-        .map(marketRows).join("");
-    }
-    html += "</table>";
-    document.getElementById(el).innerHTML = html;
-    // Row click toggles its detail row. (Re)bound on every render.
-    for (const r of document.getElementById(el).querySelectorAll(".mkt-row"))
-      r.addEventListener("click", (ev) => {
-        if (ev.target.closest("a")) return;   // let explorer links be links
-        const d = r.nextElementSibling;
-        d.style.display = d.style.display === "none" ? "" : "none";
-      });
-  }
-  note.textContent = `markets snapshot ${mkts.fetched_at_utc}` +
-    (orcs ? ` · oracle graphs ${orcs.fetched_at_utc}` : " · oracles.json missing") +
-    " · click a row for the full oracle chain";
-};
-
-// LLV1 / LLV2 sub-tabs inside the Markets view — one group visible at a time,
-// never mixed. Wired once at load; the renderer above fills both containers.
-for (const b of document.querySelectorAll("#mk_group button")) {
-  b.addEventListener("click", () => {
-    for (const o of document.querySelectorAll("#mk_group button"))
-      o.classList.toggle("on", o === b);
-    document.getElementById("mk_llv1").style.display =
-      b.dataset.grp === "LLV1" ? "" : "none";
-    document.getElementById("mk_llv2").style.display =
-      b.dataset.grp === "LLV2" ? "" : "none";
-  });
-}
-
-// ---- Spring-Cleaning tab ---------------------------------------------------
-// The three parameter charts over EVERY market (LLV1 + LLV2, every chain).
-// Re-pulls every 5 minutes while the app is open; the server re-renders the
-// PNGs on its hourly refresh cycle.
-window.loadCleaningTab = async function () {
-  const note = document.getElementById("cl_note");
-  const esc3 = s => String(s ?? "").replace(/[&<>"]/g,
-    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-
-  async function render() {
-    let mkts;
-    try { mkts = await fetch("/markets").then(r => r.json()); }
-    catch (e) { note.textContent = "failed to load: " + e; return; }
-    // The parameter charts are the matplotlib PNGs from images/ — the exact
-    // charts this view started as — re-rendered server-side each refresh
-    // cycle and served via /chart/. The timestamp busts the browser cache
-    // whenever the underlying markets snapshot changes.
-    const bust = mkts.fetched_at || 0;
-    document.getElementById("cl_charts").innerHTML =
-      ["max_ltv_vs_market_tvl.png",
-       "loan_discount_vs_market_tvl.png",
-       "liquidation_discount_vs_market_tvl.png"]
-      .map(n => `<div style="border:1px solid #21262d; border-radius:5px;
-             background:#0d1117; margin-bottom:16px">
-           <img src="/chart/${n}?t=${bust}" alt="${esc3(n)}"
-             style="display:block; width:100%; max-width:1250px; height:auto"></div>`)
-      .join("");
-
-    note.textContent = "";
-  }
-
-  await render();
-  if (!window.__clTimer)
-    window.__clTimer = setInterval(render, 300_000);
-};
-
-// ---- Current Params tab ---------------------------------------------------
-// The live on-chain LLAMMA A and AMM base fee per market — same pipeline as
-// Spring-Cleaning: values fetched hourly via Multicall3 (fetch_markets.py),
-// matplotlib PNGs re-rendered each cycle, cache-busted by snapshot age.
-window.loadParamsTab = async function () {
-  const note = document.getElementById("pm_note");
-  const esc5 = s => String(s ?? "").replace(/[&<>"]/g,
-    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-
-  async function render() {
-    let mkts;
-    try { mkts = await fetch("/markets").then(r => r.json()); }
-    catch (e) { note.textContent = "failed to load: " + e; return; }
-    const bust = mkts.fetched_at || 0;
-    document.getElementById("pm_charts").innerHTML =
-      ["llamma_a_vs_market_tvl.png",
-       "amm_fee_vs_market_tvl.png"]
-      .map(n => `<div style="border:1px solid #21262d; border-radius:5px;
-             background:#0d1117; margin-bottom:16px">
-           <img src="/chart/${n}?t=${bust}" alt="${esc5(n)}"
-             style="display:block; width:100%; max-width:1250px; height:auto"></div>`)
-      .join("");
-    note.textContent = "";
-  }
-
-  await render();
-  if (!window.__pmTimer)
-    window.__pmTimer = setInterval(render, 300_000);
-};
 
 // ---- Bad Debt tab ----------------------------------------------------------
 // Every market on every chain (any LTV tier) whose positions' debt exceeds
@@ -4468,6 +4358,10 @@ window.loadBadDebtTab = async function () {
       note.textContent = "waiting for first scan…";
       return;
     }
+    const byCtrl = {};
+    for (const lst of Object.values((mkts && mkts.groups) || {}))
+      for (const mm of lst)
+        byCtrl[`${mm.chain}:${mm.controller.toLowerCase()}`] = mm;
     const ms = Object.values(bd.markets)
       .sort((a, b) => b.bad_debt_usd - a.bad_debt_usd);
     const total = ms.reduce((s, m) => s + m.bad_debt_usd, 0);
@@ -4482,7 +4376,9 @@ window.loadBadDebtTab = async function () {
     for (const m of ms) {
       const share = m.debt_usd ? m.bad_debt_usd / m.debt_usd : null;
       html += `<tr class="bd-row" style="cursor:pointer">
-        <td style="text-align:left"><b>${esc4(m.market)}</b></td>
+        <td style="text-align:left">${pairImgs(
+          byCtrl[`${m.chain}:${(m.controller || "").toLowerCase()}`], 22)}
+          <b>${esc4(m.market)}</b></td>
         <td style="text-align:left; color:#8b949e">${esc4(m.group)}</td>
         <td style="text-align:left; color:#8b949e">${esc4(m.chain)}</td>
         <td style="color:#f85149"><b>${Math.round(m.bad_debt_usd).toLocaleString()}</b></td>
@@ -4673,6 +4569,9 @@ window.loadSldlTab = async function loadSldlTab() {
   function updSrcDays() {
     const src = document.getElementById("sldl_src");
     const el = document.getElementById("sldl_src_days");
+    const lbl = src.options[src.selectedIndex]?.textContent || "";
+    document.getElementById("sldl_src_logo").innerHTML =
+      window.symImg ? symImg(lbl, null, 54) : "";
     const d = srcDays[src.value];
     el.innerHTML = (d != null && d < 365)
       ? `<span style="color:#e3b341" title="only ${d} days of history">&#9888; &lt;1y</span>`
@@ -4972,17 +4871,15 @@ window.loadYbTab = async function loadYbTab() {
       return;
     }
     if (seq !== drawSeq) return;   // a newer window superseded this load
+    // legend logos come from the shared token index — wait for its
+    // bootstrap so a direct /yb_ landing doesn't render without them
+    try { await window.__tokReady; } catch (_) {}
+    if (seq !== drawSeq) return;
     shownDays = days;
     lastData = d;
     renderImbalance(d);
     drawBalances(d);
-    const gap_m = (d.t[d.t.length - 1] - d.t[0]) / (d.t.length - 1) / 60;
-    const gap = gap_m < 90 ? `${gap_m.toFixed(0)} min`
-                           : `${(gap_m / 60).toFixed(1)} h`;
-    meta.textContent = `${d.points} samples over ${d.days}d · ` +
-      `1 sample / ${gap} · snapshot ${new Date(d.generated_at * 1000)
-        .toISOString().replace("T", " ").slice(0, 16)} UTC · ` +
-      `auto-refreshes every 15 min`;
+    meta.textContent = "";
   }
 
   // Legend + titles sit centred over the PLOT, not the svg box: the plot
@@ -5126,7 +5023,8 @@ window.loadYbTab = async function loadYbTab() {
           ? `repeating-linear-gradient(90deg,${colr} 0 4px,transparent 4px 7px)`
           : colr;
       legend.innerHTML += `<div class="legend-item" title="${tip}">
-        <span class="swatch" style="background:${sw}; height:8px"></span>${label}</div>`;
+        <span class="swatch" style="background:${sw}; height:8px"></span>${
+          window.symImg ? symImg(sym, "ethereum", 15) : ""}${label}</div>`;
     }
     svg.innerHTML = g;
     attachHover(svg, { W, H, top: M.top, bottom: H - M.bottom,
@@ -5290,8 +5188,11 @@ window.loadPegkeeperTab = async function loadPegkeeperTab() {
         ? (k.total_debt || 0) / k.ceiling * 100 : null;
       const col = used == null ? "#30363d"
         : used >= 90 ? "#f85149" : used >= 60 ? "#ED7D31" : "#70AD47";
+      const nonCrv = (k.pair || []).filter(t => t.symbol !== "crvUSD");
       h += `<tr${k.active ? "" : ' style="opacity:.45"'}>
-        <td style="text-align:left"><b>${esc(stable)}</b>/crvUSD</td>
+        <td style="text-align:left">${nonCrv.map(t =>
+            tokImg(t.address, "ethereum", 22)).join("")}
+          <b>${esc(stable)}</b>/crvUSD</td>
         <td style="text-align:left" title="${esc(k.address)}">
           ${esc(k.address.slice(0, 10))}…</td>
         <td>${k.active ? "✓" : "✗ retired"}</td>
@@ -5321,6 +5222,1450 @@ window.loadPegkeeperTab = async function loadPegkeeperTab() {
   } catch (e) {
     meta.textContent = "failed to load pegkeeper state: " + e.message;
   }
+};
+
+// ---- LLM tab --------------------------------------------------------------
+// Every LlamaLend market with its security surface: contracts (etherscan +
+// github), the oracle chain and the LP situation of every pool it reads,
+// exit liquidity, borrowers, immutable vs DAO-set parameters, parameter
+// timelines, and daily history since inception. Data: /llm + /llmhist
+// (fetch_llm.py — Curve prices API, no RPC), joined client-side with
+// /markets, /oracles and /lp.
+window.loadLlmTab = async function () {
+  const body = document.getElementById("lm_body");
+  const meta = document.getElementById("lm_meta");
+  const esc = s => String(s ?? "").replace(/[&<>"]/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const SCAN = { ethereum: "https://etherscan.io",
+    optimism: "https://optimistic.etherscan.io",
+    arbitrum: "https://arbiscan.io", fraxtal: "https://fraxscan.com",
+    sonic: "https://sonicscan.org" };
+  const GH = "https://github.com/curvefi/curve-stablecoin/blob/master/curve_stablecoin/";
+  const GH_KIND = {
+    amm: GH + "AMM.vy",
+    controller1: GH + "controller.vy",
+    controller2: GH + "lending/LendController.vy",
+    vault: GH + "lending/Vault.vy",
+    policy: GH.replace("/blob/", "/tree/") + "mpolicies",
+    oracle: GH.replace("/blob/", "/tree/") + "price_oracles" };
+  const EDAO_URL = "https://docs.curve.finance/user/dao/emergency-dao";
+  // a pool feeding a price oracle with less TVL than this gets flagged
+  const LOW_ORACLE_TVL = 100e3;
+  const usd = v => {
+    const a = Math.abs(v ?? 0);
+    if (a >= 1e9) return "$" + (v / 1e9).toFixed(2) + "B";
+    if (a >= 1e6) return "$" + (v / 1e6).toFixed(1) + "M";
+    if (a >= 1e3) return "$" + (v / 1e3).toFixed(0) + "k";
+    return "$" + Math.round(v ?? 0);
+  };
+  const nfmt = v => v == null ? "—"
+    : Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(2) + "M"
+    : Math.abs(v) >= 1e3 ? (v / 1e3).toFixed(1) + "k"
+    : (+v).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const short = a => a ? a.slice(0, 8) + "…" + a.slice(-4) : "—";
+  const aLink = (ch, a, label) => a
+    ? `<a href="${(SCAN[ch] || SCAN.ethereum)}/address/${esc(a)}"
+        target="_blank" rel="noopener"
+        style="font-family:ui-monospace,monospace">${esc(label || short(a))}</a>`
+    : "—";
+  const day = t => new Date(t * 1000).toISOString().slice(0, 10);
+
+  let llm = null, mkts = null, oras = null, lps = null, bds = null;
+  const histCache = {};
+  let expanded = null;
+
+  async function loadAll() {
+    [llm, mkts, oras, lps, bds] = await Promise.all([
+      fetch("/llm").then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch("/markets").then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch("/oracles").then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch("/lp").then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch("/baddebt").then(r => r.ok ? r.json() : null).catch(() => null)]);
+  }
+  const mktByKey = () => {
+    const out = {};
+    for (const [g, lst] of Object.entries((mkts && mkts.groups) || {}))
+      for (const m of lst)
+        out[`${m.chain}:${m.controller.toLowerCase()}`] = m;
+    return out;
+  };
+
+  // one-line LP situation of a pool (from the LP tab's dataset)
+  function lpLine(chain, addr) {
+    const p = lps && lps.pools && lps.pools[`${chain}:${addr}`];
+    if (!p) return `<span style="color:#6e7681">LP holders: not tracked</span>`;
+    const top = (p.top || [])[0];
+    const t = top ? `top LP ${esc(top.label && top.kind !== "eoa"
+        ? top.label : short(top.addr))} ${top.pct.toFixed(1)}%` : "";
+    const cov = p.coverage_pct != null && p.coverage_pct < 90
+      ? ` <span style="color:#e3b341">⚠ scan ${p.coverage_pct}%</span>` : "";
+    return `<span style="color:#8b949e">${usd(p.tvl)} · ${p.n_holders}
+      LPs · ${t}${cov}</span>`;
+  }
+
+  let gradSeq = 0;
+  const sparkReg = {};        // spark-id -> series data for the hover layer
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
+               "Sep", "Oct", "Nov", "Dec"];
+  function sparkline(t, vals, { pct = false, money = false,
+      color = "#58a6ff", avg7 = false, step = false,
+      w = 860, h = 180 } = {}) {
+    const xs = [], ys = [];
+    for (let i = 0; i < t.length; i++)
+      if (vals[i] != null && isFinite(vals[i])) { xs.push(t[i]); ys.push(+vals[i]); }
+    if (xs.length < 2) { sparkline.last = "";
+      return `<div class="note">no history in this window</div>`; }
+    const W = w, H = h, L = 58, R = 12, T = 16, B = 22;
+    const dataMin = Math.min(...ys);
+    let lo = dataMin, hi = Math.max(...ys);
+    if (hi === lo) { hi += (Math.abs(hi) || 1) * .05; lo -= (Math.abs(lo) || 1) * .05; }
+    const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+    if (dataMin >= 0 && lo < 0) lo = 0;   // supplied $ can't be negative
+    const X = x => L + (x - xs[0]) / (xs[xs.length - 1] - xs[0]) * (W - L - R);
+    const Y = y => T + (1 - (y - lo) / (hi - lo)) * (H - T - B);
+    const fy = v => pct ? v.toFixed(Math.abs(hi) < 10 ? 2 : 1) + "%"
+      : money ? (Math.abs(hi) < 1000
+          ? "$" + v.toFixed(hi - lo < 0.2 ? 4 : hi - lo < 20 ? 2 : 0)
+          : usd(v)) : nfmt(v);
+    const span = xs[xs.length - 1] - xs[0];
+    const fmtX = ts => {
+      const d = new Date(ts * 1000);
+      return span >= 320 * 86400
+        ? `${MON[d.getUTCMonth()]} '${String(d.getUTCFullYear()).slice(2)}`
+        : `${MON[d.getUTCMonth()]} ${d.getUTCDate()}`;
+    };
+    let g = "";
+    for (let k = 0; k <= 3; k++) {
+      const v = lo + (hi - lo) * k / 3;
+      g += `<line x1="${L}" y1="${Y(v)}" x2="${W - R}" y2="${Y(v)}"
+             stroke="#1c2128" stroke-dasharray="3 4"/>
+            <text x="${L - 8}" y="${Y(v) + 3.5}" text-anchor="end"
+             fill="#6e7681" font-size="10.5">${fy(v)}</text>`;
+    }
+    for (let k = 0; k <= 4; k++) {
+      const x = xs[0] + (xs[xs.length - 1] - xs[0]) * k / 4;
+      g += `<text x="${X(x)}" y="${H - 6}" text-anchor="middle"
+             fill="#57606a" font-size="10.5">${fmtX(x)}</text>`;
+    }
+    const pt = (x, y) => `${X(x).toFixed(1)},${Y(y).toFixed(1)}`;
+    let pts;                       // step: hold value until the next sample
+    if (step) {
+      const parts = [];
+      for (let i = 0; i < xs.length; i++) {
+        if (i) parts.push(pt(xs[i], ys[i - 1]));
+        parts.push(pt(xs[i], ys[i]));
+      }
+      pts = parts.join(" ");
+    } else pts = xs.map((x, i) => pt(x, ys[i])).join(" ");
+    const gid = "lmg" + (gradSeq++);
+    const xEnd = X(xs[xs.length - 1]).toFixed(1);
+    const base = (H - B + 1).toFixed(1);
+    const last = ys[ys.length - 1];
+    let avg = "", label = fy(last);
+    if (avg7) {
+      const sm = ys.map((_, i) => {
+        const s = ys.slice(Math.max(0, i - 6), i + 1);
+        return s.reduce((a, b) => a + b, 0) / s.length;
+      });
+      avg = `<polyline fill="none" stroke="#e6edf3" stroke-width="1.8"
+        opacity="0.9" stroke-linejoin="round"
+        points="${xs.map((x, i) => pt(x, sm[i])).join(" ")}"/>`;
+      label = "7d avg " + fy(sm[sm.length - 1]);
+    }
+    sparkline.last = label;
+    sparkReg[gid] = { xs, ys, lo, hi, W, H, L, R, T, B, fy,
+      fx: i => { const d = new Date(xs[i] * 1000);
+        return `${MON[d.getUTCMonth()]} ${d.getUTCDate()} '${
+          String(d.getUTCFullYear()).slice(2)}`; } };
+    return `<svg viewBox="0 0 ${W} ${H}" data-spark="${gid}"
+        style="width:100%; display:block">
+      <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.26"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+      </linearGradient></defs>
+      ${g}
+      <polygon fill="url(#${gid})"
+        points="${X(xs[0]).toFixed(1)},${base} ${pts} ${xEnd},${base}"/>
+      <polyline fill="none" stroke="${color}"
+        stroke-width="${avg7 ? 1.1 : 1.8}"${avg7 ? ' opacity="0.5"' : ""}
+        stroke-linejoin="round" points="${pts}"/>
+      ${avg}
+      <circle cx="${xEnd}" cy="${Y(last).toFixed(1)}" r="5.5"
+        fill="${color}" opacity="0.22"/>
+      <circle cx="${xEnd}" cy="${Y(last).toFixed(1)}" r="2.4"
+        fill="${color}"/>
+      <g data-hv style="display:none" pointer-events="none">
+        <line data-hvl y1="${T}" y2="${H - B}" stroke="#6e7681"
+          stroke-dasharray="2 3"/>
+        <circle data-hvc r="3.2" fill="${color}" stroke="#0d1117"
+          stroke-width="1"/>
+        <rect data-hvr fill="#010409" opacity="0.88" rx="4" height="16"
+          y="${T - 12}"/>
+        <text data-hvt fill="#e6edf3" font-size="11" text-anchor="middle"
+          y="${T}"/>
+      </g></svg>`;
+  }
+
+  // one hue per address — stable across renders (FNV-1a x golden angle)
+  const hueOf = a => {
+    let h = 2166136261;
+    const s = String(a || "").toLowerCase();
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0;
+    }
+    return Math.round(h * 137.508 % 360);
+  };
+  function pieSvg(slices, size = 104) {
+    const C = size / 2, r = C - 1;
+    let a0 = -Math.PI / 2, out = "";
+    for (const s of slices) {
+      if (s.pct >= 99.95) {
+        out += `<circle cx="${C}" cy="${C}" r="${r}" fill="${s.color}">
+          <title>${s.tip}</title></circle>`;
+        break;
+      }
+      const a1 = a0 + s.pct / 100 * 2 * Math.PI;
+      const x0 = C + r * Math.cos(a0), y0 = C + r * Math.sin(a0);
+      const x1 = C + r * Math.cos(a1), y1 = C + r * Math.sin(a1);
+      out += `<path d="M${C},${C} L${x0.toFixed(1)},${y0.toFixed(1)}
+        A${r},${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1
+        ${x1.toFixed(1)},${y1.toFixed(1)} Z" fill="${s.color}"
+        stroke="#161b22" stroke-width="0.6"><title>${s.tip}</title></path>`;
+      a0 = a1;
+    }
+    return `<svg viewBox="0 0 ${size} ${size}"
+      style="width:${size}px; height:${size}px; flex:none">${out}</svg>`;
+  }
+
+  const lpRowName = x => x.label && x.kind !== "eoa" ? x.label : short(x.addr);
+  const poolSlices = p => {
+    const named = p.top.filter(x => x.pct >= 3).slice(0, 4);
+    const tail = p.top.slice(named.length);
+    const rest = Math.max(0, p.rest_pct || 0);
+    return named.map(x => ({ pct: x.pct,
+        color: `hsl(${hueOf(x.addr)},55%,52%)`,
+        tip: `${lpRowName(x)} — ${x.pct.toFixed(1)}%` }))
+      .concat(tail.map((x, i) => ({ pct: x.pct,
+        color: i % 2 ? "#2c323a" : "#3a4149",
+        tip: `${lpRowName(x)} — ${x.pct.toFixed(2)}%` })))
+      .concat(rest > 0.01 ? [{ pct: rest, color: "#21262d",
+        tip: `everyone else — ${rest.toFixed(1)}%` }] : []);
+  };
+
+  // pool card: LP-situation pie + top holders, tagged oracle / exit
+  function poolCard(ch, addr, info) {
+    const p = lps && lps.pools && lps.pools[`${ch}:${addr}`];
+    const name = info.name || (p && p.label) || short(addr);
+    const tvl = info.tvl ?? (p && p.tvl);
+    const badge = (txt, col) => `<span style="border:1px solid ${col};
+        color:${col}; background:${col}22; padding:2px 9px;
+        border-radius:4px; font-size:10.5px; font-weight:600;
+        letter-spacing:.06em">${txt}</span>`;
+    const roleLine = "";   // the section title carries the EXIT badge now
+    const psize = info.size || 198;   // pie AREA scales with pool TVL
+    let pie = `<div style="width:${psize}px; height:${psize}px;
+        border-radius:50%;
+        background:#161b22; flex:none; display:flex; align-items:center;
+        justify-content:center; color:#6e7681; font-size:10px;
+        text-align:center">no LP<br>scan yet</div>`;
+    let legend = "";
+    if (p && p.top && p.top.length) {
+      const named = p.top.filter(x => x.pct >= 3).slice(0, 4);
+      pie = pieSvg(poolSlices(p), psize);
+      legend = named.slice(0, 3).map(x => `
+        <div style="display:flex; align-items:center; gap:6px; min-width:0">
+          <span style="flex:none; width:8px; height:8px; border-radius:2px;
+            background:hsl(${hueOf(x.addr)},55%,52%)"></span>
+          <span style="overflow:hidden; text-overflow:ellipsis;
+            white-space:nowrap">${aLink(ch, x.addr, lpRowName(x))}</span>
+          <span style="flex:none; color:#8b949e">${x.pct.toFixed(1)}%</span>
+        </div>`).join("") +
+        `<div style="color:#6e7681; margin-top:2px">${p.n_holders} LPs${
+          p.coverage_pct != null && p.coverage_pct < 90
+            ? ` · <span style="color:#e3b341">scan ${p.coverage_pct}%</span>`
+            : ""}</div>`;
+    }
+    const coinImgs = (info.coins || (p && p.coins
+        ? p.coins.map(c => c.a) : []) || [])
+      .map(a2 => tokImg(a2, ch, 36)).join("");
+    return `<div style="border:1px solid #21262d; border-radius:6px;
+        background:#0d1117; padding:10px 12px; min-width:0;
+        display:flex; flex-direction:column">
+      ${roleLine}
+      <div style="display:flex; align-items:center; justify-content:center;
+          gap:6px; margin-bottom:6px; font-size:11.5px; position:relative;
+          min-height:36px">
+        <span style="display:inline-flex; align-items:center;
+            position:absolute; left:0; top:50%;
+            transform:translateY(-50%)">${coinImgs}</span>
+        ${aLink(ch, addr, name)}
+        ${info.type ? ` <span class="pill">${esc(info.type)}</span>` : ""}
+        ${tvl != null ? `<span style="color:#e6edf3; position:absolute;
+            right:0; top:50%; transform:translateY(-50%)">${usd(tvl)}
+          </span>` : ""}
+      </div>
+      <div style="flex:1; display:flex; justify-content:center;
+          align-items:center; margin:0 0 10px">
+        ${pie}</div>
+      <div style="min-width:0; font-size:11.5px; display:flex;
+          flex-direction:column; align-items:center">
+        ${legend}
+      </div></div>`;
+  }
+
+  const box = (title, inner, slug) => `
+    <div${slug ? ` id="sec-${slug}"` : ""} style="border:1px solid #21262d;
+        border-radius:6px; background:#0d1117; padding:10px 14px">
+      <div class="lm-sec"${slug ? ` data-slug="${slug}"` : ""}
+        style="font-size:11px; letter-spacing:.06em; color:#8b949e;
+        text-transform:uppercase; margin-bottom:6px${slug
+          ? "; cursor:pointer" : ""}">${title}</div>
+      <div style="font-size:12px">${inner}</div></div>`;
+
+  function marketHtml(key, e, m, hist) {
+    const ch = e.chain;
+    const isV2 = e.group === "LLV2";
+    const og = oras && oras.markets && oras.markets[key];
+    const collSym = m ? m.collateral.symbol : e.name.split("/")[0];
+    const borSym = m ? m.borrowed.symbol : e.name.split("/")[1];
+
+    // -- contracts ---------------------------------------------------------
+    const cRow = (label, addr, ghUrl) => addr ? `
+      <div style="display:flex; gap:8px; align-items:baseline">
+        <span style="width:118px; flex:none; color:#8b949e">${label}</span>
+        ${aLink(ch, addr)}
+        <a href="${ghUrl}" target="_blank" rel="noopener"
+           style="color:#8b949e">[github]</a></div>` : "";
+    const contracts =
+      cRow("controller", e.controller,
+           isV2 ? GH_KIND.controller2 : GH_KIND.controller1) +
+      cRow("AMM (LLAMMA)", e.amm, GH_KIND.amm) +
+      cRow("vault", e.vault, GH_KIND.vault) +
+      cRow("gauge", e.gauge, GH_KIND.vault) +
+      cRow("monetary policy", e.policy, GH_KIND.policy) +
+      cRow("price oracle", e.oracle || (og && og.root), GH_KIND.oracle);
+
+    // -- oracle chain: right-to-left flow map, drawn by drawOracleMap ------
+    let oracleHtml = `<div class="note">oracle graph not scanned</div>`;
+    const oraclePools = new Set(e.oracle_pools || []);
+    if (og && og.nodes) {
+      for (const [a, n] of Object.entries(og.nodes))
+        if (n.type === "pool") oraclePools.add(a.toLowerCase());
+      // warn when a price-feeding pool is thin enough to move cheaply.
+      // Pools that only feed the crvUSD aggregator are exempt: it weighs
+      // each pair by its crvUSD balance, so an empty pool has ~no vote.
+      // Adapters are transparent — a pool behind an NG adapter behind the
+      // agg is still agg-only.
+      const refTypes = (a, seen) => {
+        seen = seen || new Set();
+        if (seen.has(a)) return [];
+        seen.add(a);
+        const out = [];
+        for (const [pa, nn] of Object.entries(og.nodes))
+          for (const t of Object.values(nn.refs || {}))
+            if (String(t).toLowerCase() === a)
+              out.push(...(nn.type === "adapter"
+                ? refTypes(pa, seen) : [nn.type]));
+        return out;
+      };
+      const feedsOnlyAgg = a => {
+        const types = refTypes(a);
+        return types.length > 0 && types.every(t => t === "agg");
+      };
+      const lowPools = [];
+      for (const [a, n] of Object.entries(og.nodes)) {
+        if (n.type !== "pool") continue;
+        const p = lps && lps.pools && lps.pools[`${ch}:${a}`];
+        if (p && p.tvl != null && p.tvl < LOW_ORACLE_TVL && !feedsOnlyAgg(a))
+          lowPools.push(`${esc(p.label || short(a))} (${usd(p.tvl)})`);
+      }
+      const lowWarn = lowPools.length ? `<div style="border:1px solid
+          #f85149; background:#f8514915; border-radius:6px;
+          padding:6px 10px; margin-bottom:8px; font-size:11.5px">
+        <span style="color:#f85149; font-weight:700">⚠ LOW-TVL ORACLE
+          SOURCE</span> <span style="color:#e6edf3">— ${lowPools.join(", ")}
+          feed${lowPools.length > 1 ? "" : "s"} this price with under ${
+          usd(LOW_ORACLE_TVL)} of liquidity; the EMA is cheap to move
+        </span></div>` : "";
+      oracleHtml = lowWarn + `<div data-oracle-map style="position:relative;
+          overflow-x:auto; overflow-y:hidden; padding:4px 2px"></div>`;
+    }
+
+    // -- pools (pies): every Curve pool >= $50k holding the collateral or
+    //    its underlying (fetch_llm exit_pools); the picked venue is tagged
+    //    PRIMARY. Oracle-only pools live in the flow map above. -----------
+    const pools = new Map();
+    const venueA = m && m.venue && m.venue.pool
+      ? m.venue.pool.toLowerCase() : null;
+    for (const xp of (e.exit_pools || []))
+      pools.set(xp.a, { name: xp.n, tvl: xp.tvl, exit: true,
+                        coins: xp.c, primary: xp.a === venueA });
+    if (venueA && !pools.has(venueA))
+      pools.set(venueA, { name: m.venue.name, tvl: m.venue.pair_tvl_usd,
+                          type: m.venue.pool_type, exit: true,
+                          primary: true });
+    const maxTvl = Math.max(1, ...[...pools.values()]
+      .map(x => x.tvl || 0));
+    for (const x of pools.values())
+      x.size = Math.round(Math.max(72, 198 * Math.sqrt(
+        (x.tvl || 0) / maxTvl)));
+    const poolsHtml = pools.size
+      ? `<div style="display:grid; gap:8px;
+           grid-template-columns:repeat(auto-fill, minmax(330px, 1fr))">${
+           [...pools].map(([a, x]) => poolCard(ch, a, x)).join("")}</div>`
+      : `<div class="note">no venue found for this collateral</div>`;
+
+    // -- parameters: fixed vs DAO ------------------------------------------
+    const pRow = (k, v) => v == null ? "" : `
+      <div style="display:flex; gap:8px"><span style="width:150px; flex:none;
+        color:#8b949e">${k}</span><span>${v}</span></div>`;
+    const fixed =
+      pRow("A", m && m.llamma_A) +
+      pRow("band width", m ? (100 / m.llamma_A).toFixed(2) + "% per band" : null) +
+      pRow("collateral", m ? `${esc(collSym)} ${aLink(ch, m.collateral.addr)}` : null) +
+      pRow("borrowed", m ? `${esc(borSym)} ${aLink(ch, m.borrowed.addr)}` : null) +
+      pRow("oracle contract", (e.oracle || (og && og.root))
+        ? aLink(ch, e.oracle || og.root) : null);
+    const dao =
+      pRow("AMM fee", m ? m.amm_fee_pct + "%" : null) +
+      pRow("loan discount", m ? m.loan_discount_pct + "%" : null) +
+      pRow("liq. discount", m ? m.liquidation_discount_pct + "%" : null) +
+      (isV2 ? pRow("borrow cap", m && m.borrow_cap != null
+        ? `${nfmt(m.borrow_cap)} ${esc(borSym)} (${usd(m.borrow_cap_usd)})` : null) : "") +
+      (isV2 ? pRow("DAO fee share", m && m.admin_fee_share_pct != null
+        ? `${m.admin_fee_share_pct.toFixed(0)}% of borrow interest`
+        : null) : "") +
+      pRow("monetary policy", e.policy
+        ? aLink(ch, e.policy) : null);
+
+    // -- bad debt: the hourly /baddebt scan lists every market where some
+    //    position's debt exceeds its backing at the AMM oracle; absence
+    //    from that file means the scan found none ------------------------
+    const bdm = bds && bds.markets && bds.markets[key];
+    let badDebtHtml = "";
+    if (bdm && bdm.bad_debt_usd > 0) {
+      const uw = (bdm.underwater || []).filter(x => x.underwater)
+        .sort((x, y) => (y.shortfall_usd || 0) - (x.shortfall_usd || 0));
+      const uwRows = uw.map(r => `<tr>
+        <td style="text-align:left">${aLink(ch, r.addr)}</td>
+        <td>$${Math.round(r.debt_usd).toLocaleString()}</td>
+        <td>$${Math.round(r.backing_usd).toLocaleString()}</td>
+        <td style="color:#f85149">$${Math.round(r.shortfall_usd)
+          .toLocaleString()}</td></tr>`).join("");
+      badDebtHtml = box(
+        `<span style="border:1px solid #f85149; color:#f85149;
+           background:#f8514922; padding:2px 9px; border-radius:4px;
+           font-weight:600; letter-spacing:.06em">BAD DEBT</span>
+         <span style="color:#f85149; font-weight:700; margin-left:6px;
+           text-transform:none">${usd(bdm.bad_debt_usd)}</span>`, `
+        <div style="color:#8b949e; margin-bottom:4px">
+          ${bdm.n_underwater} of ${bdm.n_positions} positions owe more than
+          their backing (collateral at the AMM oracle + soft-liq crvUSD) —
+          worst single shortfall ${usd(bdm.worst_shortfall_usd)}</div>
+        ${uwRows ? `<details><summary class="note" style="cursor:pointer">
+          ${uw.length} underwater position${uw.length > 1 ? "s" : ""}
+          </summary>
+          <table class="study" style="font-size:11.5px; margin-top:6px"><tr>
+            <th style="text-align:left">borrower</th><th>debt</th>
+            <th>backing</th><th>shortfall</th></tr>${uwRows}</table>
+          </details>` : ""}`, "baddebt");
+    }
+
+    // -- borrowers ---------------------------------------------------------
+    const b = e.borrowers || {};
+    const bRows = (b.rows || []).map(r => `<tr>
+      <td style="text-align:left">${aLink(ch, r.a)}</td>
+      <td>$${Math.round(r.du).toLocaleString()}</td>
+      <td>$${Math.round(r.cu).toLocaleString()}</td>
+      <td style="color:${r.h == null ? "#8b949e" : r.h < 0 ? "#f85149"
+        : r.h < 0.05 ? "#ED7D31" : "#70AD47"}">${r.h == null ? "—" : r.h.toFixed(3)}</td>
+      <td>${r.sl ? '<span style="color:#ED7D31">soft-liq</span>' : ""}</td>
+    </tr>`).join("");
+    const borrowersHtml = `
+      <details><summary class="note" style="cursor:pointer">
+        ${b.n ?? (m && m.n_loans) ?? "?"} borrowers${
+          (b.rows || []).length ? ` — top ${(b.rows || []).length} listed` : ""}
+      </summary>${(b.rows || []).length ? `
+      <table class="study" style="font-size:11.5px; margin-top:6px"><tr>
+        <th style="text-align:left">borrower</th><th>debt</th>
+        <th>backing</th><th>health</th><th></th></tr>${bRows}</table>`
+      : `<div class="note">${b.error ? "borrower scan unavailable ("
+          + esc(b.error) + ")" : "none"}</div>`}</details>`;
+
+    // -- history: every chart, stacked (no series picker) ------------------
+    const histNote = e.hist_days
+      ? (e.hist_complete ? `history since inception — ${e.hist_days} days`
+                         : `history backfilling — ${e.hist_days} days so far`)
+      : "history not yet available from the API";
+    let charts = `<div class="note">${histNote}</div>`;
+    if (hist && hist.t && hist.t.length > 1)
+      charts = `
+        <div style="display:flex; align-items:center; gap:10px">
+          <span class="seg" data-role="range" style="margin-left:auto">
+            <button type="button" data-r="all" class="on">all</button>
+            <button type="button" data-r="y">year</button>
+            <button type="button" data-r="m">month</button>
+            <button type="button" data-r="w">week</button></span>
+        </div>
+        <div data-chart="all"></div>`;
+
+    // -- parameter timelines: one step chart each, flat = never changed ----
+    const tl = (e.timeline || []);
+    const tlEvents = tl.length ? `<div style="margin-top:10px">${tl.map(ev => `
+      <div style="display:flex; gap:10px">
+        <span style="color:#8b949e; width:86px; flex:none">${day(ev.t)}</span>
+        <span>${esc(ev.param)}</span>
+        <span style="color:#8b949e">${nfmt(ev.old)} →</span>
+        <b>${nfmt(ev.new)}</b></div>`).join("")}</div>` : "";
+    const tlHtml = (hist && hist.t && hist.t.length > 1 && hist.ld)
+      ? `<div data-chart="params"></div>${tlEvents}`
+      : (tlEvents || `<div class="note">no parameter history yet</div>`);
+
+    return `<div style="display:grid; gap:10px;
+        grid-template-columns:minmax(0, 1fr)">
+      <div style="display:grid; gap:10px;
+          grid-template-columns:repeat(auto-fit, minmax(270px, 1fr))">
+        ${box("contracts", contracts, "contracts")}
+        ${box("DAO-adjustable parameters", dao, "dao")}
+        ${box("fixed parameters", fixed, "fixed")}
+        ${box(`<span style="text-transform:none">eDAO</span>
+            <a href="${EDAO_URL}" target="_blank" rel="noopener"
+            style="text-transform:none; margin-left:6px">docs</a>`, `
+          ${(ch === "ethereum" && !isV2 ? [
+              "AMM fee", "monetary policy", "loan discount",
+              "liquidation discount", "liquidity-mining callback",
+              "kill gauge"]
+            : ["kill gauge"])
+            .map(p => `<div style="color:#8b949e">${p}</div>`)
+            .join("")}`, "edao")}
+      </div>
+      ${badDebtHtml}
+      ${box("Oracle Flow-Chart", oracleHtml, "oracle")}
+      ${box(`<span style="border:1px solid #58a6ff; color:#58a6ff;
+             background:#58a6ff22; padding:2px 9px; border-radius:4px;
+             font-weight:600; letter-spacing:.06em">EXIT LIQUIDITY</span>`,
+            poolsHtml, "pools")}
+      ${box("borrowers", borrowersHtml, "borrowers")}
+      ${box("performance — daily history", charts, "history")}
+      ${box("parameters", tlHtml, "params")}
+    </div>`;
+  }
+
+  function wireCharts(root, e, m, hist) {
+    if (!hist || !hist.t || hist.t.length < 2) return;
+    const el = root.querySelector('[data-chart="all"]');
+    const isV2 = e.group === "LLV2";
+    const collSym = m ? m.collateral.symbol : e.name.split("/")[0];
+    const borSym = m ? m.borrowed.symbol : e.name.split("/")[1];
+    const panel = (slug, title, svg, color) => `
+      <div id="sec-${slug}" style="border:1px solid #21262d;
+          border-radius:6px; background:#10151d; padding:8px 12px 4px;
+          container-type:inline-size">
+        <div style="display:flex; align-items:baseline; gap:10px;
+            margin-bottom:2px">
+          <span class="lm-sec" data-slug="${slug}" style="font-size:12px;
+            font-size:2.14cqw; font-weight:600; color:#e6edf3;
+            cursor:pointer">${title}</span>
+          <span style="margin-left:auto; font-size:10px;
+            font-size:1.8cqw; color:#e6edf3">${sparkline.last || ""}</span>
+        </div>${svg}</div>`;
+    const grid = inner => `<div style="display:grid; gap:10px;
+        margin-top:8px;
+        grid-template-columns:repeat(2, minmax(0, 1fr))">${inner}</div>`;
+    const priceVals = hist.pu.some(v => v != null) ? hist.pu : hist.p;
+    const feeShare = (m && m.admin_fee_share_pct != null
+      ? m.admin_fee_share_pct : 10) / 100;
+    const revVals = hist.t.map((_, i) =>
+      hist.du[i] != null && hist.ba[i] != null
+        ? hist.du[i] * hist.ba[i] / 100 / 365 * feeShare : null);
+    const tvlVals = hist.t.map((_, i) =>
+      (hist.au[i] ?? 0) + (hist.cu[i] ?? 0));
+    const RANGES = { all: Infinity, y: 365, m: 30, w: 7, d: 1 };
+    const draw = rangeKey => {
+      const days = RANGES[rangeKey] ?? Infinity;
+      const tEnd = hist.t[hist.t.length - 1];
+      const from = days === Infinity ? -Infinity : tEnd - days * 86400;
+      const idx = [];
+      for (let i = 0; i < hist.t.length; i++)
+        if (hist.t[i] >= from) idx.push(i);
+      const pick = arr => idx.map(i => arr[i]);
+      const T = pick(hist.t);
+      const items = [
+        ["price", `${collSym} price`, pick(priceVals),
+         { money: true, color: "#e3b341" }],
+        ["tvl", "TVL", pick(tvlVals),
+         { money: true, color: "#A78BFA" }],
+        ["borrow-apr", "borrow APR", pick(hist.ba),
+         { pct: true, color: "#f85149" }],
+        ["lending-apr", "lending APR", pick(hist.la),
+         { pct: true, color: "#70AD47" }],
+        ["utilization", "utilization", pick(hist.u),
+         { pct: true, color: "#58a6ff" }],
+        ["supplied", `supplied ${borSym}`, pick(hist.au),
+         { money: true, color: "#4DB6AC" }],
+        ["borrowed", `borrowed ${borSym}`, pick(hist.du),
+         { money: true, color: "#ffa657" }],
+        ["collateral", `collateral ${collSym}`, pick(hist.cu),
+         { money: true, color: "#F778BA" }]];
+      if (isV2) items.push(
+        ["revenue", "daily DAO revenue — 7-day average in white",
+         pick(revVals),
+         { money: true, color: "#ED7D31", avg7: true }]);
+      el.innerHTML = grid(items.map(([slug, tt, v, o]) =>
+        panel(slug, tt, sparkline(T, v, { ...o, w: 560, h: 195 }),
+              o.color)).join(""));
+    };
+    const seg = root.querySelector('.seg[data-role="range"]');
+    if (seg) seg.addEventListener("click", ev => {
+      const btn = ev.target.closest("button");
+      if (!btn) return;
+      for (const o of seg.querySelectorAll("button"))
+        o.classList.toggle("on", o === btn);
+      draw(btn.dataset.r);
+    });
+    draw("all");
+    // parameter timelines: step lines, flat when never changed (A is
+    // immutable, so no chart for it — it lives in the fixed-params box)
+    const pe = root.querySelector('[data-chart="params"]');
+    if (pe && hist.ld) {
+      let feeChart = "";
+      const fp = e.fee_tl && e.fee_tl.points;
+      if (fp && fp.length) {
+        const nowS = Math.floor(Date.now() / 1000);
+        const fts = fp.map(q => q[0]).concat([nowS]);
+        const fvs = fp.map(q => q[1]).concat([fp[fp.length - 1][1]]);
+        feeChart = panel("fee", "AMM fee %",
+          sparkline(fts, fvs, { step: true, color: "#e3b341", pct: true,
+                                w: 560, h: 195 }), "#e3b341");
+      }
+      let shareChart = "";
+      if (m && m.admin_fee_share_pct != null && e.created_at) {
+        const nowS = Math.floor(Date.now() / 1000);
+        shareChart = panel("dao-share", "DAO fee share %",
+          sparkline([e.created_at, nowS],
+            [m.admin_fee_share_pct, m.admin_fee_share_pct],
+            { step: true, color: "#A78BFA", pct: true, w: 560, h: 195 }),
+          "#A78BFA");
+      }
+      pe.innerHTML = grid(feeChart + shareChart + [
+        ["loan-discount", "loan discount %", hist.ld, "#ED7D31"],
+        ["liq-discount", "liquidation discount %",
+         hist.qd, "#f85149"]]
+        .map(([slug, tt, v, c]) => panel(slug, tt,
+          sparkline(hist.t, v, { step: true, color: c, pct: true,
+                                 w: 560, h: 195 }), c))
+        .join(""));
+    }
+    // hover: crosshair + "date · value" chip on every chart
+    root.addEventListener("mousemove", ev => {
+      const svg = ev.target.closest("svg[data-spark]");
+      for (const gv of root.querySelectorAll("svg[data-spark] g[data-hv]"))
+        if (!svg || gv.ownerSVGElement !== svg) gv.style.display = "none";
+      if (!svg) return;
+      const d = sparkReg[svg.dataset.spark];
+      const g = svg.querySelector("g[data-hv]");
+      if (!d || !g) return;
+      const r = svg.getBoundingClientRect();
+      const vx = (ev.clientX - r.left) / r.width * d.W;
+      const n = d.xs.length, spanX = d.xs[n - 1] - d.xs[0];
+      let i = Math.round((vx - d.L) / (d.W - d.L - d.R) * (n - 1));
+      i = Math.max(0, Math.min(n - 1, i));
+      const x = d.L + (d.xs[i] - d.xs[0]) / spanX * (d.W - d.L - d.R);
+      const y = d.T + (1 - (d.ys[i] - d.lo) / (d.hi - d.lo))
+        * (d.H - d.T - d.B);
+      g.style.display = "";
+      const l = g.querySelector("[data-hvl]");
+      l.setAttribute("x1", x); l.setAttribute("x2", x);
+      const c = g.querySelector("[data-hvc]");
+      c.setAttribute("cx", x); c.setAttribute("cy", y);
+      const label = `${d.fx(i)} · ${d.fy(d.ys[i])}`;
+      const tw = label.length * 6.3 + 12;
+      const tx = Math.max(d.L + tw / 2,
+        Math.min(d.W - d.R - tw / 2 - 70, x));
+      const txt = g.querySelector("[data-hvt]");
+      txt.setAttribute("x", tx); txt.textContent = label;
+      const bg = g.querySelector("[data-hvr]");
+      bg.setAttribute("x", tx - tw / 2); bg.setAttribute("width", tw);
+    });
+    root.addEventListener("mouseleave", () => {
+      for (const gv of root.querySelectorAll("svg[data-spark] g[data-hv]"))
+        gv.style.display = "none";
+    });
+  }
+
+  // -- oracle flow map: market on the LEFT, deeper price sources further
+  //    RIGHT; bezier connectors with role labels; pool nodes carry their
+  //    LP pie. Drawn after the panel is in the DOM (positions are measured).
+  const OM_COLORS = { pool: "#58a6ff", vault: "#A78BFA", agg: "#e3b341",
+    wrapper: "#ED7D31", chainlink: "#4DB6AC", "chainlink-agg": "#4DB6AC",
+    rate: "#DB61A2", unknown: "#F778BA", adapter: "#8B949E" };
+  // what each edge CARRIES, in plain words (raw getter name as fallback)
+  const OM_EDGE = { VAULT: "share rate", asset: "underlying",
+    ORACLE: "price", AGG: "crvUSD/USD", POOLS: "pool EMA",
+    POOL: "pool EMA", price_pairs: "peg leg", embedded: "reads",
+    storage: "reads", implementation: "delegates to",
+    TARGET: "forwards to" };
+  const omFmt = v => v == null ? null
+    : Math.abs(v) >= 1000 ? Math.round(v).toLocaleString()
+    : (+v).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+  function drawOracleMap(rootEl, key, e, m) {
+    const holder = rootEl.querySelector("[data-oracle-map]");
+    const og = oras && oras.markets && oras.markets[key];
+    if (!holder || !og || !og.root || !og.nodes) return;
+    const ch = e.chain;
+    const cols = [], edges = [], placed = new Set();
+    const depth = {};
+    const seenEdge = new Set();
+    const queue = [[og.root.toLowerCase(), 0, "__mkt", "price"]];
+    while (queue.length) {
+      const [a, d, parent, role] = queue.shift();
+      // skip duplicate and BACKWARD edges (cycles like token<->equity):
+      // a source must sit deeper than the box it feeds
+      const ek = parent + ">" + a;
+      if (!seenEdge.has(ek) && !seenEdge.has(a + ">" + parent)
+          && (depth[a] === undefined || depth[a] > (depth[parent] ?? -1))) {
+        seenEdge.add(ek);
+        edges.push([parent, a, role]);
+      }
+      if (placed.has(a)) continue;
+      depth[a] = d;
+      placed.add(a);
+      (cols[d] = cols[d] || []).push(a);
+      const n = og.nodes[a];
+      if (n) for (const [r, c] of Object.entries(n.refs || {})) {
+        // never draw a box (or an arrow) for an address the walker holds
+        // no node for — a "?" box is a data bug, not a rendering choice
+        const cl = String(c).toLowerCase();
+        if (og.nodes[cl])
+          queue.push([cl, d + 1, a, r.replace(/\(\d+\)$/, "")]);
+      }
+    }
+    // one plain-English line per node — the NUMBERS live on the edges
+    const outLine = n => {
+      if (n.type === "vault") {
+        const aRef = n.refs && (n.refs.asset || n.refs.underlying);
+        const aLbl = aRef && (og.nodes[aRef.toLowerCase()] || {}).label;
+        return `converts ${esc(n.meta && n.meta.symbol || "share")}s → ${
+          esc(aLbl || "assets")} — contract math, no market`;
+      }
+      if (n.type === "pool")
+        return "";
+      if (n.type === "agg")
+        return "crvUSD/USD — averaged over its pools";
+      if (n.type === "rate")
+        return "redemption rate — contract math, no market";
+      if (String(n.type).startsWith("chainlink"))
+        return "Chainlink price feed";
+      if (n.type === "unknown")
+        return "token — the unit being priced, not a price source";
+      if (n.type === "wrapper")
+        return "multiplies its inputs into one price";
+      if (n.type === "adapter")
+        return "ABI shim — forwards every call to the pool it wraps";
+      return "";
+    };
+    // the value flowing along an edge = the SOURCE node's current output
+    const nodeOut = a => {
+      const n = og.nodes[a] || {};
+      const meta = n.meta || {};
+      if (n.type === "vault" || n.type === "rate")
+        return meta.rate_1e18 != null ? Number(meta.rate_1e18) / 1e18 : null;
+      if (n.type === "pool" || n.type === "adapter")
+        return n.ema_1e18 != null ? Number(n.ema_1e18) / 1e18 : null;
+      return n.price_1e18 != null ? Number(n.price_1e18) / 1e18 : null;
+    };
+    const nodeHtml = a => {
+      const n = og.nodes[a] || {};
+      // ma_exp_time / ma_time are exponential time constants (τ);
+      // ma_half_time is already a half-life. Show BOTH conventions:
+      // the raw getter value and the half-life (= τ·ln2) in minutes.
+      const ma = Object.entries(n.ma || {}).map(([k, v]) => {
+        const half = k === "ma_half_time" ? v : v * Math.LN2;
+        return `${esc(k)} <b style="color:#e3b341">${v}s</b>
+          <span style="color:#8b949e">→ half-life ${(half / 60)
+            .toFixed(1)} min</span>`;
+      }).join(" · ");
+      let lbl = (n.label || "").trim();
+      if (lbl.length > 46) lbl = lbl.slice(0, 44) + "…";
+      const p = lps && lps.pools && lps.pools[`${ch}:${a}`];
+      const tvlv = (p && p.tvl != null) ? p.tvl
+        : (m && m.venue && m.venue.pool
+            && m.venue.pool.toLowerCase() === a ? m.venue.pair_tvl_usd : null);
+      const pie = (n.type === "pool" && p && p.top && p.top.length)
+        ? `<div style="display:flex; gap:8px; align-items:center;
+             margin-top:5px">${pieSvg(poolSlices(p), 62)}
+           <span style="color:#8b949e; font-size:10px">${p.n_holders}
+             LPs</span></div>` : "";
+      return `<div class="om-node" data-a="${a}" style="border:1px solid
+          ${OM_COLORS[n.type] || "#30363d"}; border-radius:6px;
+          background:#161b22; padding:6px 10px;
+          font-size:10.5px; width:196px; box-sizing:border-box">
+        <div><span class="pill">${esc(n.type || "?")}</span>
+          ${aLink(ch, a)}</div>
+        ${lbl ? `<div style="margin-top:2px"><b style="color:#e6edf3">${
+            esc(lbl)}</b>${n.type === "pool" && tvlv != null
+              ? ` <span style="color:#8b949e">TVL: ${usd(tvlv)}</span>`
+              : ""}${n.type === "pool" && tvlv != null
+                  && tvlv < LOW_ORACLE_TVL
+              ? ` <span style="border:1px solid #f85149; color:#f85149;
+                   background:#f8514922; padding:0 5px; border-radius:4px;
+                   font-size:9px; font-weight:700;
+                   white-space:nowrap">⚠ LOW TVL</span>`
+              : ""}</div>` : ""}
+        ${ma ? `<div style="color:#8b949e; margin-top:1px">${ma}</div>` : ""}
+        ${outLine(n) ? `<div style="color:#6e7681; font-style:italic;
+            margin-top:2px">${outLine(n)}</div>` : ""}
+        ${pie}</div>`;
+    };
+    holder.innerHTML = `
+      <svg data-om-edges style="position:absolute; left:0; top:0;
+        pointer-events:none"></svg>
+      <svg data-om-labels style="position:absolute; left:0; top:0;
+        pointer-events:none; z-index:3"></svg>
+      <div style="display:flex; gap:140px; align-items:stretch;
+          position:relative; width:max-content; min-width:100%">
+        <div style="display:flex; flex-direction:column;
+            justify-content:center">
+          <div class="om-node" data-a="__mkt" style="border:1px solid
+              #e3b341; border-radius:6px; background:#161b22;
+              padding:8px 11px; font-size:11px; width:160px;
+              box-sizing:border-box">
+            <div style="display:flex; align-items:center; gap:6px">
+              ${m ? pairImgs(m, 16) : ""}<b>${esc(e.name)}</b></div>
+            <div style="color:#8b949e; margin-top:2px">receives: ${
+              esc(e.name.split("/")[0])} price in ${
+              esc(e.name.split("/")[1] || "")}</div></div>
+        </div>
+        ${cols.map(col => `<div style="display:flex; flex-direction:column;
+            gap:18px; justify-content:center">${
+            col.map(nodeHtml).join("")}</div>`).join("")}
+      </div>`;
+    const draw = () => {
+      const svg = holder.querySelector("[data-om-edges]");
+      const lsvg = holder.querySelector("[data-om-labels]");
+      if (!svg || !lsvg || !holder.isConnected) return;
+      const hb = holder.getBoundingClientRect();
+      for (const s of [svg, lsvg]) {
+        s.style.width = holder.scrollWidth + "px";
+        s.style.height = holder.scrollHeight + "px";
+        s.setAttribute("viewBox",
+          `0 0 ${holder.scrollWidth} ${holder.scrollHeight}`);
+      }
+      const P = r => ({ x: r.left - hb.left + holder.scrollLeft,
+                        y: r.top - hb.top + holder.scrollTop });
+      let out = `<defs><marker id="om-arr" viewBox="0 0 8 8" refX="7.5"
+        refY="4" markerWidth="6.5" markerHeight="6.5" orient="auto">
+        <path d="M0,0 L8,4 L0,8 z" fill="#8b949e"/></marker></defs>`;
+      let lout = "";
+      for (const [pa, cd, role] of edges) {
+        const pb = holder.querySelector(`.om-node[data-a="${pa}"]`);
+        const cb = holder.querySelector(`.om-node[data-a="${cd}"]`);
+        if (!pb || !cb || pb.style.visibility === "hidden"
+            || cb.style.visibility === "hidden") continue;
+        const p1 = P(pb.getBoundingClientRect()),
+              c1 = P(cb.getBoundingClientRect());
+        const x1 = p1.x + pb.offsetWidth, y1 = p1.y + pb.offsetHeight / 2;
+        const x2 = c1.x, y2 = c1.y + cb.offsetHeight / 2;
+        const mx = (x1 + x2) / 2;
+        out += `<path d="M${x2.toFixed(1)},${y2.toFixed(1)}
+            C${mx.toFixed(1)},${y2.toFixed(1)} ${mx.toFixed(1)},${
+            y1.toFixed(1)} ${(x1 + 3).toFixed(1)},${y1.toFixed(1)}"
+            fill="none" stroke="#3d444d" stroke-width="1.3"
+            marker-end="url(#om-arr)"/>`;
+        if (role) {
+          const val = (pa === "__mkt")
+            ? (m && m.oracle_price) : nodeOut(cd);
+          const vTxt = val != null
+            ? `${role === "AGG" ? "$" : ""}${omFmt(val)}` : "";
+          // labels live on their own TOP layer with a dark halo, so they
+          // stay readable even where an edge passes under a box
+          lout += `<text x="${mx.toFixed(1)}" y="${((y1 + y2) / 2 - 5)
+              .toFixed(1)}" text-anchor="middle" fill="#e3b341"
+              font-size="9.5" stroke="#0d1117" stroke-width="3"
+              paint-order="stroke">${esc(OM_EDGE[role] || role)}${vTxt
+                ? ` <tspan fill="#e6edf3" font-weight="600">${vTxt}</tspan>`
+                : ""}</text>`;
+        }
+      }
+      svg.innerHTML = out;
+      lsvg.innerHTML = lout;
+    };
+    requestAnimationFrame(draw);
+    // clicking a box folds away its SOURCES (everything pointing into
+    // it); clicking again unfolds them. Links inside still work.
+    const kidsOf = {};
+    for (const [pa, cd] of edges) (kidsOf[pa] = kidsOf[pa] || []).push(cd);
+    const folded = new Set();
+    holder.addEventListener("click", ev => {
+      if (ev.target.closest("a")) return;
+      const nd = ev.target.closest(".om-node");
+      if (!nd || nd.dataset.a === "__mkt") return;
+      const a0 = nd.dataset.a;
+      if (folded.has(a0)) folded.delete(a0); else folded.add(a0);
+      const hidden = new Set();
+      for (const r of folded) {
+        const st2 = [...(kidsOf[r] || [])];
+        while (st2.length) {
+          const x = st2.pop();
+          if (hidden.has(x)) continue;
+          hidden.add(x);
+          for (const c of kidsOf[x] || []) st2.push(c);
+        }
+      }
+      for (const el of holder.querySelectorAll(".om-node")) {
+        if (el.dataset.a === "__mkt") continue;
+        // visibility, not display: hidden boxes keep their slot, so the
+        // rest of the map never shifts around
+        el.style.visibility = hidden.has(el.dataset.a) ? "hidden" : "";
+      }
+      draw();
+    });
+    if (window.__omDraw)
+      window.removeEventListener("resize", window.__omDraw);
+    window.__omDraw = draw;
+    window.addEventListener("resize", window.__omDraw);
+  }
+
+  // -- navigation: list <-> dedicated market page (deep-linked URL) --------
+  function showList() {
+    expanded = null;
+    // "flex", not "" — clearing would drop the inline display:flex and
+    // let the control bar collapse into stacked blocks
+    document.getElementById("lm_controls").style.display = "flex";
+    history.replaceState(null, "", "/lending-markets");
+    render();
+  }
+  window.__lmShowList = showList;   // nav-tab click resets to the list
+
+  async function showMarket(key, section) {
+    const e = llm && llm.markets && llm.markets[key];
+    if (!e) { render(); return; }
+    expanded = key;
+    document.getElementById("lm_controls").style.display = "none";
+    const [ch, ctrl] = key.split(":");
+    history.replaceState(null, "",
+      `/lending-markets/${ch}/${ctrl}${section ? "/" + section : ""}`);
+    const m = mktByKey()[key];
+    const u = m ? m.utilization_pct : null;
+    body.innerHTML = `
+      <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+          margin:2px 0 12px">
+        <a id="lm_back" style="cursor:pointer; color:#58a6ff;
+          font-size:12.5px">← all markets</a>
+        <span style="display:inline-flex; align-items:center; flex:none">
+          ${m ? pairImgs(m, 22) : ""}</span>
+        <b style="font-size:15px">${esc(e.name)}</b>
+        <span style="font-size:11px; color:${e.group === "LLV2"
+          ? "#e3b341" : "#58a6ff"}">${esc(e.group)}</span>
+        <span style="color:#8b949e; font-size:12px">${esc(e.chain)}</span>
+        <span style="margin-left:auto; display:flex; gap:16px;
+            font-size:12.5px">
+          <span>${m ? usd(m.market_tvl_usd) : "—"} TVL</span>
+          <span>${u != null ? u.toFixed(1) + "% util" : ""}</span>
+          <span style="color:#8b949e">${m && m.amm_rate_apr_pct != null
+            ? m.amm_rate_apr_pct.toFixed(1) + "% borrow" : ""}</span>
+          <span style="color:#8b949e">${(e.borrowers && e.borrowers.n)
+            ?? (m && m.n_loans) ?? "?"} loans</span>
+        </span>
+      </div>
+      <div id="lm_mkt"><div class="note">loading…</div></div>`;
+    document.getElementById("lm_back").addEventListener("click", showList);
+    if (!(key in histCache) && e.hist_days) {
+      try {
+        histCache[key] = await fetch(`/llmhist?m=${key}`)
+          .then(r => r.ok ? r.json() : null);
+      } catch (_) { histCache[key] = null; }
+    }
+    if (expanded !== key) return;       // user navigated away meanwhile
+    const root = document.getElementById("lm_mkt");
+    root.innerHTML = marketHtml(key, e, m, histCache[key]);
+    wireCharts(root, e, m, histCache[key]);
+    drawOracleMap(root, key, e, m);
+    // every section / chart title is an anchor: click -> /…/<slug>
+    root.addEventListener("click", ev => {
+      if (ev.target.closest("a")) return;
+      const s = ev.target.closest(".lm-sec");
+      if (!s || !s.dataset.slug) return;
+      history.replaceState(null, "",
+        `/lending-markets/${ch}/${ctrl}/${s.dataset.slug}`);
+      document.getElementById("sec-" + s.dataset.slug)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    if (section) document.getElementById("sec-" + section)
+      ?.scrollIntoView({ block: "start" });
+  }
+
+  // -- landing: the leaderboard (chosen from the design gallery) ----------
+  const utilCol = u => u == null ? "#30363d"
+    : u >= 99.5 ? "#f85149" : u >= 90 ? "#ED7D31" : "#70AD47";
+  const pairTxt = m => `${m.collateral.symbol}/${m.borrowed.symbol}`;
+
+  function filteredRows() {
+    const ver = document.querySelector("#lm_ver .on")?.dataset.ver || "";
+    const minTvl = +document.getElementById("lm_mintvl").value || 0;
+    const q = (document.getElementById("lm_search")?.value || "")
+      .trim().toLowerCase();
+    const hits = m => {
+      if (!q) return true;
+      const e = llm.markets[m.key] || {};
+      return [pairTxt(m), m.chain, m.ver, m.controller, m.amm, e.vault,
+              e.gauge, e.policy, e.oracle, m.collateral.addr,
+              m.collateral.symbol, m.borrowed.addr, m.borrowed.symbol]
+        .some(v => v && String(v).toLowerCase().includes(q));
+    };
+    const all = [];
+    for (const [g, lst] of Object.entries((mkts && mkts.groups) || {}))
+      for (const m of lst)
+        all.push({ ...m, ver: g,
+                   key: `${m.chain}:${m.controller.toLowerCase()}` });
+    return all
+      .filter(m => !ver || m.ver === ver)
+      .filter(m => (m.market_tvl_usd || 0) >= minTvl || q)
+      .filter(hits)
+      .sort((a2, b2) => (b2.market_tvl_usd ?? 0) - (a2.market_tvl_usd ?? 0)
+          || (b2.utilization_pct ?? -1) - (a2.utilization_pct ?? -1));
+  }
+
+  function paintBars(rows) {
+    const maxT = Math.max(1, ...rows.map(m => m.market_tvl_usd || 0));
+    let h = "";
+    rows.forEach((m, i) => {
+      const u = m.utilization_pct;
+      h += `<div data-key="${m.key}" class="lmb-row" style="display:flex;
+          align-items:center; gap:10px; padding:5px 8px">
+        <span style="width:26px; text-align:right; color:#6e7681;
+          font-size:11px">${i + 1}</span>
+        <span style="flex:none; display:inline-flex">${tokImg(
+          m.collateral && m.collateral.addr, m.chain, 20)}</span>
+        <span style="width:190px; flex:none; overflow:hidden;
+          text-overflow:ellipsis; white-space:nowrap"><b>${
+          esc(pairTxt(m))}</b> <span style="color:#6e7681; font-size:10.5px">
+          ${esc(m.chain)}</span></span>
+        <div style="flex:1; height:16px; background:#161b22;
+            border-radius:4px; overflow:hidden">
+          <div style="width:${(100 * (m.market_tvl_usd || 0) / maxT)
+            .toFixed(2)}%; height:100%; background:linear-gradient(90deg,
+            #1f6feb88, ${utilCol(u)})"></div></div>
+        <span style="width:78px; text-align:right; font-weight:600">${
+          usd(m.market_tvl_usd)}</span>
+        <span style="width:60px; text-align:right; color:${utilCol(u)}">${
+          u != null ? u.toFixed(1) + "%" : "—"}</span>
+        <span class="lm-open">open ›</span></div>`;
+    });
+    body.insertAdjacentHTML("beforeend", h +
+      `<div class="note" style="margin-top:6px">bar = TVL share of the
+       largest market · % = borrow utilization</div>`);
+  }
+
+  function render() {
+    if (!llm || !llm.markets) {
+      body.innerHTML = `<div class="note">dataset not built yet — the
+        refresh cycle runs fetchers/fetch_llm.py</div>`;
+      return;
+    }
+    const rows = filteredRows();
+    meta.textContent = "";
+    body.innerHTML = "";
+    paintBars(rows);
+    for (const el of body.querySelectorAll("[data-key]"))
+      el.addEventListener("click", () => showMarket(el.dataset.key));
+  }
+
+  document.getElementById("lm_ver").addEventListener("click", ev => {
+    const btn = ev.target.closest("button");
+    if (!btn) return;
+    for (const o of document.querySelectorAll("#lm_ver button"))
+      o.classList.toggle("on", o === btn);
+    render();
+  });
+  document.getElementById("lm_mintvl").addEventListener("change", render);
+  document.getElementById("lm_search").addEventListener("input", render);
+
+  // deep link: /llm/<chain>/<controller>[/<section>] lands on that market
+  const segs = location.pathname.split("/").filter(Boolean);
+  const urlKey = (segs[0] === "lending-markets" || segs[0] === "llm")
+      && segs[1] && segs[2]
+    ? `${segs[1].toLowerCase()}:${segs[2].toLowerCase()}` : null;
+  await loadAll();
+  if (urlKey && llm && llm.markets && llm.markets[urlKey])
+    showMarket(urlKey, (segs[3] || "").toLowerCase() || null);
+  else render();
+  if (!window.__lmTimer)
+    window.__lmTimer = setInterval(async () => {
+      if (expanded) return;             // never stomp an open market page
+      await loadAll(); render();
+    }, 300_000);
+};
+
+// ---- LP tab ---------------------------------------------------------------
+// End-user distribution of the top pools as pie charts: /lp (fetch_lp.py),
+// gauge/Convex/Lido-SR/YB wrappers unwrapped, balances event-driven.
+// Slices: named majors (validated hues), then every tracked wallet as its
+// own slice in alternating grays, then the untracked remainder.
+window.loadLpTab = async function () {
+  const note = document.getElementById("lp_note");
+  const body = document.getElementById("lp_body");
+  const esc = s => String(s ?? "").replace(/[&<>"]/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const coinIcons = p => (p.coins || []).slice(0, 5).map((c, i) =>
+    `<img src="https://cdn.jsdelivr.net/gh/curvefi/curve-assets/images/${
+       (p.chain || "ethereum") === "ethereum" ? "assets"
+         : "assets-" + esc(p.chain)}/${esc(c.a)}.png"
+       title="${esc(c.s)}" onerror="this.style.display='none'"
+       style="width:22px; height:22px; border-radius:50%;
+              border:1.5px solid #161b22; background:#0d1117;
+              margin-left:${i ? -6 : 0}px; vertical-align:middle">`)
+    .join("");
+  const usd = v => {
+    const a = Math.abs(v ?? 0);
+    if (a >= 1e9) return "$" + (v / 1e9).toFixed(2) + "B";
+    if (a >= 1e6) return "$" + (v / 1e6).toFixed(1) + "M";
+    if (a >= 1e3) return "$" + (v / 1e3).toFixed(0) + "k";
+    return "$" + Math.round(v ?? 0);
+  };
+  const LP_EXPLORER = { ethereum: "https://etherscan.io",
+    base: "https://basescan.org", arbitrum: "https://arbiscan.io",
+    optimism: "https://optimistic.etherscan.io",
+    fraxtal: "https://fraxscan.com", sonic: "https://sonicscan.org" };
+  const link = (a, ch, txt) => {
+    const b = LP_EXPLORER[ch] || "https://etherscan.io";
+    const t = txt || a;
+    const mono = t.includes("0x") ? "font-family:ui-monospace,monospace" : "";
+    return `<a href="${b}/address/${esc(a)}" target="_blank" rel="noopener"
+      style="${mono}">${esc(t)}</a>`;
+  };
+  const TAILS = ["#6e7681", "#3d444d"];
+  const REST = "#21262d";
+  // color follows the ENTITY: deterministic per-address hue, identical in
+  // every pool and across refreshes. Two lightness tiers widen separation.
+  function entityHSL(r) {
+    if ((r.label || r.tag) === "Wintermute exploiter") return null; // red
+    let h = 0x811c9dc5;                                        // FNV-1a
+    for (const c of r.addr.slice(2)) {
+      h ^= c.charCodeAt(0);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return { h: Math.round((h * 137.508) % 360),               // golden angle
+             s: 62, l: 50 + ((h >>> 16) % 3) * 8 };
+  }
+  // per-card: entities keep their base hue everywhere, but when two named
+  // slices in ONE card land on near-identical colors, shift the later
+  // one's lightness so they never read as the same holder
+  function cardColors(named) {
+    const parts = named.map(entityHSL);
+    for (let i = 1; i < parts.length; i++) {
+      const a = parts[i];
+      if (!a) continue;
+      for (let j = 0; j < i; j++) {
+        const b = parts[j];
+        if (!b) continue;
+        const dh = Math.min(Math.abs(a.h - b.h),
+                            360 - Math.abs(a.h - b.h));
+        if (dh < 28 && Math.abs(a.l - b.l) < 14)
+          a.l = a.l <= 58 ? a.l + 18 : a.l - 18;
+      }
+    }
+    return parts.map(p => p ? `hsl(${p.h} ${p.s}% ${p.l}%)` : "#e66767");
+  }
+
+  function arc(cx, cy, r, a0, a1) {
+    // clockwise from 12 o'clock; a in [0,1] turns
+    const p = a => [cx + r * Math.sin(2 * Math.PI * a),
+                    cy - r * Math.cos(2 * Math.PI * a)];
+    const [x0, y0] = p(a0), [x1, y1] = p(a1);
+    if (a1 - a0 >= 0.99999)
+      return `M ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx - 0.01} ${cy - r} Z`;
+    const big = (a1 - a0) > 0.5 ? 1 : 0;
+    return `M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 ${big} 1 ${x1} ${y1} Z`;
+  }
+
+  function pieSvg(slices, hl) {
+    // slices: [{pct, color, tip, addr?}]; hl = holder address to ring
+    const R = 98, C = 116;
+    let a = 0, paths = "", ring = "";
+    const total = slices.reduce((s, x) => s + x.pct, 0) || 100;
+    for (const s of slices) {
+      const a1 = a + s.pct / total;
+      const d = arc(C, C, R, a, a1);
+      paths += `<path d="${d}" fill="${s.color}"
+        stroke="#0d1117" stroke-width="${slices.length > 60 ? 0.4 : 1}">
+        <title>${esc(s.tip)}</title></path>`;
+      if (hl && s.addr === hl)
+        ring = `<path d="${d}" fill="none" stroke="#e3b341"
+          stroke-width="2.5"><title>${esc(s.tip)}</title></path>`;
+      a = a1;
+    }
+    return `<svg viewBox="0 0 232 232"
+      style="flex:none; width:206px; height:206px">${paths}${ring}</svg>`;
+  }
+
+  // display name for a holder row: smart label from the fetcher, else
+  // wallet/contract + short address
+  function rowName(r) {
+    if (r.label) return r.label;
+    // legacy lp.json rows carry tag/collective instead of label/kind
+    if (r.tag && r.tag !== "EOA" && r.tag !== "contract") return r.tag;
+    const user = r.kind === "user" || r.tag === "EOA";
+    return (user ? "EOA " : "contract ") + r.addr.slice(0, 10) + "…";
+  }
+  function kindSuffix(r) {
+    const coll = r.kind === "collective" || r.collective;
+    if (coll) return " <span style=\"color:#8b949e\">(collective)</span>";
+    if (r.kind === "protocol") return " <span style=\"color:#8b949e\">(protocol)</span>";
+    return "";
+  }
+
+  let lpCache = null;
+  // pool -> the lending markets that use it, and HOW: as the pool their
+  // price oracle reads (oracles.json chains), as the exit-liquidity venue
+  // (biggest collateral pool, markets.json), or both
+  let lpAssoc = null;       // Map "chain:pool" -> [{g,label,tvl,ctrl,amm,chain,oracle,exit}]
+  Promise.all([fetch("/markets").then(r => r.json()),
+               fetch("/oracles").then(r => r.json()).catch(() => null),
+               fetch("/llm").then(r => r.ok ? r.json() : null)
+                 .catch(() => null)])
+    .then(([mk, oc, lm]) => {
+      const byCtrl = {}, assoc = new Map();
+      for (const [g, lst] of Object.entries(mk.groups || {}))
+        for (const m of lst)
+          byCtrl[`${m.chain}:${m.controller.toLowerCase()}`] = { g,
+            label: `${m.collateral.symbol}/${m.borrowed.symbol}`,
+            tvl: m.market_tvl_usd || 0, amm: (m.amm || "").toLowerCase(),
+            ctrl: m.controller.toLowerCase(), chain: m.chain,
+            venue: m.venue && m.venue.pool
+              ? m.venue.pool.toLowerCase() : null };
+      const touch = (poolKey, ck, kind) => {
+        const meta = byCtrl[ck];
+        if (!meta) return;
+        let lst = assoc.get(poolKey);
+        if (!lst) assoc.set(poolKey, lst = []);
+        let e = lst.find(x => x.ctrl === meta.ctrl);
+        if (!e) lst.push(e = { ...meta, oracle: false, exit: false });
+        e[kind] = true;
+      };
+      for (const [ck, meta] of Object.entries(byCtrl))
+        if (meta.venue)
+          touch(`${meta.chain}:${meta.venue}`, ck, "exit");
+      // full exit-liquidity set (census pools >= $50k holding the
+      // collateral or its underlying — same list the market pages show)
+      for (const [ck, e] of Object.entries((lm && lm.markets) || {})) {
+        const chain = ck.split(":")[0];
+        for (const xp of (e.exit_pools || []))
+          touch(`${chain}:${xp.a}`, ck, "exit");
+      }
+      for (const [ck, m] of Object.entries((oc && oc.markets) || {}))
+        for (const [na, n] of Object.entries(m.nodes || {}))
+          if (n.type === "pool")
+            touch(`${m.chain}:${na.toLowerCase()}`, ck, "oracle");
+      lpAssoc = assoc;
+      render(false);
+    }).catch(() => {});
+  const lpType = () =>
+    document.querySelector("#lp_type .on")?.dataset.t || "both";
+  function kindOk(e, t) {
+    return t === "oracle" ? e.oracle : t === "exit" ? e.exit
+      : (e.oracle || e.exit);
+  }
+  // the associations that pass the current version + role selectors
+  function poolAssoc(p) {
+    if (!lpAssoc) return [];
+    const f = document.querySelector("#lp_filter .on")?.dataset.f || "";
+    const t = lpType();
+    return (lpAssoc.get(`${p.chain}:${p.pool}`) || []).filter(e =>
+      kindOk(e, t)
+      && (f === "" || f === "mkts" || e.g.toLowerCase().endsWith(f)));
+  }
+  function segShow(p) {
+    const f = document.querySelector("#lp_filter .on")?.dataset.f || "";
+    if (!f || !lpAssoc) return true;
+    return poolAssoc(p).length > 0;
+  }
+  function lpQuery() {
+    return (document.getElementById("lp_search").value || "")
+      .trim().toLowerCase();
+  }
+  // which pools match the query, and which holder to highlight
+  function poolMatch(p) {
+    const q = lpQuery();
+    if (!q) return { show: true, hl: null };
+    const hit = p.top.find(r => r.addr.startsWith(q)
+      || (r.label || r.tag || "").toLowerCase().includes(q));
+    const meta = p.label.toLowerCase().includes(q)
+      || (p.pool || "").startsWith(q)
+      || (p.coins || []).some(c => (c.a || "").startsWith(q)
+          || (c.s || "").toLowerCase().includes(q)
+          || (c.n || "").toLowerCase().includes(q));
+    return { show: !!(hit || meta), hl: hit ? hit.addr : null };
+  }
+
+  async function render(refetch = true) {
+    let d = lpCache;
+    if (refetch || !d) {
+      try { d = await fetch("/lp").then(r => r.json()); lpCache = d; }
+      catch (e) { note.style.display = ""; 
+        note.textContent = "failed to load: " + e; return; }
+    }
+    if (!d || !d.pools) {
+      note.style.display = "";
+      note.textContent = "lp dataset not built yet — the refresh cycle "
+        + "writes it";
+      return;
+    }
+    note.style.display = "none";
+    const listMode = !!document.querySelector("#lp_filter .on")?.dataset.f;
+    let h = `<div style="display:grid; gap:${listMode ? 18 : 26}px;
+      grid-template-columns:${listMode
+        ? "1fr" : "repeat(auto-fill, minmax(470px, 1fr))"}">`;
+    let shown = 0;
+    for (const p of Object.values(d.pools)) {
+      const m = poolMatch(p);
+      const assoc = poolAssoc(p);
+      const needAssoc = document.querySelector("#lp_filter .on")?.dataset.f
+        || lpType() !== "both";
+      if (!m.show || (needAssoc && !assoc.length)) continue;
+      if (!p.top.length) {          // holder scan hasn't reached this pool
+        shown++;
+        h += `<div style="border:1px solid #30363d; border-radius:8px;
+            background:#161b22; padding:12px 16px; opacity:.65;
+            display:flex; align-items:baseline; gap:10px; flex-wrap:wrap">
+          <span style="display:inline-flex; align-items:center; flex:none;
+            align-self:center">${coinIcons(p)}</span>
+          <b style="font-size:13px">${esc(p.label)}</b>
+          <span class="note">${p.chain
+            && p.chain !== "ethereum" ? esc(p.chain) + " · " : ""}
+            ${usd(p.tvl)} TVL · holder scan pending</span></div>`;
+        continue;
+      }
+      shown++;
+      const named = p.top.filter(r => r.pct >= 3).slice(0, 4);
+      const tail = p.top.slice(named.length);
+      const tailPct = tail.reduce((s, r) => s + r.pct, 0);
+      const rest = Math.max(0, p.rest_pct);
+      const namedCols = cardColors(named);
+      const slices = named.map((r, i) => ({
+        pct: r.pct, color: namedCols[i], addr: r.addr,
+        tip: `${rowName(r)} — ${r.pct.toFixed(2)}% · ${usd(r.usd)}\n${r.addr}`}))
+        .concat(tail.map((r, i) => ({
+          pct: r.pct, color: TAILS[i % 2], addr: r.addr,
+          tip: `${rowName(r)} — ${r.pct.toFixed(2)}% · ${usd(r.usd)}\n${r.addr}`})))
+        .concat(rest > 0.005 ? [{ pct: rest, color: REST,
+          tip: `everyone else — ${rest.toFixed(2)}%` }] : []);
+      const legend = named.map((r, i) => `
+        <div style="display:flex; align-items:center; gap:7px; min-width:0${
+          m.hl === r.addr
+            ? "; background:rgba(227,179,65,.10); border-radius:4px;"
+              + " outline:1px solid rgba(227,179,65,.45); padding:1px 5px"
+            : ""}">
+          <span style="flex:none; width:10px; height:10px; border-radius:2px;
+            background:${namedCols[i]}"></span>
+          <span style="overflow:hidden; text-overflow:ellipsis;
+            white-space:nowrap" title="${esc(r.addr)}">${link(r.addr,
+              p.chain, rowName(r))}${kindSuffix(r)}</span>
+          <button class="lp-copy" data-addr="${esc(r.addr)}"
+            title="copy address" style="flex:none; background:none;
+            border:none; color:#8b949e; cursor:pointer; padding:0 2px;
+            font-size:11px; width:auto; margin:0">&#x2398;</button>
+          <span style="flex:none; color:#8b949e">${r.pct.toFixed(2)}% ·
+            ${usd(r.usd)}</span></div>`).join("") +
+        (tail.length ? `<div style="display:flex; align-items:center;
+            gap:7px"><span style="flex:none; width:10px; height:10px;
+            border-radius:2px; background:${TAILS[0]}"></span>
+          <span style="color:#8b949e">next ${tail.length} wallets, one
+            slice each — ${tailPct.toFixed(2)}% ·
+            ${usd(tailPct * p.tvl / 100)}</span></div>` : "") +
+        (rest > 0.005 ? `<div style="display:flex; align-items:center;
+            gap:7px"><span style="flex:none; width:10px; height:10px;
+            border-radius:2px; background:${REST}"></span>
+          <span style="color:#8b949e">everyone else —
+            ${rest.toFixed(2)}%</span></div>` : "");
+      h += `<div style="border:1px solid #30363d; border-radius:8px;
+          background:#161b22; padding:14px 16px">
+        <div style="display:flex; align-items:baseline; gap:10px;
+            flex-wrap:wrap; margin-bottom:4px">
+          <span style="display:inline-flex; align-items:center; flex:none;
+            align-self:center">${coinIcons(p)}</span>
+          <b style="font-size:13.5px">${esc(p.label)}</b>
+          <span style="font-size:11.5px; color:#e6edf3">${p.chain
+            && p.chain !== "ethereum"
+            ? esc(p.chain) + " · " : ""}${usd(p.tvl)} TVL</span>
+          <button class="lp-json" data-k="${esc(p.chain)}:${esc(p.pool)}"
+            title="copy every tracked holder with balances as JSON"
+            style="background:none; border:1px solid #30363d;
+            border-radius:4px; color:#8b949e; cursor:pointer;
+            padding:1px 8px; font-size:10px; width:auto;
+            margin:0">&#x2398; JSON</button></div>${(() => {
+          const f = document.querySelector("#lp_filter .on")?.dataset.f;
+          if (!f || !assoc.length) return "";
+          const scanBase = (LP_EXPLORER[p.chain] || "https://etherscan.io");
+          const rows = [...assoc].sort((a, b) => b.tvl - a.tvl);
+          return `<div class="note" style="margin:-1px 0 8px">
+            used by lending markets:</div>` + rows.map(a => `
+            <div class="note" style="margin:0 0 2px 12px">
+              <span style="color:#8b949e">${a.g}</span> ·
+              <a href="https://www.curve.finance/lend/${esc(a.chain)}/markets/${esc(a.ctrl)}"
+                 target="_blank" rel="noopener"
+                 style="color:#c9d1d9; font-weight:600">${esc(a.label)}</a> ·
+              ${usd(a.tvl)} market TVL ·
+              ${a.oracle ? `<span style="color:#d95926">oracle</span>` : ""}${
+                a.oracle && a.exit ? " + " : ""}${
+                a.exit ? `<span style="color:#3987e5">potential pool for H.L.</span>`
+                       : ""} ·
+              <a href="${scanBase}/address/${esc(a.amm)}" target="_blank"
+                 rel="noopener" style="color:#8b949e">[amm]</a>
+              <a href="${scanBase}/address/${esc(a.ctrl)}" target="_blank"
+                 rel="noopener" style="color:#8b949e">[controller]</a></div>`)
+            .join("") + `<div style="height:6px"></div>`;
+        })()}
+        <div style="display:flex; gap:18px; align-items:center; flex-wrap:wrap">
+          ${pieSvg(slices, m.hl)}
+          <div style="display:flex; flex-direction:column; gap:5px;
+            font-size:11.5px; min-width:230px; flex:1">${legend}</div>
+        </div></div>`;
+    }
+    h += "</div>";
+    if (!shown)
+      h = `<div class="note">nothing matches the current search/filter —
+        pools, coins and the tracked holders of
+        ${Object.keys(d.pools).length} pools were searched</div>`;
+    body.innerHTML = h;
+  }
+  body.addEventListener("click", async e => {
+    const bj = e.target.closest(".lp-json");
+    if (bj && lpCache) {
+      const p = lpCache.pools[bj.dataset.k];
+      if (p) {
+        const out = { pool: p.pool, label: p.label, chain: p.chain,
+          tvl_usd: p.tvl, n_holders: p.n_holders,
+          coverage_pct: p.coverage_pct, rest_pct: p.rest_pct,
+          holders: (p.top || []).map(r => ({ address: r.addr,
+            label: r.label || null, kind: r.kind || null,
+            share_pct: r.pct, balance_usd: r.usd })) };
+        try {
+          await navigator.clipboard.writeText(
+            JSON.stringify(out, null, 1));
+        } catch (_) { return; }
+        const old2 = bj.innerHTML;
+        bj.innerHTML = "&#x2713; copied"; bj.style.color = "#3fb950";
+        setTimeout(() => { bj.innerHTML = old2;
+          bj.style.color = "#8b949e"; }, 900);
+      }
+      return;
+    }
+    const b = e.target.closest(".lp-copy");
+    if (!b) return;
+    try { await navigator.clipboard.writeText(b.dataset.addr); }
+    catch (_) { return; }
+    const old = b.innerHTML;
+    b.innerHTML = "&#x2713;"; b.style.color = "#3fb950";
+    setTimeout(() => { b.innerHTML = old; b.style.color = "#8b949e"; }, 900);
+  });
+  let lpDeb = null;
+  document.getElementById("lp_search").addEventListener("input", () => {
+    clearTimeout(lpDeb);
+    lpDeb = setTimeout(() => render(false), 150);
+  });
+  await render();
+  setInterval(render, 300_000);
 };
 
 // ---- High Util tab --------------------------------------------------------
@@ -5395,7 +6740,6 @@ window.loadHighUtilTab = async function loadHighUtilTab() {
   function draw() {
     const view = showAll ? rows : rows.slice(0, 10);
     let h = `<table class="study" style="font-size:12.5px"><tr>
-      <th style="text-align:left">#</th>
       <th style="text-align:left" data-k="market">market</th>
       <th data-k="butil">borrow util.</th><th data-k="lutil">lending util.</th>
       <th data-k="bapr">borrow APR</th>
@@ -5407,9 +6751,11 @@ window.loadHighUtilTab = async function loadHighUtilTab() {
       const u = m.utilization_pct;
       const col = u >= 99.5 ? "#f85149" : u >= 90 ? "#ED7D31" : "#70AD47";
       h += `<tr>
-        <td style="text-align:left">${i + 1}</td>
-        <td style="text-align:left">${esc(m.ver)} ${esc(m.chain)}
-            <b>${esc(m.collateral.symbol)}</b>/${esc(m.borrowed.symbol)}</td>
+        <td style="text-align:left">${tokImg(
+              m.collateral && m.collateral.addr, m.chain, 18)}
+            ${esc(m.ver)} ${esc(m.chain)}
+            <b>${esc(m.collateral.symbol)}</b>/${esc(m.borrowed.symbol)}<span
+              class="lm-go">›</span></td>
         <td><div style="display:flex; align-items:center; gap:8px;
                         justify-content:flex-end">
           <div style="width:90px; height:7px; background:#21262d;

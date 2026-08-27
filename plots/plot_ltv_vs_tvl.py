@@ -53,7 +53,8 @@ def main() -> None:
             tag = {"ethereum": "", "optimism": " ·op", "arbitrum": " ·arb",
                    "fraxtal": " ·frax", "sonic": " ·sonic"}
             name += tag.get(m["chain"], " ·" + m["chain"])
-            rows.append((m.get("market_tvl_usd") or 0, ltv * 100, grp, name))
+            rows.append((m.get("market_tvl_usd") or 0, ltv * 100, grp, name,
+                         m["collateral"]["addr"], m["chain"]))
     # HORIZONTAL layout: one row per market, names as ordinary horizontal
     # text on the left. Ascending TVL bottom-to-top, so the biggest markets
     # sit at the top of the chart.
@@ -68,7 +69,7 @@ def main() -> None:
                    label={"LLV1": "LLV1 (mint markets)",
                           "LLV2": "LLV2 (lend markets)"}[grp])
     # stems tie each dot to its name; bar length = permitted leverage
-    for i, (_tvl, ltv, _g, _n) in enumerate(rows):
+    for i, (_tvl, ltv, _g, _n, *_x) in enumerate(rows):
         ax.plot([0, ltv], [i, i], color="#30363d", lw=1, zorder=1)
 
     ax.set_yticks(range(len(rows)))
@@ -94,6 +95,8 @@ def main() -> None:
         item.set_color("#e6edf3")
     OUT.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
+    from token_icons import icons_left_of_yticklabels
+    icons_left_of_yticklabels(ax, [(r[4], r[5]) for r in rows])
     fig.savefig(OUT, dpi=140, facecolor=fig.get_facecolor())
     print(f"wrote {OUT}  ({len(rows)} markets)")
 

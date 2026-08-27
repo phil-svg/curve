@@ -560,6 +560,18 @@ def _do_refresh():
         print(f"[ui] cleanup refreshed in {time.time() - t1:.1f} s")
     except Exception as e:
         print(f"[ui] cleanup refresh FAILED: {str(e)[:300]}")
+    # LP end-user distribution of the flagship pools (event-driven:
+    # only event-touched addresses get balance re-reads).
+    t3 = time.time()
+    try:
+        p = subprocess.run([PY, str(HERE / "fetchers" / "fetch_lp.py")],
+                           capture_output=True, text=True, timeout=1800)
+        if p.returncode != 0:
+            raise RuntimeError((p.stderr or p.stdout or "").strip()[-300:]
+                               or f"exit code {p.returncode}")
+        print(f"[ui] lp holders refreshed in {time.time() - t3:.1f} s")
+    except Exception as e:
+        print(f"[ui] lp holders refresh FAILED: {str(e)[:300]}")
     # Affected lenders of the bad-debt markets (vault-share Transfer scan,
     # incremental after the first backfill via data/lenders_scan.json).
     t2 = time.time()
@@ -572,17 +584,28 @@ def _do_refresh():
         print(f"[ui] lenders refreshed in {time.time() - t2:.1f} s")
     except Exception as e:
         print(f"[ui] lenders refresh FAILED: {str(e)[:300]}")
-    # Re-render the Spring-Cleaning + Current-Params charts from the fresh
-    # markets.json — the same matplotlib PNGs that live in images/.
-    for script in ("plot_ltv_vs_tvl.py", "plot_discounts_vs_tvl.py",
-                   "plot_params_vs_tvl.py"):
-        try:
-            p = subprocess.run([PY, str(HERE / "plots" / script)],
-                               capture_output=True, text=True, timeout=300)
-            if p.returncode != 0:
-                raise RuntimeError((p.stderr or "").strip()[-200:])
-        except Exception as e:
-            print(f"[ui] {script} FAILED: {str(e)[:200]}")
+    # LLM tab dataset (Curve prices API only — snapshots, borrowers; no RPC).
+    t4 = time.time()
+    try:
+        p = subprocess.run([PY, str(HERE / "fetchers" / "fetch_llm.py")],
+                           capture_output=True, text=True, timeout=1800)
+        if p.returncode != 0:
+            raise RuntimeError((p.stderr or p.stdout or "").strip()[-300:]
+                               or f"exit code {p.returncode}")
+        print(f"[ui] llm refreshed in {time.time() - t4:.1f} s")
+    except Exception as e:
+        print(f"[ui] llm refresh FAILED: {str(e)[:300]}")
+    # Oracle-graph live values (price/rate/EMA numbers on the LLM flow map)
+    # — light multicall pass over the mapped nodes, seconds.
+    try:
+        p = subprocess.run([PY, str(HERE / "fetchers" / "fetch_oracles.py"),
+                            "--values"],
+                           capture_output=True, text=True, timeout=300)
+        if p.returncode != 0:
+            raise RuntimeError((p.stderr or p.stdout or "").strip()[-200:])
+        print("[ui] oracle values refreshed")
+    except Exception as e:
+        print(f"[ui] oracle values FAILED: {str(e)[:200]}")
 
 
 def _candles_fetched_at():
@@ -976,12 +999,11 @@ class Handler(BaseHTTPRequestHandler):
 
     # page deep links only — must not collide with API routes (/yb is the
     # data endpoint, the page path is /yb_)
-    TAB_PATHS = ("home", "sim", "oracles", "cleaning",
-                 "params", "bad-debt", "sldl", "util", "pegkeeper", "yb",
-                 "map",
+    TAB_PATHS = ("home", "sim",
+                 "bad-debt", "sldl", "util", "pegkeeper", "yb", "lp",
+                 "pools", "llm", "lending-markets", "map",
                  # legacy pre-rename paths still serve the page
-                 "bad-debt-sim", "market-oracles",
-                 "spring-cleaning", "current-params", "s.l.-d.l.",
+                 "bad-debt-sim", "s.l.-d.l.",
                  "high-util", "yb_")
 
     def do_GET(self):
@@ -1063,13 +1085,28 @@ class Handler(BaseHTTPRequestHandler):
                 return
             _http_json(self, 200, json.loads(f.read_text()))
             return
-        if self.path in ("/cleanup", "/baddebt", "/lenders"):
+        if self.path in ("/cleanup", "/baddebt", "/lenders", "/lp", "/llm"):
             # cleanup/baddebt from fetch_cleanup.py, lenders from
-            # fetch_lenders.py — all on the refresh cycle.
+            # fetch_lenders.py, llm from fetch_llm.py — all on the cycle.
             f = HERE / "data" / (self.path[1:] + ".json")
             if not f.exists():
                 _http_json(self, 404, {"error": "not built yet — the "
                                                 "refresh cycle writes it"})
+                return
+            _http_json(self, 200, json.loads(f.read_text()))
+            return
+        if self.path.startswith("/llmhist"):
+            # per-market daily history arrays (fetch_llm.py) — ?m=chain:ctrl
+            q = parse_qs(urlparse(self.path).query)
+            key = (q.get("m") or [""])[0].lower()
+            ch, _, ctrl = key.partition(":")
+            if not (ch.isalnum() and ctrl.startswith("0x")
+                    and all(c in "0123456789abcdefx" for c in ctrl)):
+                _http_json(self, 400, {"error": "bad ?m="})
+                return
+            f = HERE / "data" / "llm_hist" / f"{ch}_{ctrl}.json"
+            if not f.is_file():
+                _http_json(self, 404, {"error": "no history for this market"})
                 return
             _http_json(self, 200, json.loads(f.read_text()))
             return
@@ -1181,8 +1218,13 @@ class Handler(BaseHTTPRequestHandler):
                 _http_json(self, 400, {"error": "missing ?key="})
                 return
             try:
+                rank = max(0, min(2, int((q.get("rank") or ["0"])[0])))
+            except ValueError:
+                rank = 0
+            try:
                 import fetch_crash_window
-                _http_json(self, 200, fetch_crash_window.build_window(key))
+                _http_json(self, 200,
+                           fetch_crash_window.build_window(key, rank=rank))
             except Exception as e:
                 _http_json(self, 404, {"error": str(e)})
             return
