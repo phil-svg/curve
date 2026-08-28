@@ -15,6 +15,7 @@ and get cleaned up after the response is sent.
 from __future__ import annotations
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -427,6 +428,147 @@ PY = sys.executable
 _run_lock = threading.Lock()   # serialize sims so they don't fight for CPU / cache
 
 
+# ---- pool history: on-demand cached proxy of the Curve prices API --------
+# The pool pages need ~2 years of daily snapshots/volume/TVL. Fetching that
+# from the browser was slow on every visit AND gappy: the snapshots endpoint
+# silently returns far fewer rows than the requested range (3pool: 51 days
+# for a 300-day ask), so it must be walked backwards by min-timestamp.
+# We fetch once here, join on a UNION day axis, forward-fill the parameter
+# columns, and cache to data/pool_hist/ for POOL_HIST_TTL.
+POOL_HIST_DIR = HERE / "data" / "pool_hist"
+POOL_HIST_TTL = 6 * 3600
+POOL_HIST_DAYS = 730
+_PH_DAY = 86400
+
+
+def _ph_get(path: str):
+    import urllib.request as _u
+    req = _u.Request("https://prices.curve.finance/v1" + path,
+                     headers={"User-Agent": "curve-sim"})
+    with _u.urlopen(req, timeout=45) as r:
+        return json.loads(r.read())
+
+
+def _ph_walk(mk, start: int, end: int, max_calls: int = 16) -> list:
+    """Cursor pagination that survives BOTH truncation styles: /snapshots
+    returns the NEWEST rows of the range (walk the end down), /volume/usd
+    returns the OLDEST (walk the start up). Each call shrinks the still-
+    uncovered interval from whichever side the chunk touched."""
+    rows, lo, hi = [], start, end
+    for _ in range(max_calls):
+        if lo >= hi:
+            break
+        try:
+            chunk = mk(lo, hi) or []
+        except Exception:
+            break
+        if not chunk:
+            break
+        rows += chunk
+        ts = [int(c.get("timestamp") or 0) for c in chunk]
+        mn, mx = min(ts), max(ts)
+        touches_lo = mn <= lo + _PH_DAY
+        touches_hi = mx >= hi - 2 * _PH_DAY
+        if touches_lo and touches_hi:
+            break                        # range covered
+        if touches_lo:
+            lo = mx + 1                  # oldest-first endpoint
+        elif touches_hi:
+            hi = mn - 1                  # newest-first endpoint
+        else:
+            break                        # neither end reached — bail out
+    return rows
+
+
+_PH_FIELDS = ["bapr", "vol", "fees", "tvl", "a", "gamma", "fee", "admin",
+              "offpeg", "mid", "out", "fg"]
+_PH_PARAMS = [("a", "a"), ("gamma", "gamma"), ("fee", "fee"),
+              ("admin", "admin_fee"), ("offpeg", "offpeg_fee_multiplier"),
+              ("mid", "mid_fee"), ("out", "out_fee"), ("fg", "fee_gamma")]
+
+
+def _ph_build(chain: str, addr: str, cached: dict | None = None) -> dict:
+    """Build (or incrementally extend) one pool's daily history. Completed
+    days never change, so with a cache we only fetch from the last cached
+    day (re-fetching that one — it may have been mid-day) to now: 3 small
+    calls instead of a full 2-year crawl."""
+    now = int(time.time())
+    full_start = now - POOL_HIST_DAYS * _PH_DAY
+    prev_t = (cached or {}).get("t") or []
+    start = max(full_start, prev_t[-1] - _PH_DAY) if prev_t else full_start
+    snaps = _ph_walk(lambda a, b: _ph_get(
+        f"/snapshots/{chain}/{addr}?interval=day&start={a}&end={b}")
+        .get("data"), start, now)
+    vols = _ph_walk(lambda a, b: _ph_get(
+        f"/volume/usd/{chain}/{addr}?interval=day&start={a}&end={b}")
+        .get("data"), start, now)
+    # the tvl endpoint additionally caps the RANGE at 6 months
+    tvls = _ph_walk(lambda a, b: _ph_get(
+        f"/snapshots/{chain}/{addr}/tvl?interval=day"
+        f"&start={max(a, b - 175 * _PH_DAY)}&end={b}")
+        .get("data"), start, now)
+    day = lambda ts: int(ts) // _PH_DAY * _PH_DAY
+    sn, vo, tv = {}, {}, {}
+    for r in snaps:
+        sn[day(r["timestamp"])] = r
+    for r in vols:
+        vo[day(r["timestamp"])] = r
+    for r in tvls:
+        tv[day(r["timestamp"])] = r
+    # seed from the cache, then overlay the freshly fetched days
+    rows: dict[int, dict] = {}
+    lastp = {k: None for k, _ in _PH_PARAMS}
+    for i, d in enumerate(prev_t):
+        rows[d] = {k: cached[k][i] for k in _PH_FIELDS}
+    if prev_t:                       # params continue from the cache edge
+        for k, _ in _PH_PARAMS:
+            lastp[k] = rows[prev_t[-1]][k]
+    for d in sorted(set(sn) | set(vo) | set(tv)):
+        row = rows.setdefault(d, {k: None for k in _PH_FIELDS})
+        s_ = sn.get(d)
+        if s_:
+            for k, f in _PH_PARAMS:
+                if s_.get(f) is not None:
+                    lastp[k] = s_[f]
+            row["bapr"] = s_.get("base_daily_apr")
+        for k, _ in _PH_PARAMS:
+            row[k] = lastp[k]
+        v_ = vo.get(d)
+        if v_:
+            row["vol"], row["fees"] = v_.get("volume"), v_.get("fees")
+        t_ = tv.get(d)
+        if t_:
+            row["tvl"] = t_.get("tvl_usd")
+    days = sorted(d for d in rows if d >= full_start)
+    out = {"fetched_at": now, "chain": chain, "address": addr, "t": days}
+    for k in _PH_FIELDS:
+        out[k] = [rows[d][k] for d in days]
+    return out
+
+
+def pool_hist(chain: str, addr: str) -> dict:
+    POOL_HIST_DIR.mkdir(parents=True, exist_ok=True)
+    f = POOL_HIST_DIR / f"{chain}_{addr}.json"
+    cached = None
+    if f.is_file():
+        try:
+            cached = json.loads(f.read_text())
+        except (OSError, ValueError):
+            cached = None
+    if cached and time.time() - cached.get("fetched_at", 0) < POOL_HIST_TTL:
+        return cached
+    try:
+        fresh = _ph_build(chain, addr, cached)
+        tmp = f.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(fresh))
+        os.replace(tmp, f)
+        return fresh
+    except Exception as e:
+        if cached:            # stale beats broken
+            return cached
+        return {"error": f"upstream fetch failed: {str(e)[:120]}"}
+
+
 def _http_json(handler: BaseHTTPRequestHandler, status: int, body: dict):
     payload = json.dumps(body).encode()
     handler.send_response(status)
@@ -617,6 +759,32 @@ def _do_refresh():
         print(f"[ui] dao revenue refreshed in {time.time() - t5:.1f} s")
     except Exception as e:
         print(f"[ui] dao revenue refresh FAILED: {str(e)[:300]}")
+    # pool-history warmer: keep every census pool's 2y daily history fresh
+    # on disk so /poolhist never fetches upstream during a page visit.
+    # Incremental after the first sweep (last-day top-up, ~3 calls/pool).
+    t6 = time.time()
+    try:
+        cen = json.loads((HERE / "data" / "census.json").read_text())["pools"]
+        targets = [(ch, r[0].lower()) for ch, rows in cen.items()
+                   for r in rows if isinstance(r, list) and r]
+        cutoff = time.time() - POOL_HIST_TTL
+        stale = []
+        for ch, a in targets:
+            f = POOL_HIST_DIR / f"{ch}_{a}.json"
+            try:
+                if f.stat().st_mtime >= cutoff:
+                    continue
+            except OSError:
+                pass
+            stale.append((ch, a))
+        if stale:
+            from concurrent.futures import ThreadPoolExecutor as _TPE
+            with _TPE(6) as ex:
+                list(ex.map(lambda t7: pool_hist(*t7), stale))
+        print(f"[ui] pool hist: warmed {len(stale)} of {len(targets)} "
+              f"pools in {time.time() - t6:.0f} s")
+    except Exception as e:
+        print(f"[ui] pool hist warm FAILED: {str(e)[:300]}")
     # Oracle-graph live values (price/rate/EMA numbers on the LLM flow map)
     # — light multicall pass over the mapped nodes, seconds.
     try:
@@ -1117,6 +1285,18 @@ class Handler(BaseHTTPRequestHandler):
                                                 "refresh cycle writes it"})
                 return
             _http_json(self, 200, json.loads(f.read_text()))
+            return
+        if self.path.startswith("/poolhist"):
+            # 2y daily pool history, cached server-side — ?m=chain:0xpool
+            q = parse_qs(urlparse(self.path).query)
+            key = (q.get("m") or [""])[0].lower()
+            ch, _, pa = key.partition(":")
+            if not (ch.isalnum() or ch.replace("-", "").isalnum()) \
+                    or not pa.startswith("0x") \
+                    or not all(c in "0123456789abcdefx" for c in pa):
+                _http_json(self, 400, {"error": "bad ?m="})
+                return
+            _http_json(self, 200, pool_hist(ch, pa))
             return
         if self.path.startswith("/llmhist"):
             # per-market daily history arrays (fetch_llm.py) — ?m=chain:ctrl

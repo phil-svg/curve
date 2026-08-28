@@ -288,6 +288,14 @@
 </style>
 </head>
 <body>
+<script>
+  // a deep link (e.g. /pools) must not flash the home view while the page
+  // parses — the DOMContentLoaded boot below picks the right tab and then
+  // lifts this class
+  if (location.pathname.replace(/^\/+|\/+$/g, "") !== "")
+    document.documentElement.classList.add("deep-boot");
+</script>
+<style>html.deep-boot #view_home { display:none; }</style>
 <header class="appbar">
   <button type="button" class="tab brand on" data-view="home" title="Home">
     <img src="/favicon.png?v=8" alt="Curve-Sim — home">
@@ -923,6 +931,8 @@
     #dr_body path[data-tip]:hover { filter:brightness(1.3); }
     #dr_body tr[data-tip]:hover { background:#161b22; }
     #dr_body div[data-tip]:hover { filter:brightness(1.25); }
+    .lp-pool-open:hover { text-decoration:underline; }
+    #dr_body [data-pool] { cursor:pointer; }
     #lm_body tr.lm-trow td { transition:background .08s; }
     #lm_body tr.lm-trow:hover td {
       box-shadow:inset 0 0 0 999px rgba(88,166,255,.09); }
@@ -936,16 +946,18 @@
       border-color .1s; cursor:pointer; }
     #lm_body .lm-clk:hover { border-color:#58a6ff !important;
       transform:translateY(-2px); box-shadow:0 6px 16px rgba(1,4,9,.55); }
-    #lm_body .lm-open { border:1px solid #58a6ff; color:#58a6ff;
-      border-radius:4px; padding:1px 8px; font-size:10.5px;
+    #lm_body .lm-open, #lp_body .lm-open { border:1px solid #58a6ff;
+      color:#58a6ff; border-radius:4px; padding:1px 8px; font-size:10.5px;
       font-weight:600; white-space:nowrap; }
-    #lm_body .lm-clk:hover .lm-open, #lm_body .lmb-row:hover .lm-open {
+    #lm_body .lm-clk:hover .lm-open, #lm_body .lmb-row:hover .lm-open,
+    #lp_body .lmb-row:hover .lm-open {
       background:#1f6feb; border-color:#1f6feb; color:#fff; }
-    #lm_body .lmb-row { cursor:pointer; border-radius:6px;
-      transition:background .08s; }
-    #lm_body .lmb-row:hover { background:#1c2129; }
-    #lm_body .lmb-row:hover b { color:#58a6ff;
-      text-decoration:underline; }
+    #lm_body .lmb-row, #lp_body .lmb-row { cursor:pointer;
+      border-radius:6px; transition:background .08s; }
+    #lm_body .lmb-row:hover, #lp_body .lmb-row:hover {
+      background:#1c2129; }
+    #lm_body .lmb-row:hover b, #lp_body .lmb-row:hover b {
+      color:#58a6ff; text-decoration:underline; }
   </style>
   <div id="lm_controls" style="display:flex; flex-wrap:nowrap;
        align-items:center; gap:10px; margin-bottom:6px">
@@ -989,12 +1001,12 @@
      wallets by fetchers/fetch_lp.py, event-driven on the refresh cycle. -->
 <div id="view_lp" style="display:none">
   <div class="note" id="lp_note" style="margin-bottom:8px">loading…</div>
-  <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;
-              margin-bottom:14px">
+  <div id="lp_controls" style="display:flex; gap:12px; align-items:center;
+              justify-content:center; flex-wrap:wrap; margin-bottom:14px">
     <input id="lp_search" type="text" spellcheck="false"
            placeholder="search — name / pool / coin / LP"
-           title="matches pool names and addresses, coin symbols / names / addresses, and LP wallet addresses or labels — a matched LP's slice is ringed in the pie"
-           style="flex:1; min-width:240px; max-width:620px; padding:7px 10px;
+           title="matches pool names and addresses, coin symbols / names / addresses, and LP wallet addresses or labels"
+           style="flex:0 1 620px; min-width:240px; padding:7px 10px;
                   background:#0d1117; color:#e6edf3; border:1px solid #30363d;
                   border-radius:6px; font-size:12.5px">
   </div>
@@ -3612,8 +3624,13 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
           && !window.__pkLoaded) { window.__pkLoaded = true; loadPegkeeperTab(); }
       if (t.dataset.view === "yb" && typeof loadYbTab === "function"
           && !window.__ybLoaded) { window.__ybLoaded = true; loadYbTab(); }
-      if (t.dataset.view === "lp" && typeof loadLpTab === "function"
-          && !window.__lpLoaded) { window.__lpLoaded = true; loadLpTab(); }
+      if (t.dataset.view === "lp") {
+        if (typeof loadLpTab === "function" && !window.__lpLoaded) {
+          window.__lpLoaded = true; loadLpTab();
+        } else if (!t.__fromUrl && window.__lpShowList) {
+          window.__lpShowList();   // tab click = back to the pool grid
+        }
+      }
       if (t.dataset.view === "llm") {
         if (typeof loadLlmTab === "function" && !window.__lmLoaded) {
           window.__lmLoaded = true; loadLlmTab();
@@ -3742,6 +3759,7 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
       const t = document.querySelector(`.tab[data-view="${view}"]`);
       if (t) { t.__fromUrl = true; t.click(); }
     }
+    document.documentElement.classList.remove("deep-boot");
   });
 
   async function loadCandles() {
@@ -4541,7 +4559,8 @@ window.loadDaoRevTab = async function () {
     const rows10 = topN.map((c, i) => `
       <div${tip({ h: c.name, v: usd(c.val), i: logosFor(c),
           r: [[FAMC[c.kind], FAM[c.kind].short,
-               (c.val / cTot * 100).toFixed(1) + "%"]] })}
+               (c.val / cTot * 100).toFixed(1) + "%"]] })}${
+        c.kind === "pool" ? ` data-pool="${esc6(c.key)}"` : ""}
         style="display:grid; align-items:center; gap:10px;
         grid-template-columns:16px 190px 1fr 110px; cursor:default">
         <span style="color:#6e7681; font-size:11px; text-align:right">${
@@ -4712,7 +4731,8 @@ window.loadDaoRevTab = async function () {
           esc6(s.t)}</div>
         <table class="study" style="font-size:11px; width:100%">
           ${(s.isPool ? s.rows.slice(0, TOPN) : s.rows).map(r => `
-            <tr${rtip(s, r)}>
+            <tr${rtip(s, r)}${s.isPool
+              ? ` data-pool="${esc6(r.key)}"` : ""}>
             <td style="text-align:left; white-space:nowrap; overflow:hidden;
               text-overflow:ellipsis; max-width:150px">${ico(r)}${
               esc6(r.name)}</td>
@@ -4737,6 +4757,11 @@ window.loadDaoRevTab = async function () {
       window.__drPools = 1e9;
       render();
     });
+    for (const el of body.querySelectorAll("[data-pool]"))
+      el.addEventListener("click", () => {
+        const [pc, pa] = el.dataset.pool.split(":");
+        if (pa) location.href = `/pools/${pc}/${pa}`;
+      });
 
 
     // one floating tooltip for the whole tab: bars, pie slices, legend
@@ -7021,6 +7046,70 @@ window.loadLpTab = async function () {
     return { show: !!(hit || meta), hl: hit ? hit.addr : null };
   }
 
+  // LP-distribution card for ONE pool (pie + legend + copy-JSON) — used
+  // at the bottom of the single-pool page; the landing list is a TVL
+  // leaderboard and no longer draws pies.
+  function lpPieCard(p) {
+    if (!p) return `<div class="note">holder data not tracked yet</div>`;
+    if (!(p.top || []).length)
+      return `<div class="note">${usd(p.tvl)} TVL · holder scan pending</div>`;
+    const named = p.top.filter(r => r.pct >= 3).slice(0, 4);
+    const tail = p.top.slice(named.length);
+    const tailPct = tail.reduce((s2, r) => s2 + r.pct, 0);
+    const rest = Math.max(0, p.rest_pct);
+    const namedCols = cardColors(named);
+    const slices = named.map((r, i) => ({
+      pct: r.pct, color: namedCols[i], addr: r.addr,
+      tip: `${rowName(r)} — ${r.pct.toFixed(2)}% · ${usd(r.usd)}\n${r.addr}`}))
+      .concat(tail.map((r, i) => ({
+        pct: r.pct, color: TAILS[i % 2], addr: r.addr,
+        tip: `${rowName(r)} — ${r.pct.toFixed(2)}% · ${usd(r.usd)}\n${r.addr}`})))
+      .concat(rest > 0.005 ? [{ pct: rest, color: REST,
+        tip: `everyone else — ${rest.toFixed(2)}%` }] : []);
+    const legend = named.map((r, i) => `
+      <div style="display:flex; align-items:center; gap:7px; min-width:0">
+        <span style="flex:none; width:10px; height:10px; border-radius:2px;
+          background:${namedCols[i]}"></span>
+        <span style="overflow:hidden; text-overflow:ellipsis;
+          white-space:nowrap" title="${esc(r.addr)}">${link(r.addr,
+            p.chain, rowName(r))}${kindSuffix(r)}</span>
+        <button class="lp-copy" data-addr="${esc(r.addr)}"
+          title="copy address" style="flex:none; background:none;
+          border:none; color:#8b949e; cursor:pointer; padding:0 2px;
+          font-size:11px; width:auto; margin:0">&#x2398;</button>
+        <span style="flex:none; color:#8b949e">${r.pct.toFixed(2)}% ·
+          ${usd(r.usd)}</span></div>`).join("") +
+      (tail.length ? `<div style="display:flex; align-items:center;
+          gap:7px"><span style="flex:none; width:10px; height:10px;
+          border-radius:2px; background:${TAILS[0]}"></span>
+        <span style="color:#8b949e">next ${tail.length} wallets, one
+          slice each — ${tailPct.toFixed(2)}% ·
+          ${usd(tailPct * p.tvl / 100)}</span></div>` : "") +
+      (rest > 0.005 ? `<div style="display:flex; align-items:center;
+          gap:7px"><span style="flex:none; width:10px; height:10px;
+          border-radius:2px; background:${REST}"></span>
+        <span style="color:#8b949e">everyone else —
+          ${rest.toFixed(2)}%</span></div>` : "");
+    return `
+      <div style="display:flex; align-items:baseline; gap:10px;
+          flex-wrap:wrap; margin-bottom:4px">
+        <span class="note">${p.n_holders} holders tracked${
+          p.coverage_pct != null && p.coverage_pct < 90
+          ? ` · <span style="color:#e3b341">⚠ scan ${p.coverage_pct}%</span>`
+          : ""}</span>
+        <button class="lp-json" data-k="${esc(p.chain)}:${esc(p.pool)}"
+          title="copy every tracked holder with balances as JSON"
+          style="background:none; border:1px solid #30363d;
+          border-radius:4px; color:#8b949e; cursor:pointer;
+          padding:1px 8px; font-size:10px; width:auto;
+          margin:0">&#x2398; JSON</button></div>
+      <div style="display:flex; gap:18px; align-items:center; flex-wrap:wrap">
+        ${pieSvg(slices, null)}
+        <div style="display:flex; flex-direction:column; gap:5px;
+          font-size:11.5px; min-width:230px; flex:1">${legend}</div>
+      </div>`;
+  }
+
   async function render(refetch = true) {
     let d = lpCache;
     if (refetch || !d) {
@@ -7035,121 +7124,44 @@ window.loadLpTab = async function () {
       return;
     }
     note.style.display = "none";
-    const listMode = !!document.querySelector("#lp_filter .on")?.dataset.f;
-    let h = `<div style="display:grid; gap:${listMode ? 18 : 26}px;
-      grid-template-columns:${listMode
-        ? "1fr" : "repeat(auto-fill, minmax(470px, 1fr))"}">`;
-    let shown = 0;
-    for (const p of Object.values(d.pools)) {
-      const m = poolMatch(p);
-      const assoc = poolAssoc(p);
-      const needAssoc = document.querySelector("#lp_filter .on")?.dataset.f
-        || lpType() !== "both";
-      if (!m.show || (needAssoc && !assoc.length)) continue;
-      if (!p.top.length) {          // holder scan hasn't reached this pool
-        shown++;
-        h += `<div style="border:1px solid #30363d; border-radius:8px;
-            background:#161b22; padding:12px 16px; opacity:.65;
-            display:flex; align-items:baseline; gap:10px; flex-wrap:wrap">
-          <span style="display:inline-flex; align-items:center; flex:none;
-            align-self:center">${coinIcons(p)}</span>
-          <b style="font-size:13px">${esc(p.label)}</b>
-          <span class="note">${p.chain
-            && p.chain !== "ethereum" ? esc(p.chain) + " · " : ""}
-            ${usd(p.tvl)} TVL · holder scan pending</span></div>`;
-        continue;
-      }
-      shown++;
-      const named = p.top.filter(r => r.pct >= 3).slice(0, 4);
-      const tail = p.top.slice(named.length);
-      const tailPct = tail.reduce((s, r) => s + r.pct, 0);
-      const rest = Math.max(0, p.rest_pct);
-      const namedCols = cardColors(named);
-      const slices = named.map((r, i) => ({
-        pct: r.pct, color: namedCols[i], addr: r.addr,
-        tip: `${rowName(r)} — ${r.pct.toFixed(2)}% · ${usd(r.usd)}\n${r.addr}`}))
-        .concat(tail.map((r, i) => ({
-          pct: r.pct, color: TAILS[i % 2], addr: r.addr,
-          tip: `${rowName(r)} — ${r.pct.toFixed(2)}% · ${usd(r.usd)}\n${r.addr}`})))
-        .concat(rest > 0.005 ? [{ pct: rest, color: REST,
-          tip: `everyone else — ${rest.toFixed(2)}%` }] : []);
-      const legend = named.map((r, i) => `
-        <div style="display:flex; align-items:center; gap:7px; min-width:0${
-          m.hl === r.addr
-            ? "; background:rgba(227,179,65,.10); border-radius:4px;"
-              + " outline:1px solid rgba(227,179,65,.45); padding:1px 5px"
-            : ""}">
-          <span style="flex:none; width:10px; height:10px; border-radius:2px;
-            background:${namedCols[i]}"></span>
-          <span style="overflow:hidden; text-overflow:ellipsis;
-            white-space:nowrap" title="${esc(r.addr)}">${link(r.addr,
-              p.chain, rowName(r))}${kindSuffix(r)}</span>
-          <button class="lp-copy" data-addr="${esc(r.addr)}"
-            title="copy address" style="flex:none; background:none;
-            border:none; color:#8b949e; cursor:pointer; padding:0 2px;
-            font-size:11px; width:auto; margin:0">&#x2398;</button>
-          <span style="flex:none; color:#8b949e">${r.pct.toFixed(2)}% ·
-            ${usd(r.usd)}</span></div>`).join("") +
-        (tail.length ? `<div style="display:flex; align-items:center;
-            gap:7px"><span style="flex:none; width:10px; height:10px;
-            border-radius:2px; background:${TAILS[0]}"></span>
-          <span style="color:#8b949e">next ${tail.length} wallets, one
-            slice each — ${tailPct.toFixed(2)}% ·
-            ${usd(tailPct * p.tvl / 100)}</span></div>` : "") +
-        (rest > 0.005 ? `<div style="display:flex; align-items:center;
-            gap:7px"><span style="flex:none; width:10px; height:10px;
-            border-radius:2px; background:${REST}"></span>
-          <span style="color:#8b949e">everyone else —
-            ${rest.toFixed(2)}%</span></div>` : "");
-      h += `<div style="border:1px solid #30363d; border-radius:8px;
-          background:#161b22; padding:14px 16px">
-        <div style="display:flex; align-items:baseline; gap:10px;
-            flex-wrap:wrap; margin-bottom:4px">
-          <span style="display:inline-flex; align-items:center; flex:none;
-            align-self:center">${coinIcons(p)}</span>
-          <b style="font-size:13.5px">${esc(p.label)}</b>
-          <span style="font-size:11.5px; color:#e6edf3">${p.chain
-            && p.chain !== "ethereum"
-            ? esc(p.chain) + " · " : ""}${usd(p.tvl)} TVL</span>
-          <button class="lp-json" data-k="${esc(p.chain)}:${esc(p.pool)}"
-            title="copy every tracked holder with balances as JSON"
-            style="background:none; border:1px solid #30363d;
-            border-radius:4px; color:#8b949e; cursor:pointer;
-            padding:1px 8px; font-size:10px; width:auto;
-            margin:0">&#x2398; JSON</button></div>${(() => {
-          const f = document.querySelector("#lp_filter .on")?.dataset.f;
-          if (!f || !assoc.length) return "";
-          const scanBase = (LP_EXPLORER[p.chain] || "https://etherscan.io");
-          const rows = [...assoc].sort((a, b) => b.tvl - a.tvl);
-          return `<div class="note" style="margin:-1px 0 8px">
-            used by lending markets:</div>` + rows.map(a => `
-            <div class="note" style="margin:0 0 2px 12px">
-              <span style="color:#8b949e">${a.g}</span> ·
-              <a href="https://www.curve.finance/lend/${esc(a.chain)}/markets/${esc(a.ctrl)}"
-                 target="_blank" rel="noopener"
-                 style="color:#c9d1d9; font-weight:600">${esc(a.label)}</a> ·
-              ${usd(a.tvl)} market TVL ·
-              ${a.oracle ? `<span style="color:#d95926">oracle</span>` : ""}${
-                a.oracle && a.exit ? " + " : ""}${
-                a.exit ? `<span style="color:#3987e5">potential pool for H.L.</span>`
-                       : ""} ·
-              <a href="${scanBase}/address/${esc(a.amm)}" target="_blank"
-                 rel="noopener" style="color:#8b949e">[amm]</a>
-              <a href="${scanBase}/address/${esc(a.ctrl)}" target="_blank"
-                 rel="noopener" style="color:#8b949e">[controller]</a></div>`)
-            .join("") + `<div style="height:6px"></div>`;
-        })()}
-        <div style="display:flex; gap:18px; align-items:center; flex-wrap:wrap">
-          ${pieSvg(slices, m.hl)}
-          <div style="display:flex; flex-direction:column; gap:5px;
-            font-size:11.5px; min-width:230px; flex:1">${legend}</div>
-        </div></div>`;
-    }
-    h += "</div>";
-    if (!shown)
-      h = `<div class="note">nothing matches the current search/filter —
+    // TVL leaderboard, same structure as the lending-markets landing
+    const rows = Object.values(d.pools)
+      .filter(p => poolMatch(p).show)
+      .sort((a, b) => (b.tvl || 0) - (a.tvl || 0));
+    const maxT = Math.max(1, ...rows.map(p => p.tvl || 0));
+    let h = "";
+    rows.forEach((p, i2) => {
+      h += `<div class="lmb-row lp-pool-open" data-k="${esc(p.chain)}:${
+          esc(p.pool)}" style="display:flex; align-items:center; gap:10px;
+          padding:5px 8px">
+        <span style="width:26px; text-align:right; color:#6e7681;
+          font-size:11px">${i2 + 1}</span>
+        <span style="width:96px; flex:none; display:inline-flex;
+          overflow:hidden">${coinIcons(p)}</span>
+        <span style="width:250px; flex:none; overflow:hidden;
+          text-overflow:ellipsis; white-space:nowrap"><b>${
+          esc(p.label)}</b> <span style="color:#6e7681; font-size:10.5px">
+          ${esc(p.chain)}</span></span>
+        <div style="flex:1; height:16px; background:#161b22;
+            border-radius:4px; overflow:hidden">
+          <div style="width:${(100 * (p.tvl || 0) / maxT).toFixed(2)}%;
+            height:100%; background:linear-gradient(90deg, #1f6feb88,
+            #58a6ff)"></div></div>
+        <span style="width:84px; text-align:right; font-weight:600">${
+          usd(p.tvl)}</span>
+        <span style="width:64px; text-align:right; color:#8b949e;
+          font-size:11px">${p.n_holders ?? "—"} LPs</span>
+        <span class="lm-open">open ›</span></div>`;
+    });
+    if (rows.length)
+      h += `<div class="note" style="margin-top:6px">bar = TVL share of the
+        largest pool · click a row for charts, parameters and the LP
+        distribution</div>`;
+    else
+      h = `<div class="note">nothing matches the current search —
         pools, coins and the tracked holders of
         ${Object.keys(d.pools).length} pools were searched</div>`;
+    if (lpOpen) return;      // a pool page opened while we were fetching
     body.innerHTML = h;
   }
   body.addEventListener("click", async e => {
@@ -7187,7 +7199,426 @@ window.loadLpTab = async function () {
     clearTimeout(lpDeb);
     lpDeb = setTimeout(() => render(false), 150);
   });
+
+  // ==== dedicated pool page (mirrors the lending-market pages) ============
+  // Data comes straight from the prices API in the browser (CORS is open),
+  // so the server carries nothing: daily snapshots (params + base APR),
+  // volume/fees, and TVL, stitched over the 300-row caps to one year.
+  const PAPI = "https://prices.curve.finance/v1";
+  const P_DAY = 86400;
+  const P_SCAN = { ethereum: "https://etherscan.io",
+    arbitrum: "https://arbiscan.io", optimism: "https://optimistic.etherscan.io",
+    base: "https://basescan.org", polygon: "https://polygonscan.com",
+    fraxtal: "https://fraxscan.com", sonic: "https://sonicscan.org",
+    bsc: "https://bscscan.com", avalanche: "https://snowscan.xyz",
+    xdai: "https://gnosisscan.io", fantom: "https://ftmscan.com" };
+  const pMON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
+                "Sep", "Oct", "Nov", "Dec"];
+  const pNum = v => v == null ? "—"
+    : Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(2) + "M"
+    : Math.abs(v) >= 1e3 ? (v / 1e3).toFixed(1) + "k"
+    : (+v).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  let pSeq = 0;
+  const pReg = {};
+  // same chart as the lending-market pages: gradient area, month x-axis,
+  // hover crosshair, optional 7d average / step mode
+  function pSpark(t, vals, { pct = false, money = false,
+      color = "#58a6ff", avg7 = false, step = false,
+      w = 560, h = 190 } = {}) {
+    const xs = [], ys = [];
+    for (let i = 0; i < t.length; i++)
+      if (vals[i] != null && isFinite(vals[i])) { xs.push(t[i]); ys.push(+vals[i]); }
+    if (xs.length < 2) { pSpark.last = "";
+      return `<div class="note">no history in this window</div>`; }
+    const W = w, H = h, L = 58, R = 12, T = 16, B = 22;
+    const dataMin = Math.min(...ys);
+    let lo = dataMin, hi = Math.max(...ys);
+    if (hi === lo) { hi += (Math.abs(hi) || 1) * .05; lo -= (Math.abs(lo) || 1) * .05; }
+    const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+    if (dataMin >= 0 && lo < 0) lo = 0;
+    const X = x => L + (x - xs[0]) / (xs[xs.length - 1] - xs[0]) * (W - L - R);
+    const Y = y => T + (1 - (y - lo) / (hi - lo)) * (H - T - B);
+    const fy = v => pct ? v.toFixed(Math.abs(hi) < 10 ? 2 : 1) + "%"
+      : money ? (Math.abs(hi) < 1000
+          ? "$" + v.toFixed(hi - lo < 0.2 ? 4 : hi - lo < 20 ? 2 : 0)
+          : usd(v)) : pNum(v);
+    const span = xs[xs.length - 1] - xs[0];
+    const fmtX = ts => {
+      const dd = new Date(ts * 1000);
+      return span >= 320 * 86400
+        ? `${pMON[dd.getUTCMonth()]} '${String(dd.getUTCFullYear()).slice(2)}`
+        : `${pMON[dd.getUTCMonth()]} ${dd.getUTCDate()}`;
+    };
+    let g = "";
+    for (let k = 0; k <= 3; k++) {
+      const v = lo + (hi - lo) * k / 3;
+      g += `<line x1="${L}" y1="${Y(v)}" x2="${W - R}" y2="${Y(v)}"
+             stroke="#1c2128" stroke-dasharray="3 4"/>
+            <text x="${L - 8}" y="${Y(v) + 3.5}" text-anchor="end"
+             fill="#6e7681" font-size="10.5">${fy(v)}</text>`;
+    }
+    for (let k = 0; k <= 4; k++) {
+      const x = xs[0] + (xs[xs.length - 1] - xs[0]) * k / 4;
+      g += `<text x="${X(x)}" y="${H - 6}" text-anchor="middle"
+             fill="#57606a" font-size="10.5">${fmtX(x)}</text>`;
+    }
+    const pt = (x, y) => `${X(x).toFixed(1)},${Y(y).toFixed(1)}`;
+    let pts;
+    if (step) {
+      const parts = [];
+      for (let i = 0; i < xs.length; i++) {
+        if (i) parts.push(pt(xs[i], ys[i - 1]));
+        parts.push(pt(xs[i], ys[i]));
+      }
+      pts = parts.join(" ");
+    } else pts = xs.map((x, i) => pt(x, ys[i])).join(" ");
+    const gid = "lpg" + (pSeq++);
+    const xEnd = X(xs[xs.length - 1]).toFixed(1);
+    const base = (H - B + 1).toFixed(1);
+    const last = ys[ys.length - 1];
+    let avg = "", label = fy(last);
+    if (avg7) {
+      const sm = ys.map((_, i) => {
+        const q = ys.slice(Math.max(0, i - 6), i + 1);
+        return q.reduce((a, b) => a + b, 0) / q.length;
+      });
+      avg = `<polyline fill="none" stroke="#e6edf3" stroke-width="1.8"
+        opacity="0.9" stroke-linejoin="round"
+        points="${xs.map((x, i) => pt(x, sm[i])).join(" ")}"/>`;
+      label = "7d avg " + fy(sm[sm.length - 1]);
+    }
+    pSpark.last = label;
+    pReg[gid] = { xs, ys, lo, hi, W, H, L, R, T, B, fy,
+      fx: i => { const dd = new Date(xs[i] * 1000);
+        return `${pMON[dd.getUTCMonth()]} ${dd.getUTCDate()} '${
+          String(dd.getUTCFullYear()).slice(2)}`; } };
+    return `<svg viewBox="0 0 ${W} ${H}" data-pspark="${gid}"
+        style="width:100%; display:block">
+      <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.26"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+      </linearGradient></defs>
+      ${g}
+      <polygon fill="url(#${gid})"
+        points="${X(xs[0]).toFixed(1)},${base} ${pts} ${xEnd},${base}"/>
+      <polyline fill="none" stroke="${color}"
+        stroke-width="${avg7 ? 1.1 : 1.8}"${avg7 ? ' opacity="0.5"' : ""}
+        stroke-linejoin="round" points="${pts}"/>
+      ${avg}
+      <circle cx="${xEnd}" cy="${Y(last).toFixed(1)}" r="5.5"
+        fill="${color}" opacity="0.22"/>
+      <circle cx="${xEnd}" cy="${Y(last).toFixed(1)}" r="2.4"
+        fill="${color}"/>
+      <g data-hv style="display:none" pointer-events="none">
+        <line data-hvl y1="${T}" y2="${H - B}" stroke="#6e7681"
+          stroke-dasharray="2 3"/>
+        <circle data-hvc r="3.2" fill="${color}" stroke="#0d1117"
+          stroke-width="1"/>
+        <rect data-hvr fill="#010409" opacity="0.88" rx="4" height="16"
+          y="${T - 12}"/>
+        <text data-hvt fill="#e6edf3" font-size="11" text-anchor="middle"
+          y="${T}"/>
+      </g></svg>`;
+  }
+  function pWireHover(root) {
+    root.addEventListener("mousemove", ev => {
+      const svg = ev.target.closest("svg[data-pspark]");
+      for (const gv of root.querySelectorAll("svg[data-pspark] g[data-hv]"))
+        if (!svg || gv.ownerSVGElement !== svg) gv.style.display = "none";
+      if (!svg) return;
+      const dd = pReg[svg.dataset.pspark];
+      const g = svg.querySelector("g[data-hv]");
+      if (!dd || !g) return;
+      const r = svg.getBoundingClientRect();
+      const vx = (ev.clientX - r.left) / r.width * dd.W;
+      const n = dd.xs.length, spanX = dd.xs[n - 1] - dd.xs[0];
+      let i = Math.round((vx - dd.L) / (dd.W - dd.L - dd.R) * (n - 1));
+      i = Math.max(0, Math.min(n - 1, i));
+      const x = dd.L + (dd.xs[i] - dd.xs[0]) / spanX * (dd.W - dd.L - dd.R);
+      const y = dd.T + (1 - (dd.ys[i] - dd.lo) / (dd.hi - dd.lo))
+        * (dd.H - dd.T - dd.B);
+      g.style.display = "";
+      const l = g.querySelector("[data-hvl]");
+      l.setAttribute("x1", x); l.setAttribute("x2", x);
+      const c = g.querySelector("[data-hvc]");
+      c.setAttribute("cx", x); c.setAttribute("cy", y);
+      const label = `${dd.fx(i)} · ${dd.fy(dd.ys[i])}`;
+      const tw = label.length * 6.3 + 12;
+      const tx = Math.max(dd.L + tw / 2,
+        Math.min(dd.W - dd.R - tw / 2 - 70, x));
+      const txt = g.querySelector("[data-hvt]");
+      txt.setAttribute("x", tx); txt.textContent = label;
+      const bg = g.querySelector("[data-hvr]");
+      bg.setAttribute("x", tx - tw / 2); bg.setAttribute("width", tw);
+    });
+    root.addEventListener("mouseleave", () => {
+      for (const gv of root.querySelectorAll("svg[data-pspark] g[data-hv]"))
+        gv.style.display = "none";
+    });
+  }
+  const papi = async path => {
+    try {
+      const r = await fetch(PAPI + path);
+      return r.ok ? await r.json() : null;
+    } catch (_) { return null; }
+  };
+  // walk a day-capped endpoint backwards until a year is covered
+  async function pWindows(mk, winDays = 300) {
+    // /tvl caps the RANGE at 6 months (and 400s on a future end), the
+    // row-capped endpoints just truncate — the caller picks the window
+    const end = Math.floor(Date.now() / 1000);
+    const start = end - 366 * P_DAY;
+    let out = [], wEnd = end;
+    while (wEnd > start) {
+      const wS = Math.max(start, wEnd - winDays * P_DAY);
+      const rows = await mk(wS, wEnd);
+      if (!rows || !rows.length) break;
+      out = out.concat(rows);
+      wEnd = wS;
+    }
+    return out;
+  }
+  let lpOpen = null;          // "chain:addr" while a pool page is showing
+  function showLpList() {
+    lpOpen = null;
+    document.getElementById("lp_controls").style.display = "flex";
+    history.replaceState(null, "", "/pools");
+    render(false);
+  }
+  window.__lpShowList = showLpList;
+
+  async function showPool(ch, addr) {
+    addr = addr.toLowerCase();
+    lpOpen = `${ch}:${addr}`;
+    history.replaceState(null, "", `/pools/${ch}/${addr}`);
+    document.getElementById("lp_controls").style.display = "none";
+    note.style.display = "none";
+    const p = lpCache && lpCache.pools && lpCache.pools[`${ch}:${addr}`];
+    const label = p ? p.label : addr.slice(0, 10) + "…";
+    const scan = P_SCAN[ch] || "https://etherscan.io";
+    body.innerHTML = `
+      <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+          margin:2px 0 12px">
+        <a id="lp_back" style="cursor:pointer; color:#58a6ff;
+          font-size:12.5px">← all pools</a>
+        <span style="display:inline-flex; align-items:center; flex:none">
+          ${p ? coinIcons(p) : ""}</span>
+        <b style="font-size:15px">${esc(label)}</b>
+        <span style="color:#8b949e; font-size:12px">${esc(ch)}</span>
+        <a href="${scan}/address/${esc(addr)}" target="_blank" rel="noopener"
+          style="font-family:ui-monospace,monospace; font-size:11.5px">${
+          addr.slice(0, 8)}…${addr.slice(-4)}</a>
+        <span style="margin-left:auto; font-size:12.5px">${
+          p ? usd(p.tvl) + " TVL" : ""}</span>
+      </div>
+      <div id="lp_pool_body"><div class="note">loading a year of daily
+        history from the Curve prices API…</div></div>`;
+    document.getElementById("lp_back").addEventListener("click", showLpList);
+
+    // one server call: 2y of daily history, joined + cached server-side
+    const H = await fetch(`/poolhist?m=${ch}:${addr}`)
+      .then(r => r.ok ? r.json() : null).catch(() => null);
+    const root = document.getElementById("lp_pool_body");
+    if (!root) return;                       // user navigated away
+    if (!H || H.error || !(H.t || []).length) {
+      root.innerHTML = `<div class="note">${esc((H && H.error)
+        || "no daily history for this pool")}</div>`;
+      return;
+    }
+    const T = H.t;
+    const n_ = T.length;
+    const isCrypto = H.mid.some(v => v != null);
+    const isNg = !isCrypto && H.offpeg.some(v => v != null);
+    const lastOf = a => { for (let i = n_ - 1; i >= 0; i--)
+      if (a[i] != null) return a[i]; return null; };
+    const last = { a: lastOf(H.a), gamma: lastOf(H.gamma),
+      fee: lastOf(H.fee), admin_fee: lastOf(H.admin),
+      offpeg_fee_multiplier: lastOf(H.offpeg), mid_fee: lastOf(H.mid),
+      out_fee: lastOf(H.out), fee_gamma: lastOf(H.fg) };
+    const f10 = v => v == null ? null : v / 1e10;         // 1e10-scaled
+    const pctOf = v => v == null ? null : v / 1e10 * 100; // -> percent
+
+    const series = {
+      // base APR credits BOTH sides of the fee split (LPs + DAO): the
+      // API's base_daily_apr is the LP leg only, which reads as ~0 on
+      // 3pool (100% admin) and hides the DAO leg everywhere else
+      // fee APR for LPs + DAO together = total fees / TVL, annualised.
+      // Derived from the fee and TVL series rather than the API's
+      // base_daily_apr, whose scaling changed mid-history (old rows are
+      // annual fractions, new rows daily — mixing them drew 250% APRs
+      // on 3pool) and which only covers the LP leg anyway.
+      apr: T.map((_, i) => H.fees[i] != null && H.tvl[i] > 0
+        ? H.fees[i] / H.tvl[i] * 365 * 100 : null),
+      tvl: H.tvl,
+      vol: H.vol,
+      rev: T.map((_, i) => H.fees[i] != null && H.admin[i] != null
+        ? (H.fees[i] || 0) * f10(H.admin[i]) : null),
+      A: H.a,
+      gamma: H.gamma,
+      fee: H.fee.map(pctOf),
+      admin: H.admin.map(pctOf),
+      offpeg: H.offpeg.map(f10),
+      mid: H.mid.map(pctOf),
+      out: H.out.map(pctOf),
+      fg: H.fg.map(f10),
+    };
+
+    // -- parameter boxes: what the DAO can and cannot change ------------
+    const pRow = (k, v) => v == null ? "" : `
+      <div style="display:flex; gap:8px"><span style="width:170px; flex:none;
+        color:#8b949e">${k}</span><span>${v}</span></div>`;
+    const fmtPct = v => v == null ? null : v.toFixed(v < 0.2 ? 4 : 2) + "%";
+    const adminNow = pctOf(last.admin_fee);
+    let dao = "", fixed = "";
+    if (isCrypto) {
+      dao = pRow("A (ramp)", pNum(last.a))
+        + pRow("gamma (ramp)", last.gamma)
+        + pRow("mid fee", fmtPct(pctOf(last.mid_fee)))
+        + pRow("out fee", fmtPct(pctOf(last.out_fee)))
+        + pRow("fee gamma", f10(last.fee_gamma));
+      fixed = pRow("admin fee share", fmtPct(adminNow))
+        + pRow("family", "cryptoswap");
+    } else {
+      dao = pRow("A (ramp)", pNum(last.a))
+        + pRow("fee", fmtPct(pctOf(last.fee)))
+        + (isNg ? pRow("offpeg fee multiplier",
+            f10(last.offpeg_fee_multiplier) + "×")
+          : pRow("admin fee share", fmtPct(adminNow)));
+      fixed = (isNg ? pRow("admin fee share", fmtPct(adminNow)) : "")
+        + pRow("family", isNg ? "stableswap-ng" : "stableswap");
+    }
+    fixed += pRow("coins", (p && p.coins ? p.coins.length
+      : (last.n_coins || "")) + "");
+    const boxes = `
+      <div style="display:grid; gap:10px; margin-bottom:12px;
+          grid-template-columns:repeat(auto-fit, minmax(270px, 1fr))">
+        <div style="border:1px solid #21262d; border-radius:6px;
+            background:#0d1117; padding:10px 14px">
+          <div class="note" style="text-transform:uppercase;
+            letter-spacing:.06em; margin-bottom:6px">DAO-adjustable
+            parameters</div>
+          <div style="font-size:12px">${dao}</div></div>
+        <div style="border:1px solid #21262d; border-radius:6px;
+            background:#0d1117; padding:10px 14px">
+          <div class="note" style="text-transform:uppercase;
+            letter-spacing:.06em; margin-bottom:6px">fixed parameters</div>
+          <div style="font-size:12px">${fixed}</div></div>
+        <div style="border:1px solid #21262d; border-radius:6px;
+            background:#0d1117; padding:10px 14px">
+          <div class="note" style="text-transform:uppercase;
+            letter-spacing:.06em; margin-bottom:6px">
+            <span style="text-transform:none">eDAO</span>
+            <a href="https://docs.curve.finance/user/dao/emergency-dao"
+              target="_blank" rel="noopener"
+              style="text-transform:none; margin-left:6px">docs</a></div>
+          <div style="font-size:12px; color:#8b949e">kill gauge</div>
+        </div>
+      </div>`;
+
+    // -- charts, range-selectable, same look as the lending pages -------
+    const panel = (title, svg) => `<div style="border:1px solid #21262d;
+        border-radius:6px; background:#0d1117; padding:8px 10px 4px">
+      <div style="display:flex; align-items:baseline; margin:0 4px 2px">
+        <span style="font-size:12px; color:#e6edf3">${title}</span>
+        <span style="margin-left:auto; font-size:12px; color:#8b949e">${
+          pSpark.last}</span></div>${svg}</div>`;
+    const CUT = { all: 730, y: 365, m: 30, w: 7 };
+    const drawCharts = range => {
+      const n = Math.min(T.length, CUT[range] || 1e9);
+      const t = T.slice(-n);
+      const cutS = a => a.slice(-n);
+      const perf =
+        panel("base APR (LPs + DAO)", pSpark(t, cutS(series.apr),
+          { pct: true, avg7: true, color: "#58a6ff" }))
+        + panel("TVL", pSpark(t, cutS(series.tvl),
+          { money: true, color: "#3FB950" }))
+        + panel("DAO revenue / day", pSpark(t, cutS(series.rev),
+          { money: true, avg7: true, color: "#e3b341" }))
+        + panel("volume", pSpark(t, cutS(series.vol),
+          { money: true, avg7: true, color: "#A78BFA" }));
+      let params = "";
+      // one colour per parameter, like the lending-market param charts
+      const step = (title, arr, color, opts) => {
+        if (!arr.some(v => v != null)) return "";
+        return panel(title, pSpark(t, cutS(arr),
+          { step: true, color, ...opts }));
+      };
+      if (isCrypto) {
+        params = step("A", series.A, "#58a6ff")
+          + step("gamma", series.gamma, "#4DB6AC")
+          + step("mid fee %", series.mid, "#ED7D31", { pct: true })
+          + step("out fee %", series.out, "#F778BA", { pct: true })
+          + step("fee gamma", series.fg, "#A78BFA");
+      } else {
+        params = step("A", series.A, "#58a6ff")
+          + step("fee %", series.fee, "#ED7D31", { pct: true })
+          + (isNg ? step("offpeg fee multiplier", series.offpeg, "#DB61A2")
+                  : step("admin fee share %", series.admin, "#e3b341",
+                         { pct: true }));
+      }
+      document.getElementById("lp_charts").innerHTML = perf;
+      document.getElementById("lp_params").innerHTML = params
+        || `<div class="note">no parameter history</div>`;
+    };
+    root.innerHTML = boxes + `
+      <div style="border:1px solid #21262d; border-radius:6px;
+          background:#0d1117; padding:10px 14px; margin-bottom:12px">
+        <div style="display:flex; align-items:center; gap:10px;
+            margin-bottom:8px">
+          <div class="note" style="text-transform:uppercase;
+            letter-spacing:.06em">performance — daily history</div>
+          <span class="seg" id="lp_range" style="margin-left:auto">
+            <button type="button" data-r="all" class="on">all</button>
+            <button type="button" data-r="y">year</button>
+            <button type="button" data-r="m">month</button>
+            <button type="button" data-r="w">week</button></span>
+        </div>
+        <div id="lp_charts" style="display:grid; gap:10px;
+          grid-template-columns:repeat(2, minmax(0, 1fr))"></div>
+      </div>
+      <div style="border:1px solid #21262d; border-radius:6px;
+          background:#0d1117; padding:10px 14px">
+        <div class="note" style="text-transform:uppercase;
+          letter-spacing:.06em; margin-bottom:8px">parameters — one chart
+          per DAO-adjustable value</div>
+        <div id="lp_params" style="display:grid; gap:10px;
+          grid-template-columns:repeat(2, minmax(0, 1fr))"></div>
+      </div>
+      <div style="border:1px solid #21262d; border-radius:6px;
+          background:#0d1117; padding:10px 14px; margin-top:12px">
+        <div class="note" style="text-transform:uppercase;
+          letter-spacing:.06em; margin-bottom:8px">LP distribution</div>
+        ${lpPieCard(p)}
+      </div>`;
+    drawCharts("all");
+    for (const b2 of root.querySelectorAll("#lp_range button"))
+      b2.addEventListener("click", () => {
+        for (const o of root.querySelectorAll("#lp_range button"))
+          o.classList.toggle("on", o === b2);
+        drawCharts(b2.dataset.r);
+      });
+    pWireHover(root);
+  }
+  window.__lpShowPool = showPool;
+
+  body.addEventListener("click", e => {
+    const op = e.target.closest(".lp-pool-open");
+    if (op) {
+      const [ch, a] = op.dataset.k.split(":");
+      showPool(ch, a);
+    }
+  });
+
+  const render0 = render;
+  render = (...a) => { if (!lpOpen) return render0(...a); };
   await render();
+  // deep link: /pools/<chain>/<address> opens the pool page directly
+  {
+    const segs = location.pathname.split("/").filter(Boolean);
+    if ((segs[0] === "pools" || segs[0] === "lp")
+        && segs[1] && (segs[2] || "").startsWith("0x"))
+      showPool(segs[1].toLowerCase(), segs[2].toLowerCase());
+  }
   setInterval(render, 300_000);
 };
 
