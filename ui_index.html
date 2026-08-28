@@ -4659,100 +4659,70 @@ window.loadDaoRevTab = async function () {
       <svg viewBox="0 0 ${W} ${H}" style="width:100%; display:block">
         ${grid}${bars}</svg></div>`;
 
-    // ---- the three source tables, stacked: pool fees, then LlamaLend
-    // ---- V2, then crvUSD mint -----------------------------------------
-    const bd = (title, color, rows, coins) => {
-      if (!rows.length) return "";
-      const tot = rows.reduce((a, r) => a + r.sum, 0);
-      return `<div style="border:1px solid #21262d; border-radius:8px;
-          background:#0d1117; padding:10px 14px; margin-top:12px">
-        <div class="note" style="text-transform:uppercase;
-          letter-spacing:.06em; color:${color}; margin-bottom:8px">${
-          esc6(title)}</div>
-        <table class="study" style="font-size:11.5px; width:100%">
-          <tr><th style="text-align:left">market</th>
-            <th>${span >= 365 ? "1y" : span + "d"}</th>
-            <th>share</th></tr>
-          ${rows.map(r => `<tr${tip({ h: r.name, v: usd(r.sum),
-            r: [[color, "share of " + title.split(" ")[0], (tot
-              ? (r.sum / tot * 100).toFixed(1) : "0.0") + "%"]] })}>
-            <td style="text-align:left; white-space:nowrap">${
-              tokImg((coins || {})[r.key] || "", r.chain || "ethereum", 15)
-              }${esc6(r.name)}</td>
-            <td>${usd(r.sum)}</td>
-            <td style="color:#8b949e">${tot ? (r.sum / tot * 100).toFixed(1)
-              : "0.0"}%</td></tr>`).join("")}
-        </table></div>`;
-    };
+    // ---- the three source tables, side by side --------------------------
+    // Cards rather than full-width tables: each column is only as wide as
+    // it needs to be, so the value never drifts a screen away from its name.
     const rowsOf = (key, field) => {
       const m = ((d.sources || {})[key] || {})[field] || {};
-      return Object.entries(m).map(([name, arr]) => ({
-        name: name.split("|")[0], key: name,
-        chain: ((name.split("|")[1] || "").split(":")[0]) || "ethereum",
-        sum: cut(arr).reduce((a, b) => a + (b || 0), 0) }))
-        .filter(r => r.sum > 0.005)
+      const cn = ((d.sources || {})[key] || {}).coins || {};
+      return Object.entries(m).map(([name, arr]) => {
+        // keys are "<name>|<chain>:<controller>" for lend markets but
+        // "<sym>|<controller>" for crvUSD mint (always ethereum) — without
+        // this split the chain resolved to an address and every mint logo
+        // 404'd, which is why that column had none
+        const tail = name.split("|")[1] || "";
+        return { name: name.split("|")[0], key: name,
+          chain: tail.includes(":") ? tail.split(":")[0] : "ethereum",
+          logos: cn[name] ? [cn[name]] : [],
+          sum: cut(arr).reduce((a, b) => a + (b || 0), 0) };
+      }).filter(r => r.sum > 0.005)
         .sort((a, b) => b.sum - a.sum);
     };
-
-    // 1. pool swap fees — every pool, every chain, ranked
     const pf = (d.sources || {}).pool_fees || {};
     const pool = (pf.by_pool || {});
     const wkey = span >= 365 ? "d365" : "d30";
-    const prows = Object.entries(pool)
+    const prowsAll = Object.entries(pool)
       .map(([k, v]) => ({ key: k, name: v.n || k, chain: v.c,
-                          sum: v[wkey] || 0 }))
+                          logos: v.k || [], sum: v[wkey] || 0 }))
       .filter(r => r.sum > 0.5)
       .sort((a, b) => b.sum - a.sum);
-    const lbTot = prows.reduce((a, r) => a + r.sum, 0);
-    const SCANS = { ethereum: "https://etherscan.io",
-      arbitrum: "https://arbiscan.io", optimism: "https://optimistic.etherscan.io",
-      base: "https://basescan.org", polygon: "https://polygonscan.com",
-      fraxtal: "https://fraxscan.com", sonic: "https://sonicscan.org",
-      bsc: "https://bscscan.com", avalanche: "https://snowscan.xyz",
-      xdai: "https://gnosisscan.io", fantom: "https://ftmscan.com" };
-    const show = window.__drPools || 25;
-    h += `<div style="border:1px solid #21262d; border-radius:8px;
-        background:#0d1117; padding:10px 14px; margin-top:12px">
-      <div class="note" style="text-transform:uppercase; letter-spacing:.06em;
-        color:#58a6ff; margin-bottom:8px">pool swap fees</div>
-      <table class="study" style="font-size:11.5px; width:100%">
-        <tr><th style="text-align:left">#</th>
-          <th style="text-align:left">pool</th>
-          <th style="text-align:left">chain</th>
-          <th>${span >= 365 ? "1y" : span + "d"}</th><th>share</th></tr>
-        ${prows.slice(0, show).map((r, i) => {
-          const a = r.key.split(":")[1] || "";
-          const base = SCANS[r.chain];
-          return `<tr${tip({ h: `#${i + 1} ${r.name}`, v: usd(r.sum),
-            r: [["#58a6ff", r.chain + " · pool", (lbTot
-              ? (r.sum / lbTot * 100).toFixed(2) : "0.00") + "%"]] })}>
-            <td style="text-align:left; color:#6e7681">${i + 1}</td>
-            <td style="text-align:left; white-space:nowrap">${
-              (pool[r.key] && pool[r.key].k || []).map(t =>
-                tokImg(t, r.chain, 15)).join("")}${base
-              ? `<a href="${base}/address/${esc6(a)}" target="_blank"
-                   rel="noopener">${esc6(r.name)}</a>`
-              : esc6(r.name)}</td>
-            <td style="text-align:left; color:#8b949e">${esc6(r.chain)}</td>
-            <td>${usd(r.sum)}</td>
-            <td style="color:#8b949e">${lbTot
-              ? (r.sum / lbTot * 100).toFixed(1) : "0.0"}%</td></tr>`;
-        }).join("")}
-      </table>
-      ${prows.length > show ? `<div style="margin-top:6px">
-        <button type="button" id="dr_more" style="background:none;
-          border:1px solid #30363d; border-radius:4px; color:#8b949e;
-          cursor:pointer; padding:2px 10px; font-size:11px; width:auto;
-          margin:0">show all ${prows.length} pools</button></div>` : ""}
-    </div>`;
+    const SECT = [
+      { t: "pool swap fees", c: "#58a6ff", short: "pool",
+        rows: prowsAll, all: prowsAll.length, isPool: true },
+      { t: "LlamaLend V2 interest", c: "#A78BFA", short: "LlamaLend",
+        rows: rowsOf("lend_v2_interest", "by_market") },
+      { t: "crvUSD mint interest", c: "#e3b341", short: "crvUSD mint",
+        rows: rowsOf("mint_interest", "by_market") } ];
+    SECT.forEach(s => { s.tot = s.rows.reduce((a, r) => a + r.sum, 0); });
+    const ico = r => (r.logos || []).slice(0, 3)
+      .map(t => tokImg(t, r.chain, 14)).join("");
+    const rtip = (s, r) => tip({ h: r.name, v: usd(r.sum),
+      i: (r.logos || []).slice(0, 3).map(t => tokUrl(t, r.chain)),
+      r: [[s.c, s.short, (s.tot ? (r.sum / s.tot * 100).toFixed(1) : "0.0")
+          + "%"]] });
+    const BOX = "border:1px solid #21262d; border-radius:8px;"
+      + " background:#0d1117; padding:10px 14px";
+    const TOPN = 12;
 
-    // 2. LlamaLend V2 interest, then 3. crvUSD mint interest
-    h += bd("LlamaLend V2 interest", "#A78BFA",
-            rowsOf("lend_v2_interest", "by_market"),
-            ((d.sources || {}).lend_v2_interest || {}).coins);
-    h += bd("crvUSD mint interest", "#e3b341",
-            rowsOf("mint_interest", "by_market"),
-            ((d.sources || {}).mint_interest || {}).coins);
+    h += `<div style="display:grid; gap:12px; margin-top:12px;
+        grid-template-columns:repeat(auto-fit, minmax(300px, 1fr))">
+      ${SECT.map(s => `<div style="${BOX}">
+        <div class="note" style="text-transform:uppercase;
+          letter-spacing:.06em; color:${s.c}; margin-bottom:8px">${
+          esc6(s.t)}</div>
+        <table class="study" style="font-size:11px; width:100%">
+          ${(s.isPool ? s.rows.slice(0, TOPN) : s.rows).map(r => `
+            <tr${rtip(s, r)}>
+            <td style="text-align:left; white-space:nowrap; overflow:hidden;
+              text-overflow:ellipsis; max-width:150px">${ico(r)}${
+              esc6(r.name)}</td>
+            <td style="text-align:right; white-space:nowrap">${usd(r.sum)}</td>
+          </tr>`).join("")}
+        </table>${s.isPool && s.all > TOPN ? `<div class="note"
+          style="margin-top:6px">top ${TOPN} of ${s.all}</div>` : ""}
+      </div>`).join("")}</div>`;
+
+
 
 
     body.innerHTML = h;
@@ -4767,6 +4737,7 @@ window.loadDaoRevTab = async function () {
       window.__drPools = 1e9;
       render();
     });
+
 
     // one floating tooltip for the whole tab: bars, pie slices, legend
     // rows and every table row carry data-tip, so hovering anything that
