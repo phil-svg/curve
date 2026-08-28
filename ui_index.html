@@ -294,11 +294,13 @@
   </button>
   <nav class="tabs">
     <button type="button" class="tab" data-view="sim">Bad-debt sim</button>
+    <button type="button" class="tab" data-view="cleaning">Spring-Cleaning</button>
     <button type="button" class="tab" data-view="baddebt">Bad Debt</button>
     <button type="button" class="tab" data-view="sldl">S.L. / D.L.</button>
     <button type="button" class="tab" data-view="pegkeeper">Pegkeeper</button>
     <button type="button" class="tab" data-view="lp">Pools</button>
     <button type="button" class="tab" data-view="llm">Lending Markets</button>
+    <button type="button" class="tab" data-view="daorev">DAO Revenue</button>
     <button type="button" class="tab" data-view="yb">yb_</button>
     <button type="button" class="tab" data-view="map">Map</button>
   </nav>
@@ -779,6 +781,28 @@
      market's full price-oracle chain — addresses, node types (pool / vault /
      chainlink / agg / wrapper) and every EMA time found at any layer.
      Data: /markets (fetch_markets.py) + /oracles (fetch_oracles.py). -->
+<!-- Spring-Cleaning: legacy markets (max opening LTV < 60%) still holding
+     collateral or debt, on every chain — who is in them, how underwater, and
+     when each address last touched its loan. Plus the three parameter charts
+     over ALL markets (LLV1 + LLV2, all chains). Auto-refreshes: the server
+     rebuilds /markets and /cleanup hourly, and this view re-pulls both every
+     5 minutes while open. -->
+<div id="view_cleaning" style="display:none">
+  <div class="note" id="cl_note" style="margin-bottom:10px">loading…</div>
+  <div id="cl_charts"></div>
+</div>
+
+<!-- DAO Revenue: what the Curve DAO actually earns, daily, split by source.
+     Each source has its own take-rate: pool swap fees pay the DAO the pool's
+     admin_fee (100% on 3pool, 0% on Yield-Basis pools, 50% typically);
+     crvUSD mint markets have no lenders so 100% of interest is DAO revenue;
+     LlamaLend V2 takes admin_percentage (10%) of borrower interest while V1
+     takes none. Built by fetch_dao_revenue.py on the refresh cycle. -->
+<div id="view_daorev" style="display:none">
+  <div class="note" id="dr_note" style="margin-bottom:10px">loading…</div>
+  <div id="dr_body"></div>
+</div>
+
 <!-- Bad Debt: every market on every chain (any LTV tier) where positions'
      debt exceeds their backing, marked at the AMM oracle. Rebuilt on the
      hourly server cycle; the view re-pulls every 5 minutes while open. -->
@@ -894,6 +918,11 @@
     #lm_body .lm-head:hover { background:#1c2129; border-radius:7px; }
     #lm_body [id^="sec-"] { scroll-margin-top:70px; }
     #lm_body .lm-sec:hover { filter:brightness(1.35); }
+    /* DAO-revenue tab: anything carrying a tooltip lights up on hover */
+    #dr_body rect[data-tip]:hover,
+    #dr_body path[data-tip]:hover { filter:brightness(1.3); }
+    #dr_body tr[data-tip]:hover { background:#161b22; }
+    #dr_body div[data-tip]:hover { filter:brightness(1.25); }
     #lm_body tr.lm-trow td { transition:background .08s; }
     #lm_body tr.lm-trow:hover td {
       box-shadow:inset 0 0 0 999px rgba(88,166,255,.09); }
@@ -3564,13 +3593,17 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
   const pct = (v, dp = 1) => v == null ? "—" : (v * 100).toFixed(dp) + "%";
 
   // -- view switching -------------------------------------------------------
-  const VIEWS = ["home", "sim", "study", "baddebt",
+  const VIEWS = ["home", "sim", "study", "cleaning", "baddebt", "daorev",
                  "sldl", "pegkeeper", "lp", "llm", "yb", "map"];
   for (const t of document.querySelectorAll(".tab")) {
     t.addEventListener("click", () => {
       for (const o of document.querySelectorAll(".tab")) o.classList.toggle("on", o === t);
       for (const v of VIEWS)
         $("view_" + v).style.display = t.dataset.view === v ? "" : "none";
+      if (t.dataset.view === "cleaning" && typeof loadCleaningTab === "function"
+          && !window.__clLoaded) { window.__clLoaded = true; loadCleaningTab(); }
+      if (t.dataset.view === "daorev" && typeof loadDaoRevTab === "function"
+          && !window.__drLoaded) { window.__drLoaded = true; loadDaoRevTab(); }
       if (t.dataset.view === "baddebt" && typeof loadBadDebtTab === "function"
           && !window.__bdLoaded) { window.__bdLoaded = true; loadBadDebtTab(); }
       if (t.dataset.view === "sldl" && typeof loadSldlTab === "function"
@@ -3649,13 +3682,14 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
   // ("S.L. / D.L." drops the slash). Matched case-insensitively; the
   // server serves index.html for any of these paths.
   const TAB_PATHS = { home: "", sim: "sim",
-                      baddebt: "bad-debt",
+                      cleaning: "cleaning", baddebt: "bad-debt",
                       sldl: "sldl",
                       pegkeeper: "pegkeeper", lp: "pools",
-                      llm: "lending-markets",
+                      llm: "lending-markets", daorev: "dao-revenue",
                       yb: "yb", map: "map" };
   // pre-rename bookmarks (/S.L.-D.L., /yb_ …) keep working
-  const TAB_ALIASES = { "bad-debt-sim": "sim", "s.l.-d.l.": "sldl",
+  const TAB_ALIASES = { "bad-debt-sim": "sim",
+                        "spring-cleaning": "cleaning", "s.l.-d.l.": "sldl",
                         lp: "lp",
                         "high-util": "llm", util: "llm", llm: "llm",
                         "yb_": "yb" };
@@ -4286,6 +4320,542 @@ for (const id of Object.keys(HOVER_GEOM)) attachHover(id);
 document.addEventListener("click", () => {
   document.querySelectorAll(".hb-item.open").forEach(x => x.classList.remove("open"));
 });
+
+// ---- Spring-Cleaning tab ---------------------------------------------------
+// The three parameter charts over EVERY market (LLV1 + LLV2, every chain).
+// Re-pulls every 5 minutes while the app is open; the server re-renders the
+// PNGs on its hourly refresh cycle.
+window.loadCleaningTab = async function () {
+  const note = document.getElementById("cl_note");
+  const esc3 = s => String(s ?? "").replace(/[&<>"]/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  async function render() {
+    let mkts;
+    try { mkts = await fetch("/markets").then(r => r.json()); }
+    catch (e) { note.textContent = "failed to load: " + e; return; }
+    // The parameter charts are the matplotlib PNGs from images/ — the exact
+    // charts this view started as — re-rendered server-side each refresh
+    // cycle and served via /chart/. The timestamp busts the browser cache
+    // whenever the underlying markets snapshot changes.
+    const bust = mkts.fetched_at || 0;
+    document.getElementById("cl_charts").innerHTML =
+      ["max_ltv_vs_market_tvl.png",
+       "loan_discount_vs_market_tvl.png",
+       "liquidation_discount_vs_market_tvl.png"]
+      .map(n => `<div style="border:1px solid #21262d; border-radius:5px;
+             background:#0d1117; margin-bottom:16px">
+           <img src="/chart/${n}?t=${bust}" alt="${esc3(n)}"
+             style="display:block; width:100%; max-width:1250px; height:auto"></div>`)
+      .join("");
+
+    note.textContent = "";
+  }
+
+  await render();
+  if (!window.__clTimer)
+    window.__clTimer = setInterval(render, 300_000);
+};
+
+// ---- DAO Revenue tab -------------------------------------------------------
+// Daily revenue by source over the trailing 30 days. The point of the split
+// is that each source pays the DAO a different fraction: pool swap fees pay
+// the pool's admin_fee (100% 3pool / 0% Yield-Basis / 50% typical), crvUSD
+// mint markets pay 100% of interest (no lenders to share with), LlamaLend V2
+// pays admin_percentage (10%) of interest and V1 pays nothing.
+window.loadDaoRevTab = async function () {
+  const note = document.getElementById("dr_note");
+  const body = document.getElementById("dr_body");
+  const esc6 = x => String(x ?? "").replace(/[&<>"]/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const usd = v => {
+    const a = Math.abs(v ?? 0);
+    if (a >= 1e6) return "$" + (v / 1e6).toFixed(2) + "M";
+    if (a >= 1e3) return "$" + (v / 1e3).toFixed(1) + "k";
+    return "$" + Math.round(v ?? 0).toLocaleString();
+  };
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  // hover payload travels as an escaped JSON attribute and is rendered
+  // with createElement/textContent only — pool and market names come from
+  // chain metadata, so they never touch innerHTML.
+  //   h  heading      v  value shown next to the heading
+  //   r  rows of [colour, label, value] -> each gets a coloured ball
+  //   s  one muted sub-line
+  const tip = o => ` data-tip="${esc6(JSON.stringify(o))}"`;
+  const SHORT = { pool_fees: "pools", mint_interest: "crvUSD mint",
+                  lend_v2_interest: "LlamaLend V2" };
+  const SRC = [
+    { k: "pool_fees", label: "pool swap fees", color: "#58a6ff",
+      short: "the pool's admin_fee: 100% 3pool, 0% Yield-Basis, 50% typical",
+      rule: "the pool's admin_fee — 100% on 3pool, 0% on Yield-Basis "
+          + "pools, 50% on a typical factory pool" },
+    { k: "mint_interest", label: "crvUSD mint interest", color: "#e3b341",
+      short: "100% of interest — a mint market has no lenders",
+      rule: "100% of interest — a mint market has no lenders to share "
+          + "with. Yield Basis and Resupply borrow outside the mint "
+          + "factory, so they are not DAO revenue" },
+    { k: "lend_v2_interest", label: "LlamaLend V2 interest", color: "#A78BFA",
+      short: "admin_percentage — 10% of borrower interest (V1 takes none)",
+      rule: "admin_percentage — 10% of borrower interest. V1 lend markets "
+          + "take no cut, so they contribute nothing" }];
+
+  // 30d / 1y toggle. The file always carries the full 365-day series, so
+  // switching range is a re-render, never a refetch.
+  if (window.__drRange === undefined) window.__drRange = 30;
+  let drCache = null;
+
+  async function render() {
+    let d;
+    if (drCache) { d = drCache; }
+    else {
+      try { d = await fetch("/dao_revenue").then(r => r.json()); }
+      catch (e) { note.textContent = "failed to load: " + e; return; }
+      drCache = d;
+    }
+    if (d.error) { note.textContent = d.error; return; }
+    const nAll = (d.days || []).length;
+    const span = Math.min(window.__drRange, nAll);
+    const cut = a => (a || []).slice(nAll - span);
+    const days = cut(d.days || []);
+    const series = SRC.map(s => ({
+      ...s, vals: cut(((d.sources || {})[s.k] || {}).total || []) }));
+    const dayTotal = days.map((_, i) =>
+      series.reduce((a, s) => a + (s.vals[i] || 0), 0));
+    const grand = dayTotal.reduce((a, b) => a + b, 0);
+    const srcTotal = series.map(s =>
+      s.vals.reduce((a, b) => a + (b || 0), 0));
+
+    // ---- headline + per-source cards ---------------------------------
+    const rangeLbl = span >= 365 ? "1-year" : span + "-day";
+    let h = `<div style="display:flex; gap:10px; align-items:center;
+        margin-bottom:10px">
+      <span class="seg" id="dr_range">
+        <button type="button" data-r="30"${window.__drRange === 30
+          ? ' class="on"' : ""}>30d</button>
+        <button type="button" data-r="365"${window.__drRange === 365
+          ? ' class="on"' : ""}>1y</button></span>
+    </div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;
+        margin-bottom:14px">
+      <div style="border:1px solid #30363d; border-radius:8px;
+          background:#0d1117; padding:10px 16px; min-width:190px">
+        <div class="note" style="text-transform:uppercase;
+          letter-spacing:.06em">${rangeLbl} DAO revenue</div>
+        <div style="font-size:22px; font-weight:600; margin-top:2px">${
+          usd(grand)}</div>
+        <div class="note">${usd(grand / (days.length || 1))} / day avg</div>
+      </div>
+      ${series.map((s, i) => `
+        <div${tip({ h: s.label, v: usd(srcTotal[i]),
+            r: [[s.color, "share of revenue", (grand
+              ? (srcTotal[i] / grand * 100).toFixed(1) : "0.0") + "%"]],
+            s: s.short })}
+            style="border:1px solid #21262d; border-left:3px solid ${s.color};
+            border-radius:8px; background:#0d1117; padding:10px 16px;
+            min-width:190px; cursor:default">
+          <div class="note" style="text-transform:uppercase;
+            letter-spacing:.06em">${esc6(s.label)}</div>
+          <div style="font-size:19px; font-weight:600; margin-top:2px">${
+            usd(srcTotal[i])}</div>
+          <div class="note">${grand ? (srcTotal[i] / grand * 100).toFixed(1)
+            : "0.0"}% of total</div>
+        </div>`).join("")}
+    </div>`;
+
+    // ---- composition pie: every contributor, all sources mixed --------
+    // One slice per pool / mint market / lend market, ranked together and
+    // normalised to 100%. Hue encodes the SOURCE (blue pool, gold crvUSD
+    // mint, purple LlamaLend) and lightness separates entries inside a
+    // source, so the split reads at a glance without a 400-row legend.
+    const pfx = (d.sources || {}).pool_fees || {};
+    const wk = span >= 365 ? "d365" : "d30";
+    const FAM = {
+      pool: { hue: 212, sat: 76, label: "pool swap fees", short: "pool" },
+      mint: { hue: 45, sat: 72, label: "crvUSD mint interest",
+              short: "crvUSD mint" },
+      lend: { hue: 258, sat: 62, label: "LlamaLend V2 interest",
+              short: "LlamaLend V2" } };
+    const contrib = [];
+    for (const [k, v] of Object.entries(pfx.by_pool || {}))
+      if ((v[wk] || 0) > 0)
+        contrib.push({ name: v.n || k, kind: "pool", chain: v.c,
+                       key: k, coins: v.k || [], val: v[wk] });
+    for (const [nm, arr] of Object.entries(
+        ((d.sources || {}).mint_interest || {}).by_market || {})) {
+      const v = cut(arr).reduce((a, b) => a + (b || 0), 0);
+      if (v > 0) contrib.push({ name: nm.split("|")[0] + "/crvUSD",
+                                kind: "mint", chain: "ethereum",
+                                key: nm, val: v });
+    }
+    for (const [nm, arr] of Object.entries(
+        ((d.sources || {}).lend_v2_interest || {}).by_market || {})) {
+      const v = cut(arr).reduce((a, b) => a + (b || 0), 0);
+      if (v > 0) contrib.push({ name: nm.split("|")[0], kind: "lend",
+                                chain: (nm.split("|")[1] || "").split(":")[0],
+                                key: nm, val: v });
+    }
+    // token art for a pie entry — pools show their coins, markets their
+    // collateral. The pie has no legend, so these ride in the tooltip.
+    const mintCoins = ((d.sources || {}).mint_interest || {}).coins || {};
+    const lendCoins = ((d.sources || {}).lend_v2_interest || {}).coins || {};
+    const tokUrl = (addr, chain) => "https://cdn.jsdelivr.net/gh/curvefi/"
+      + "curve-assets/images/"
+      + ((!chain || chain === "ethereum") ? "assets" : "assets-" + chain)
+      + "/" + String(addr).toLowerCase() + ".png";
+    const logosFor = c => {
+      if (c.other) return [];
+      if (c.kind === "pool")
+        return (c.coins || []).map(t => tokUrl(t, c.chain));
+      const a = c.kind === "mint" ? mintCoins[c.key] : lendCoins[c.key];
+      return a ? [tokUrl(a, c.chain || "ethereum")] : [];
+    };
+    contrib.sort((a, b) => b.val - a.val);
+    const cTot = contrib.reduce((a, c) => a + c.val, 0) || 1;
+    const famTot = {};
+    contrib.forEach(c => { famTot[c.kind] = (famTot[c.kind] || 0) + c.val; });
+    // the app's three source hues, one per family — same hex everywhere
+    const FAMC = { pool: "#58a6ff", mint: "#e3b341", lend: "#A78BFA" };
+
+    // ---- composition: one 100% strip for the source split, then the ----
+    // ---- top contributors as ranked bars — no 100-slice pie ------------
+    const kinds = ["pool", "mint", "lend"].filter(k => famTot[k] > 0);
+    const strip = kinds.map((k, ki) => {
+      const fr = (famTot[k] || 0) / cTot;
+      const pct = (fr * 100).toFixed(1) + "%";
+      const wide = fr > 0.14;      // label inside only when it fits
+      return `<div${tip({ h: FAM[k].label, v: usd(famTot[k]),
+          r: [[FAMC[k], "share of revenue", pct]] })}
+        style="flex:${(fr * 1000).toFixed(0)} 0 0; background:${FAMC[k]};
+        height:26px; min-width:3px;
+        border-radius:${ki === 0 ? "5px 0 0 5px" : ""}${
+          ki === kinds.length - 1 ? (ki === 0 ? "" : "0 5px 5px 0") : ""};
+        display:flex; align-items:center; justify-content:center;
+        overflow:hidden">${wide ? `<span style="font-size:11px;
+          font-weight:600; color:#0d1117; white-space:nowrap">${
+          esc6(FAM[k].short)} ${pct}</span>` : ""}</div>`;
+    }).join(`<div style="flex:0 0 2px"></div>`);
+
+    const topN = contrib.slice(0, 10);
+    const maxV = topN.length ? topN[0].val : 1;
+    const rows10 = topN.map((c, i) => `
+      <div${tip({ h: c.name, v: usd(c.val), i: logosFor(c),
+          r: [[FAMC[c.kind], FAM[c.kind].short,
+               (c.val / cTot * 100).toFixed(1) + "%"]] })}
+        style="display:grid; align-items:center; gap:10px;
+        grid-template-columns:16px 190px 1fr 110px; cursor:default">
+        <span style="color:#6e7681; font-size:11px; text-align:right">${
+          i + 1}</span>
+        <span style="display:flex; align-items:center; gap:1px; min-width:0">
+          ${logosFor(c).slice(0, 3).map(u => `<img src="${esc6(u)}"
+            onerror="this.style.display='none'" style="width:14px;
+            height:14px; border-radius:50%; background:#0d1117;
+            flex:none">`).join("")}
+          <span style="overflow:hidden; text-overflow:ellipsis;
+            white-space:nowrap; margin-left:4px; font-size:11.5px">${
+            esc6(c.name)}</span></span>
+        <div style="height:12px; border-radius:0 4px 4px 0;
+          background:${FAMC[c.kind]};
+          width:${(c.val / maxV * 100).toFixed(1)}%; min-width:2px"></div>
+        <span style="font-size:11.5px; white-space:nowrap">${usd(c.val)}
+          <span style="color:#6e7681">· ${
+            (c.val / cTot * 100).toFixed(1)}%</span></span>
+      </div>`).join("");
+
+    h += `<div style="border:1px solid #21262d; border-radius:8px;
+        background:#0d1117; padding:12px 14px; margin-bottom:14px">
+      <div class="note" style="text-transform:uppercase; letter-spacing:.06em;
+        margin-bottom:10px">where the revenue comes from</div>
+      <div style="display:flex; align-items:center; margin-bottom:6px">
+        ${strip}</div>
+      <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:14px">
+        ${kinds.map(k => `<span style="display:inline-flex;
+          align-items:center; gap:6px; font-size:11.5px; color:#8b949e">
+          <span style="width:9px; height:9px; border-radius:2px;
+            background:${FAMC[k]}"></span>${esc6(FAM[k].label)}
+          <b style="color:#e6edf3">${((famTot[k] || 0) / cTot * 100)
+            .toFixed(1)}%</b></span>`).join("")}
+      </div>
+      <div class="note" style="text-transform:uppercase; letter-spacing:.06em;
+        margin-bottom:8px">top contributors</div>
+      <div style="display:flex; flex-direction:column; gap:5px">${rows10}</div>
+      <div class="note" style="margin-top:10px">${contrib.length}
+        contributors · full ranking in the table below</div>
+    </div>`;
+
+    // ---- stacked bars ------------------------------------------------
+    // a year of daily bars is unreadable at ~3px each, so bucket to weeks
+    // once the span goes long; 30d stays daily.
+    const bucket = span > 120 ? 7 : 1;
+    const bDays = [], bVals = SRC.map(() => []);
+    for (let i = 0; i < days.length; i += bucket) {
+      bDays.push(days[i]);
+      series.forEach((s, si) => {
+        let a = 0;
+        for (let j = i; j < Math.min(i + bucket, days.length); j++)
+          a += s.vals[j] || 0;
+        bVals[si].push(a);
+      });
+    }
+    const bTotal = bDays.map((_, i) =>
+      bVals.reduce((a, v) => a + (v[i] || 0), 0));
+    const W = 1180, H = 300, L = 62, R = 14, T = 14, B = 30;
+    const hi = Math.max(1, ...bTotal) * 1.08;
+    const Y = v => T + (1 - v / hi) * (H - T - B);
+    const bw = (W - L - R) / Math.max(1, bDays.length);
+    let bars = "", grid = "";
+    for (let k = 0; k <= 4; k++) {
+      const v = hi * k / 4;
+      grid += `<line x1="${L}" y1="${Y(v)}" x2="${W - R}" y2="${Y(v)}"
+        stroke="#1c2128" stroke-dasharray="3 4"/>
+        <text x="${L - 8}" y="${Y(v) + 3.5}" text-anchor="end" fill="#6e7681"
+          font-size="10.5">${usd(v)}</text>`;
+    }
+    const nLab = Math.max(1, Math.round(bDays.length / 8));
+    bDays.forEach((ts, i) => {
+      const x = L + i * bw + bw * 0.14, w = bw * 0.72;
+      let acc = 0;
+      const dt = new Date(ts * 1000);
+      const lab = bucket > 1
+        ? `${MON[dt.getUTCMonth()]} ${String(dt.getUTCFullYear()).slice(2)}`
+        : `${MON[dt.getUTCMonth()]} ${dt.getUTCDate()}`;
+      const tipRows = series.map((s, si) =>
+        [s.color, SHORT[s.k] || s.label, usd(bVals[si][i] || 0)])
+        .filter(r => r[2] !== "$0");
+      series.forEach((s, si) => {
+        const v = bVals[si][i] || 0;
+        if (v <= 0) return;
+        const y0 = Y(acc + v), y1 = Y(acc);
+        // 1.5px surface gap above the segment below; the topmost segment
+        // of the stack gets a rounded cap
+        const gap = acc > 0 && (y1 - y0) > 3 ? 1.5 : 0;
+        const topmost = series.slice(si + 1)
+          .every((_, j) => !(bVals[si + 1 + j][i] || 0));
+        bars += `<rect x="${x.toFixed(1)}" y="${y0.toFixed(1)}"
+          width="${w.toFixed(1)}"
+          height="${Math.max(0.6, y1 - y0 - gap).toFixed(1)}"
+          ${topmost && (y1 - y0) > 5 ? 'rx="2.5"' : ""}
+          fill="${s.color}"${tip({
+            h: lab + (bucket > 1 ? " · week" : ""),
+            v: usd(bTotal[i]), r: tipRows })}></rect>`;
+        acc += v;
+      });
+      if (i % nLab === 0 || i === bDays.length - 1)
+        bars += `<text x="${(x + w / 2).toFixed(1)}" y="${H - 9}"
+          text-anchor="middle" fill="#57606a" font-size="10.5">${lab}</text>`;
+    });
+    h += `<div style="border:1px solid #21262d; border-radius:8px;
+        background:#0d1117; padding:12px 14px; margin-bottom:14px">
+      <div style="display:flex; align-items:center; gap:16px;
+          flex-wrap:wrap; margin-bottom:6px">
+        <div class="note" style="text-transform:uppercase;
+          letter-spacing:.06em">${bucket > 1 ? "weekly" : "daily"}
+          revenue by source</div>
+        ${series.map(s => `<span style="display:inline-flex;
+          align-items:center; gap:6px; font-size:11.5px">
+          <span style="width:10px; height:10px; border-radius:2px;
+            background:${s.color}"></span>${esc6(s.label)}</span>`).join("")}
+      </div>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%; display:block">
+        ${grid}${bars}</svg></div>`;
+
+    // ---- the three source tables, stacked: pool fees, then LlamaLend
+    // ---- V2, then crvUSD mint -----------------------------------------
+    const bd = (title, color, rows, coins) => {
+      if (!rows.length) return "";
+      const tot = rows.reduce((a, r) => a + r.sum, 0);
+      return `<div style="border:1px solid #21262d; border-radius:8px;
+          background:#0d1117; padding:10px 14px; margin-top:12px">
+        <div class="note" style="text-transform:uppercase;
+          letter-spacing:.06em; color:${color}; margin-bottom:8px">${
+          esc6(title)}</div>
+        <table class="study" style="font-size:11.5px; width:100%">
+          <tr><th style="text-align:left">market</th>
+            <th>${span >= 365 ? "1y" : span + "d"}</th>
+            <th>share</th></tr>
+          ${rows.map(r => `<tr${tip({ h: r.name, v: usd(r.sum),
+            r: [[color, "share of " + title.split(" ")[0], (tot
+              ? (r.sum / tot * 100).toFixed(1) : "0.0") + "%"]] })}>
+            <td style="text-align:left; white-space:nowrap">${
+              tokImg((coins || {})[r.key] || "", r.chain || "ethereum", 15)
+              }${esc6(r.name)}</td>
+            <td>${usd(r.sum)}</td>
+            <td style="color:#8b949e">${tot ? (r.sum / tot * 100).toFixed(1)
+              : "0.0"}%</td></tr>`).join("")}
+        </table></div>`;
+    };
+    const rowsOf = (key, field) => {
+      const m = ((d.sources || {})[key] || {})[field] || {};
+      return Object.entries(m).map(([name, arr]) => ({
+        name: name.split("|")[0], key: name,
+        chain: ((name.split("|")[1] || "").split(":")[0]) || "ethereum",
+        sum: cut(arr).reduce((a, b) => a + (b || 0), 0) }))
+        .filter(r => r.sum > 0.005)
+        .sort((a, b) => b.sum - a.sum);
+    };
+
+    // 1. pool swap fees — every pool, every chain, ranked
+    const pf = (d.sources || {}).pool_fees || {};
+    const pool = (pf.by_pool || {});
+    const wkey = span >= 365 ? "d365" : "d30";
+    const prows = Object.entries(pool)
+      .map(([k, v]) => ({ key: k, name: v.n || k, chain: v.c,
+                          sum: v[wkey] || 0 }))
+      .filter(r => r.sum > 0.5)
+      .sort((a, b) => b.sum - a.sum);
+    const lbTot = prows.reduce((a, r) => a + r.sum, 0);
+    const SCANS = { ethereum: "https://etherscan.io",
+      arbitrum: "https://arbiscan.io", optimism: "https://optimistic.etherscan.io",
+      base: "https://basescan.org", polygon: "https://polygonscan.com",
+      fraxtal: "https://fraxscan.com", sonic: "https://sonicscan.org",
+      bsc: "https://bscscan.com", avalanche: "https://snowscan.xyz",
+      xdai: "https://gnosisscan.io", fantom: "https://ftmscan.com" };
+    const show = window.__drPools || 25;
+    h += `<div style="border:1px solid #21262d; border-radius:8px;
+        background:#0d1117; padding:10px 14px; margin-top:12px">
+      <div class="note" style="text-transform:uppercase; letter-spacing:.06em;
+        color:#58a6ff; margin-bottom:8px">pool swap fees</div>
+      <table class="study" style="font-size:11.5px; width:100%">
+        <tr><th style="text-align:left">#</th>
+          <th style="text-align:left">pool</th>
+          <th style="text-align:left">chain</th>
+          <th>${span >= 365 ? "1y" : span + "d"}</th><th>share</th></tr>
+        ${prows.slice(0, show).map((r, i) => {
+          const a = r.key.split(":")[1] || "";
+          const base = SCANS[r.chain];
+          return `<tr${tip({ h: `#${i + 1} ${r.name}`, v: usd(r.sum),
+            r: [["#58a6ff", r.chain + " · pool", (lbTot
+              ? (r.sum / lbTot * 100).toFixed(2) : "0.00") + "%"]] })}>
+            <td style="text-align:left; color:#6e7681">${i + 1}</td>
+            <td style="text-align:left; white-space:nowrap">${
+              (pool[r.key] && pool[r.key].k || []).map(t =>
+                tokImg(t, r.chain, 15)).join("")}${base
+              ? `<a href="${base}/address/${esc6(a)}" target="_blank"
+                   rel="noopener">${esc6(r.name)}</a>`
+              : esc6(r.name)}</td>
+            <td style="text-align:left; color:#8b949e">${esc6(r.chain)}</td>
+            <td>${usd(r.sum)}</td>
+            <td style="color:#8b949e">${lbTot
+              ? (r.sum / lbTot * 100).toFixed(1) : "0.0"}%</td></tr>`;
+        }).join("")}
+      </table>
+      ${prows.length > show ? `<div style="margin-top:6px">
+        <button type="button" id="dr_more" style="background:none;
+          border:1px solid #30363d; border-radius:4px; color:#8b949e;
+          cursor:pointer; padding:2px 10px; font-size:11px; width:auto;
+          margin:0">show all ${prows.length} pools</button></div>` : ""}
+    </div>`;
+
+    // 2. LlamaLend V2 interest, then 3. crvUSD mint interest
+    h += bd("LlamaLend V2 interest", "#A78BFA",
+            rowsOf("lend_v2_interest", "by_market"),
+            ((d.sources || {}).lend_v2_interest || {}).coins);
+    h += bd("crvUSD mint interest", "#e3b341",
+            rowsOf("mint_interest", "by_market"),
+            ((d.sources || {}).mint_interest || {}).coins);
+
+
+    body.innerHTML = h;
+    note.style.display = "none";
+    for (const b of body.querySelectorAll("#dr_range button"))
+      b.addEventListener("click", () => {
+        window.__drRange = +b.dataset.r;
+        render();
+      });
+    const more = body.querySelector("#dr_more");
+    if (more) more.addEventListener("click", () => {
+      window.__drPools = 1e9;
+      render();
+    });
+
+    // one floating tooltip for the whole tab: bars, pie slices, legend
+    // rows and every table row carry data-tip, so hovering anything that
+    // shows a number explains what the number is.
+    let tipEl = document.getElementById("dr_tip");
+    if (!tipEl) {
+      tipEl = document.createElement("div");
+      tipEl.id = "dr_tip";
+      tipEl.style.cssText = "position:fixed; z-index:60; display:none;"
+        + " pointer-events:none; background:#010409f2; color:#e6edf3;"
+        + " border:1px solid #30363d; border-radius:6px; padding:6px 9px;"
+        + " font-size:11.5px; line-height:1.45; max-width:330px;"
+        + " min-width:170px; box-shadow:0 6px 20px #000a";
+      document.body.appendChild(tipEl);
+    }
+    const place = ev => {
+      const pad = 14, r = tipEl.getBoundingClientRect();
+      let x = ev.clientX + pad, y = ev.clientY + pad;
+      if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - pad;
+      if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - pad;
+      tipEl.style.left = Math.max(4, x) + "px";
+      tipEl.style.top = Math.max(4, y) + "px";
+    };
+    const ball = c => {
+      const d = document.createElement("span");
+      d.style.cssText = "display:inline-block; width:9px; height:9px;"
+        + " border-radius:50%; flex:none; background:" + c;
+      return d;
+    };
+    body.onmousemove = ev => {
+      const t = ev.target.closest("[data-tip]");
+      if (!t) { tipEl.style.display = "none"; return; }
+      let o;
+      try { o = JSON.parse(t.getAttribute("data-tip") || "{}"); }
+      catch (_) { tipEl.style.display = "none"; return; }
+      tipEl.textContent = "";
+      const head = document.createElement("div");
+      head.style.cssText = "display:flex; gap:8px; align-items:center";
+      // token art (src only, never markup) for pie slices
+      for (const u of (o.i || []).slice(0, 3)) {
+        const im = document.createElement("img");
+        im.src = u;
+        im.onerror = () => { im.style.display = "none"; };
+        im.style.cssText = "width:16px; height:16px; border-radius:50%;"
+          + " background:#0d1117; flex:none";
+        head.appendChild(im);
+      }
+      const hb = document.createElement("b");
+      hb.textContent = o.h || "";
+      head.appendChild(hb);
+      if (o.v) {
+        const hv = document.createElement("span");
+        hv.style.cssText = "margin-left:auto; color:#e6edf3";
+        hv.textContent = o.v;
+        head.appendChild(hv);
+      }
+      tipEl.appendChild(head);
+      for (const r of (o.r || [])) {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex; gap:7px; align-items:center;"
+          + " margin-top:3px; color:#8b949e";
+        row.appendChild(ball(r[0]));
+        const lb = document.createElement("span");
+        lb.textContent = r[1];
+        row.appendChild(lb);
+        if (r[2] !== undefined) {
+          const vv = document.createElement("span");
+          vv.style.cssText = "margin-left:auto; color:#e6edf3";
+          vv.textContent = r[2];
+          row.appendChild(vv);
+        }
+        tipEl.appendChild(row);
+      }
+      if (o.s) {
+        const sub = document.createElement("div");
+        sub.style.cssText = "margin-top:4px; color:#6e7681";
+        sub.textContent = o.s;
+        tipEl.appendChild(sub);
+      }
+      tipEl.style.display = "block";
+      place(ev);
+    };
+    body.onmouseleave = () => { tipEl.style.display = "none"; };
+  }
+
+  await render();
+  if (!window.__drTimer)
+    window.__drTimer = setInterval(render, 300_000);
+};
 
 // ---- Bad Debt tab ----------------------------------------------------------
 // Every market on every chain (any LTV tier) whose positions' debt exceeds
@@ -5644,31 +6214,13 @@ window.loadLlmTab = async function () {
     const bdm = bds && bds.markets && bds.markets[key];
     let badDebtHtml = "";
     if (bdm && bdm.bad_debt_usd > 0) {
-      const uw = (bdm.underwater || []).filter(x => x.underwater)
-        .sort((x, y) => (y.shortfall_usd || 0) - (x.shortfall_usd || 0));
-      const uwRows = uw.map(r => `<tr>
-        <td style="text-align:left">${aLink(ch, r.addr)}</td>
-        <td>$${Math.round(r.debt_usd).toLocaleString()}</td>
-        <td>$${Math.round(r.backing_usd).toLocaleString()}</td>
-        <td style="color:#f85149">$${Math.round(r.shortfall_usd)
-          .toLocaleString()}</td></tr>`).join("");
       badDebtHtml = box(
         `<span style="border:1px solid #f85149; color:#f85149;
            background:#f8514922; padding:2px 9px; border-radius:4px;
            font-weight:600; letter-spacing:.06em">BAD DEBT</span>
          <span style="color:#f85149; font-weight:700; margin-left:6px;
-           text-transform:none">${usd(bdm.bad_debt_usd)}</span>`, `
-        <div style="color:#8b949e; margin-bottom:4px">
-          ${bdm.n_underwater} of ${bdm.n_positions} positions owe more than
-          their backing (collateral at the AMM oracle + soft-liq crvUSD) —
-          worst single shortfall ${usd(bdm.worst_shortfall_usd)}</div>
-        ${uwRows ? `<details><summary class="note" style="cursor:pointer">
-          ${uw.length} underwater position${uw.length > 1 ? "s" : ""}
-          </summary>
-          <table class="study" style="font-size:11.5px; margin-top:6px"><tr>
-            <th style="text-align:left">borrower</th><th>debt</th>
-            <th>backing</th><th>shortfall</th></tr>${uwRows}</table>
-          </details>` : ""}`, "baddebt");
+           text-transform:none">${usd(bdm.bad_debt_usd)}</span>`,
+        "", "baddebt");
     }
 
     // -- borrowers ---------------------------------------------------------

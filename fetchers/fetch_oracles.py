@@ -129,7 +129,6 @@ ID_FNS = ["description()", "symbol()", "name()", "decimals()", "A()",
           "getRate()", "stEthPerToken()", "exchangeRate()",
           "getExchangeRate()", "latestAnswer()"]
 
-
 def _battery(addr: str) -> list[tuple[str, str]]:
     calls = []
     for fn in MA_FNS + REF_FNS:

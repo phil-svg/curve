@@ -584,6 +584,16 @@ def _do_refresh():
         print(f"[ui] lenders refreshed in {time.time() - t2:.1f} s")
     except Exception as e:
         print(f"[ui] lenders refresh FAILED: {str(e)[:300]}")
+    # Re-render the Spring-Cleaning charts from the fresh markets.json —
+    # the same matplotlib PNGs that live in images/.
+    for script in ("plot_ltv_vs_tvl.py", "plot_discounts_vs_tvl.py"):
+        try:
+            p = subprocess.run([PY, str(HERE / "plots" / script)],
+                               capture_output=True, text=True, timeout=300)
+            if p.returncode != 0:
+                raise RuntimeError((p.stderr or "").strip()[-200:])
+        except Exception as e:
+            print(f"[ui] {script} FAILED: {str(e)[:200]}")
     # LLM tab dataset (Curve prices API only — snapshots, borrowers; no RPC).
     t4 = time.time()
     try:
@@ -595,6 +605,18 @@ def _do_refresh():
         print(f"[ui] llm refreshed in {time.time() - t4:.1f} s")
     except Exception as e:
         print(f"[ui] llm refresh FAILED: {str(e)[:300]}")
+    # DAO revenue by source (pool admin fees + crvUSD mint interest +
+    # LlamaLend V2 admin cut) — prices API + the local llm/markets files.
+    t5 = time.time()
+    try:
+        p = subprocess.run([PY, str(HERE / "fetchers" / "fetch_dao_revenue.py")],
+                           capture_output=True, text=True, timeout=600)
+        if p.returncode != 0:
+            raise RuntimeError((p.stderr or p.stdout or "").strip()[-300:]
+                               or f"exit code {p.returncode}")
+        print(f"[ui] dao revenue refreshed in {time.time() - t5:.1f} s")
+    except Exception as e:
+        print(f"[ui] dao revenue refresh FAILED: {str(e)[:300]}")
     # Oracle-graph live values (price/rate/EMA numbers on the LLM flow map)
     # — light multicall pass over the mapped nodes, seconds.
     try:
@@ -999,11 +1021,11 @@ class Handler(BaseHTTPRequestHandler):
 
     # page deep links only — must not collide with API routes (/yb is the
     # data endpoint, the page path is /yb_)
-    TAB_PATHS = ("home", "sim",
+    TAB_PATHS = ("home", "sim", "cleaning",
                  "bad-debt", "sldl", "util", "pegkeeper", "yb", "lp",
-                 "pools", "llm", "lending-markets", "map",
+                 "pools", "llm", "lending-markets", "dao-revenue", "map",
                  # legacy pre-rename paths still serve the page
-                 "bad-debt-sim", "s.l.-d.l.",
+                 "bad-debt-sim", "spring-cleaning", "s.l.-d.l.",
                  "high-util", "yb_")
 
     def do_GET(self):
@@ -1085,7 +1107,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             _http_json(self, 200, json.loads(f.read_text()))
             return
-        if self.path in ("/cleanup", "/baddebt", "/lenders", "/lp", "/llm"):
+        if self.path in ("/cleanup", "/baddebt", "/lenders", "/lp", "/llm",
+                         "/dao_revenue"):
             # cleanup/baddebt from fetch_cleanup.py, lenders from
             # fetch_lenders.py, llm from fetch_llm.py — all on the cycle.
             f = HERE / "data" / (self.path[1:] + ".json")
