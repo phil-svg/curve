@@ -5889,7 +5889,8 @@ window.loadLlmTab = async function () {
     if (dataMin >= 0 && lo < 0) lo = 0;   // supplied $ can't be negative
     const X = x => L + (x - xs[0]) / (xs[xs.length - 1] - xs[0]) * (W - L - R);
     const Y = y => T + (1 - (y - lo) / (hi - lo)) * (H - T - B);
-    const fy = v => pct ? v.toFixed(Math.abs(hi) < 10 ? 2 : 1) + "%"
+    const fy = v => pct ? v.toFixed(Math.abs(hi) < 0.02 ? 4
+        : Math.abs(hi) < 0.2 ? 3 : Math.abs(hi) < 10 ? 2 : 1) + "%"
       : money ? (Math.abs(hi) < 1000
           ? "$" + v.toFixed(hi - lo < 0.2 ? 4 : hi - lo < 20 ? 2 : 0)
           : usd(v)) : nfmt(v);
@@ -7238,7 +7239,8 @@ window.loadLpTab = async function () {
     if (dataMin >= 0 && lo < 0) lo = 0;
     const X = x => L + (x - xs[0]) / (xs[xs.length - 1] - xs[0]) * (W - L - R);
     const Y = y => T + (1 - (y - lo) / (hi - lo)) * (H - T - B);
-    const fy = v => pct ? v.toFixed(Math.abs(hi) < 10 ? 2 : 1) + "%"
+    const fy = v => pct ? v.toFixed(Math.abs(hi) < 0.02 ? 4
+        : Math.abs(hi) < 0.2 ? 3 : Math.abs(hi) < 10 ? 2 : 1) + "%"
       : money ? (Math.abs(hi) < 1000
           ? "$" + v.toFixed(hi - lo < 0.2 ? 4 : hi - lo < 20 ? 2 : 0)
           : usd(v)) : pNum(v);
