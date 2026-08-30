@@ -463,10 +463,19 @@ def _ph_walk(mk, start: int, end: int, max_calls: int = 16) -> list:
     for _ in range(max_calls):
         if lo >= hi:
             break
-        try:
-            chunk = mk(lo, hi) or []
-        except Exception:
-            break
+        # a transient blip (rate limit, timeout) mid-walk used to truncate
+        # the series silently and the hole got cached — retry before
+        # accepting empty/failed as end-of-data
+        chunk = []
+        for attempt, wait in ((0, 2), (1, 5), (2, 0)):
+            try:
+                chunk = mk(lo, hi) or []
+            except Exception:
+                chunk = []
+            if chunk:
+                break
+            if wait:
+                time.sleep(wait)
         if not chunk:
             break
         rows += chunk
@@ -481,7 +490,14 @@ def _ph_walk(mk, start: int, end: int, max_calls: int = 16) -> list:
         elif touches_hi:
             hi = mn - 1                  # newest-first endpoint
         else:
-            break                        # neither end reached — bail out
+            # neither end reached: an oldest-first feed whose data STARTS
+            # inside the window (pool younger than the range) — a
+            # newest-first feed would have touched hi on its first chunk.
+            # Advance past the newest row instead of bailing (bailing here
+            # froze volume/fees at the first 300 rows for young pools).
+            if mx + 1 <= lo:
+                break                    # no forward progress — give up
+            lo = mx + 1
     return rows
 
 
@@ -570,8 +586,23 @@ def pool_hist(chain: str, addr: str) -> dict:
         cached = None          # pre-cryptoswap-state cache: full rebuild
     if cached and time.time() - cached.get("fetched_at", 0) < POOL_HIST_TTL:
         return cached
+    # heal check: a truncated crawl once cached long interior holes in
+    # vol/fees, and the incremental top-up (which only extends the tail)
+    # could never fill them — a long null run INSIDE the covered span
+    # forces one full rebuild
+    build_seed = cached
+    if cached:
+        vol = cached.get("vol") or []
+        nz = [i for i, v in enumerate(vol) if v is not None]
+        if nz:
+            run = mx_run = 0
+            for v in vol[nz[0]:nz[-1] + 1]:
+                run = run + 1 if v is None else 0
+                mx_run = max(mx_run, run)
+            if mx_run >= 14:
+                build_seed = None
     try:
-        fresh = _ph_build(chain, addr, cached)
+        fresh = _ph_build(chain, addr, build_seed)
         tmp = f.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(fresh))
         os.replace(tmp, f)
