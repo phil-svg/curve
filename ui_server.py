@@ -567,7 +567,10 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None) -> dict:
         if t_:
             row["tvl"] = t_.get("tvl_usd")
     days = sorted(d for d in rows if d >= full_start)
-    out = {"fetched_at": now, "chain": chain, "address": addr, "t": days}
+    # walkfix: built (or extended) after the truncated-volume-walk fix —
+    # caches without it get one full heal rebuild if they carry holes
+    out = {"fetched_at": now, "chain": chain, "address": addr, "t": days,
+           "walkfix": 1}
     for k in _PH_FIELDS:
         out[k] = [rows[d][k] for d in days]
     return out
@@ -586,17 +589,19 @@ def pool_hist(chain: str, addr: str) -> dict:
         cached = None          # pre-cryptoswap-state cache: full rebuild
     if cached and time.time() - cached.get("fetched_at", 0) < POOL_HIST_TTL:
         return cached
-    # heal check: a truncated crawl once cached long interior holes in
-    # vol/fees, and the incremental top-up (which only extends the tail)
-    # could never fill them — a long null run INSIDE the covered span
-    # forces one full rebuild
+    # heal check: the truncated volume walk (pre-"walkfix") cached long
+    # holes in vol/fees, and the incremental top-up (which only extends
+    # the tail) could never fill them. A pre-fix cache with a long null
+    # run (interior or tail) gets ONE full rebuild; the walkfix marker on
+    # everything built since keeps legitimately sparse pools from being
+    # re-crawled every TTL.
     build_seed = cached
-    if cached:
+    if cached and cached.get("walkfix") != 1:
         vol = cached.get("vol") or []
         nz = [i for i, v in enumerate(vol) if v is not None]
         if nz:
             run = mx_run = 0
-            for v in vol[nz[0]:nz[-1] + 1]:
+            for v in vol[nz[0]:]:
                 run = run + 1 if v is None else 0
                 mx_run = max(mx_run, run)
             if mx_run >= 14:
