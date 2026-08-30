@@ -5330,23 +5330,58 @@ window.loadSldlTab = async function loadSldlTab() {
       } catch (e) { /* server busy — keep the last state */ }
     }, 400);
     const val = id => document.getElementById(id).value;
+    // The result rides on one POST held open for the whole sweep. Some
+    // browsers/networks drop a connection that stays idle for minutes,
+    // while the server finishes the run and saves data/sldl_table.json
+    // anyway — so remember the previous table's stamp and, if the POST
+    // dies, recover the fresh result by polling instead of failing.
+    let prevStamp = null;
     try {
-      const r = await fetch("/sldl_run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "table",
-          model: document.getElementById("sldl_model").value,
-          a_min: +val("sldl_amin"), a_max: +val("sldl_amax"),
-          fee_min: +val("sldl_fmin"), fee_max: +val("sldl_fmax"),
-          grid: +val("sldl_grid"),
-          method: "exact", bands: +val("sldl_bands"),
-          tail_pct: +val("sldl_tail"), loan_days: loanMinutes() / 1440,
-          oracle_hl: +val("sldl_hl"),
-          source: val("sldl_src"),
-        }),
-      });
-      const d = await r.json();
+      prevStamp = (await fetch("/sldl").then(r => r.json())).generated_at;
+    } catch (e) { /* no table on disk yet */ }
+    const recover = async () => {
+      for (let quiet = 0; quiet < 100; ) {      // ~5 min not-running grace
+        await new Promise(res => setTimeout(res, 3000));
+        let running = true;
+        try {
+          running = (await fetch("/sldl_progress")
+            .then(r => r.json())).running;
+        } catch (e) { continue; }
+        if (running) { quiet = 0; continue; }
+        try {
+          const d = await fetch("/sldl").then(r => r.json());
+          if (!d.error && d.generated_at !== prevStamp) return d;
+        } catch (e) { /* table not readable yet — keep waiting */ }
+        quiet++;
+      }
+      return null;
+    };
+    try {
+      let d;
+      try {
+        const r = await fetch("/sldl_run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "table",
+            model: document.getElementById("sldl_model").value,
+            a_min: +val("sldl_amin"), a_max: +val("sldl_amax"),
+            fee_min: +val("sldl_fmin"), fee_max: +val("sldl_fmax"),
+            grid: +val("sldl_grid"),
+            method: "exact", bands: +val("sldl_bands"),
+            tail_pct: +val("sldl_tail"), loan_days: loanMinutes() / 1440,
+            oracle_hl: +val("sldl_hl"),
+            source: val("sldl_src"),
+          }),
+        });
+        d = await r.json();
+      } catch (e) {
+        note.textContent = "connection dropped — the sweep continues on " +
+          "the server, waiting for the result…";
+        d = await recover();
+        if (!d) throw e;
+        note.textContent = "";
+      }
       if (d.error) throw new Error(d.error);
       renderTable(d);
     } catch (e) {

@@ -345,9 +345,18 @@ def main() -> None:
                     "--samples", "4000", "--n-top", "4000", "--seed", "1"]
             if oracle_f:
                 cmd2 += ["--oracle", str(oracle_f)]
-            r2 = subprocess.run(cmd2, capture_output=True, text=True)
-            fc = [json.loads(l) for l in r2.stdout.splitlines()
-                  if l.startswith("{")]
+            # slow sources spend minutes here after the grid is done — tick
+            # per fee so the progress ring keeps moving instead of sitting
+            # at 100%
+            _prog_phase("fee curve", len(fc_fees))
+            fc = []
+            with subprocess.Popen(cmd2, stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL,
+                                  text=True) as p2:
+                for line in p2.stdout:
+                    if line.startswith("{"):
+                        fc.append(json.loads(line))
+                        _prog_tick()
             if len(fc) == len(fc_fees):
                 fee_curve = {"A": best_A, "loan_days": 3,
                              "kind": "4,000 sampled loans",
