@@ -7517,8 +7517,7 @@ window.loadLpTab = async function () {
         <span style="margin-left:auto; font-size:12.5px">${
           p ? usd(p.tvl) + " TVL" : ""}</span>
       </div>
-      <div id="lp_pool_body"><div class="note">loading a year of daily
-        history from the Curve prices API…</div></div>`;
+      <div id="lp_pool_body"><div class="note">loading…</div></div>`;
     document.getElementById("lp_back").addEventListener("click", showLpList);
 
     // one server call: 2y of daily history, joined + cached server-side
