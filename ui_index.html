@@ -3808,7 +3808,7 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
       const empty = Object.keys(j.series).length - keys.length;
       $("st_meta").innerHTML =
         `${Object.keys(j.series).length} series · snapshot ${esc(j.fetched_at_utc)}` +
-        `<br>daily candles in USD, from the Curve prices API, refreshed daily`;
+        `<br>daily candles in USD, refreshed daily`;
       $("st_missing").textContent =
         (empty ? `${empty} venue(s) returned no candles (dead pools). ` : "") +
         (j.missing?.length
@@ -6348,7 +6348,7 @@ window.loadLlmTab = async function () {
     const histNote = e.hist_days
       ? (e.hist_complete ? `history since inception — ${e.hist_days} days`
                          : `history backfilling — ${e.hist_days} days so far`)
-      : "history not yet available from the API";
+      : "history not yet available";
     let charts = `<div class="note">${histNote}</div>`;
     if (hist && hist.t && hist.t.length > 1)
       charts = `

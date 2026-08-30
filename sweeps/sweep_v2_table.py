@@ -123,7 +123,16 @@ def main() -> None:
     if args.progress_out:
         _prog["path"] = args.progress_out
     t0 = time.time()
-    _prog_phase("prep", 1)
+    # ONE cumulative progress bar over the whole run (prep + grid cells +
+    # fee-curve stage) so the UI ring fills once and completes exactly when
+    # the result is ready — no multiple fill cycles.
+    _a_grid = sorted({round(v) for v in
+                      spread(args.a_min, args.a_max, args.grid)})
+    _f_grid = sorted({round(v, 4) for v in
+                      spread(args.fee_min, args.fee_max, args.grid)})
+    FC_N = 15                       # fee-curve engine runs (spread 0.015..0.5)
+    _prog_phase("run", 1 + len(_a_grid) * len(_f_grid)
+                * max(1, args.realities) + FC_N)
     if args.klines_file:
         kl_meta = json.loads(Path(str(args.klines_file)
                                   .replace(".json", ".meta.json")).read_text())
@@ -151,7 +160,6 @@ def main() -> None:
            "--tail-frac", repr(args.tail_pct / 100.0), "--auto",
            "--oracle-hl", str(args.texp), "--realities", str(max(1, args.realities))]
     R = max(1, args.realities)
-    _prog_phase("run", len(a_grid) * len(fee_grid) * R)
     cells, n_all, n_top = [], None, None
     with subprocess.Popen(cmd, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, text=True) as p:
@@ -203,10 +211,14 @@ def main() -> None:
             vals = [v for v in a if v == v]
             avg.append(round(100 * sum(vals) / len(vals), 5))
             out_f.unlink(missing_ok=True)
+            _prog_tick()
         starts_f.unlink(missing_ok=True)
         fee_curve = {"A": best_A, "loan_days": 3,
                      "kind": f"{len(starts):,} loans, every 400th minute",
                      "fee_pct": fc_fees, "avg_loss_pct": avg}
+    if not fee_curve:               # stage skipped — complete the bar anyway
+        for _ in range(FC_N):
+            _prog_tick()
     result = {
         "mode": "table",
         "config": {

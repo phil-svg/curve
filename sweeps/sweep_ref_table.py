@@ -227,6 +227,15 @@ def main() -> None:
     if args.progress_out:
         _prog["path"] = args.progress_out
 
+    # ONE cumulative progress bar for the whole run (prep + grid cells +
+    # fee-curve stage): the UI ring fills once, monotonically, and hits
+    # 100% exactly when the result is ready — no repeated fill cycles.
+    _n_ab = len({round(v) for v in spread(args.a_min, args.a_max, args.grid)})
+    _n_f = len({round(v, 4) for v in
+                spread(args.fee_min, args.fee_max, args.grid)})
+    FC_N = 15 if args.method == "exact" else 0   # fee-curve engine runs
+    _prog_total = (3 + _n_ab * _n_f * max(1, args.realities) + FC_N)
+
     if args.klines_file:
         # pre-built series (e.g. CHF FX 5y): no market, no venue fetch
         kl = args.klines_file
@@ -238,7 +247,7 @@ def main() -> None:
                 "from": meta["from"], "to": meta["to"]}
         n_rows = meta["n"]
         span_h = meta.get("span_h", args.span_h)
-        _prog_phase("prep", 3)
+        _prog_phase("run", _prog_total)
         _prog_tick()
     else:
         if args.venue_json:
@@ -250,7 +259,7 @@ def main() -> None:
 
         # setup can take 1-2 min on a 1y series (convert + load + EMA
         # warm); tick it so the UI ring moves before the first cell lands
-        _prog_phase("prep", 3)
+        _prog_phase("run", _prog_total)
         safe = args.collateral.replace("/", "_")
         kl = (HERE / "data"
               / f"_ref_table_klines_{safe}_{int(args.span_h)}h.json")
@@ -301,7 +310,6 @@ def main() -> None:
         if oracle_f:
             cmd += ["--oracle", str(oracle_f)]
         R = max(1, args.realities) if args.method == "exact" else 1
-        _prog_phase("run", len(a_grid) * len(fee_grid) * R)
         with subprocess.Popen(cmd, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT, text=True) as p:
             for line in p.stdout:
@@ -345,10 +353,6 @@ def main() -> None:
                     "--samples", "4000", "--n-top", "4000", "--seed", "1"]
             if oracle_f:
                 cmd2 += ["--oracle", str(oracle_f)]
-            # slow sources spend minutes here after the grid is done — tick
-            # per fee so the progress ring keeps moving instead of sitting
-            # at 100%
-            _prog_phase("fee curve", len(fc_fees))
             fc = []
             with subprocess.Popen(cmd2, stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL,
@@ -363,6 +367,8 @@ def main() -> None:
                              "fee_pct": [c["fee_pct"] for c in fc],
                              "avg_loss_pct": [round(c["loss_pct"], 5)
                                               for c in fc]}
+        while _prog["done"] < _prog["total"]:  # stage skipped or short —
+            _prog_tick()                       # complete the bar anyway
     else:
         # their loader/workers read module globals -> warm all, THEN fork
         multiprocessing.set_start_method("fork", force=True)
