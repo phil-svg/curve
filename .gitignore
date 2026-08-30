@@ -15,6 +15,7 @@ data/*
 !data/favicon.png
 !data/landing_torus.png
 !data/sldl_table.json
+!data/sldl_usd_1m.bin
 zchf/*
 !zchf/sweep_parameters.py
 !zchf/README.md

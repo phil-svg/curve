@@ -152,6 +152,10 @@ SCRATCH.mkdir(parents=True, exist_ok=True)
 PROGRESS_FILE = SCRATCH / "progress.json"
 # S.L./D.L. sweep heartbeat — same single-file reasoning.
 SLDL_PROG = SCRATCH / "sldl_progress.json"
+# S.L./D.L. sweeps run in the visitor's browser (wasm engines, /wasm/*).
+# The whole server-side compute path below is kept intact — flip this to
+# re-enable POST /sldl_run.
+SLDL_SERVER_COMPUTE = False
 _PK_CACHE: dict = {"at": 0.0, "data": None, "busy": False}  # /pegkeeper
 
 
@@ -1279,6 +1283,15 @@ def run_pipeline(params: dict) -> dict:
 class Handler(BaseHTTPRequestHandler):
     server_version = "BadDebtUI/0.1"
 
+    def end_headers(self):
+        # Cross-origin isolation so the browser-side sim engines (wasm +
+        # pthreads, /wasm/*) get SharedArrayBuffer. Site-wide is safe here:
+        # the only cross-origin embeds are jsdelivr token icons (they send
+        # CORP: cross-origin) and prices-API fetches (CORS, ACAO: *).
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+        super().end_headers()
+
     def log_message(self, fmt, *args):
         # Silence default noisy per-request logging; keep errors visible.
         if "code" in fmt or "error" in fmt.lower():
@@ -1328,6 +1341,63 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith("/wasm/"):
+            # the browser-side sim runner: engine modules + JS (fixed
+            # whitelist; this must never become a generic file server)
+            name = self.path.split("?")[0][len("/wasm/"):]
+            if name not in ("ref_model_v1.js", "ref_model_v1.wasm",
+                            "ref_model_v2.js", "ref_model_v2.wasm",
+                            "sldl_client.js", "sldl_shared.js"):
+                self.send_response(404); self.end_headers(); return
+            f = HERE / "wasm" / name
+            if not f.is_file():
+                self.send_response(404); self.end_headers(); return
+            body = f.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type",
+                             "application/wasm" if name.endswith(".wasm")
+                             else "text/javascript")
+            self.send_header("Content-Length", str(len(body)))
+            # the page appends ?v=<mtime>, so long immutable caching is safe
+            self.send_header("Cache-Control",
+                             "public, max-age=31536000, immutable")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith("/sldl_data/"):
+            # packed series for the browser-side sldl runner. ETag-based:
+            # the kl bins are rewritten by the daily top-up, so a repeat
+            # visitor pays one conditional request, not a 33 MB download.
+            name = self.path.split("?")[0][len("/sldl_data/"):]
+            files = {"usd_1m.bin": HERE / "data" / "sldl_usd_1m.bin",
+                     "usd_hourly.json":
+                         HERE / "data" / "_ref_v2" / "crvusd_usd_hourly.json",
+                     "zchf_v2_market.bin":
+                         HERE / "data" / "sldl_zchf_market.bin",
+                     "zchf.bin": HERE / "zchf" / "his_klines.json.bin"}
+            for k, v in _kl_sources().items():
+                files[f"{k}.bin"] = Path(str(v["path"]) + ".bin")
+            f = files.get(name)
+            if f is None or not f.is_file():
+                self.send_response(404); self.end_headers(); return
+            st = f.stat()
+            tag = f'"{st.st_mtime_ns:x}-{st.st_size:x}"'
+            if self.headers.get("If-None-Match") == tag:
+                self.send_response(304)
+                self.send_header("ETag", tag)
+                self.end_headers()
+                return
+            body = f.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type",
+                             "application/json" if name.endswith(".json")
+                             else "application/octet-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("ETag", tag)
+            self.send_header("Cache-Control", "no-cache")
             self.end_headers()
             self.wfile.write(body)
             return
@@ -1425,18 +1495,40 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/sldl_sources":
             # data choices for the S.L./D.L. dropdown, with span so the UI
-            # can warn when a series is shorter than a year
+            # can warn when a series is shorter than a year. "meta" + the
+            # "client" block feed the browser-side wasm runner.
             out = []
             try:
                 z = json.loads(
                     (HERE / "zchf" / "his_klines.meta.json").read_text())
                 out.append({"key": "zchf", "label": "ZCHF",
-                            "days": round((z["to"] - z["from"]) / 86400)})
+                            "days": round((z["to"] - z["from"]) / 86400),
+                            "meta": z})
             except (OSError, ValueError):
                 out.append({"key": "zchf", "label": "ZCHF", "days": None})
             for k, v in sorted(_kl_sources().items()):
-                out.append({"key": k, "label": k[3:], "days": v["days"]})
-            _http_json(self, 200, {"sources": out})
+                row = {"key": k, "label": k[3:], "days": v["days"]}
+                try:
+                    row["meta"] = json.loads(Path(
+                        str(v["path"]).replace(".json", ".meta.json"))
+                        .read_text())
+                except (OSError, ValueError):
+                    pass
+                out.append(row)
+            zchf_v2 = HERE / "data" / "sldl_zchf_market.bin"
+            client = {"wasm_v": int((HERE / "wasm" / "ref_model_v2.wasm")
+                                    .stat().st_mtime)
+                      if (HERE / "wasm" / "ref_model_v2.wasm").exists()
+                      else None,
+                      "zchf_v2": zchf_v2.exists()}
+            if client["zchf_v2"]:
+                try:
+                    client["zchf_v2_meta"] = json.loads(
+                        (HERE / "data" / "sldl_zchf_market.meta.json")
+                        .read_text())
+                except (OSError, ValueError):
+                    client["zchf_v2"] = False
+            _http_json(self, 200, {"sources": out, "client": client})
             return
         if self.path == "/sldl_progress":
             # Sweep heartbeat (sweep_sl_dl.py --progress-out) so the tab's
@@ -1611,6 +1703,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/sldl_run":
+            if not SLDL_SERVER_COMPUTE:
+                _http_json(self, 403, {
+                    "error": "server-side sweeps are switched off — the "
+                             "sim runs in your browser (needs a current, "
+                             "cross-origin-isolated browser)"})
+                return
             # A×fee sweep (sweep_sl_dl.py). Default 12x12 grid x 3 paths =
             # 12 snapshots + 432 short C++ runs, ~75 s. Grid/paths are UI
             # knobs, clamped here so a typo can't queue an hour of engine
