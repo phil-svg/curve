@@ -802,10 +802,14 @@
 
 <!-- DAO Revenue: what the Curve DAO actually earns, daily, split by source.
      Each source has its own take-rate: pool swap fees pay the DAO the pool's
-     admin_fee (100% on 3pool, 0% on Yield-Basis pools, 50% typically);
-     crvUSD mint markets have no lenders so 100% of interest is DAO revenue;
-     LlamaLend V2 takes admin_percentage (10%) of borrower interest while V1
-     takes none. Built by fetch_dao_revenue.py on the refresh cycle. -->
+     admin_fee (100% on 3pool, 0% on Yield-Basis pools, 50% typically) —
+     counted at 100% of that take, including the ~10% slice routed onward to
+     the treasury (a routing of revenue, not a reduction of it); crvUSD mint
+     markets have no lenders so 100% of interest is DAO revenue; LlamaLend V2
+     takes admin_percentage (10%) of borrower interest while V1 takes none;
+     pegkeepers keep 100% of the profit they extract defending the crvUSD
+     peg (claimed as LP tokens, booked on the claim day). Built by
+     fetch_dao_revenue.py on the refresh cycle. -->
 <div id="view_daorev" style="display:none">
   <div class="note" id="dr_note" style="margin-bottom:10px">loading…</div>
   <div id="dr_body"></div>
@@ -3606,7 +3610,8 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
 
   // -- view switching -------------------------------------------------------
   const VIEWS = ["home", "sim", "study", "cleaning", "baddebt", "daorev",
-                 "sldl", "pegkeeper", "lp", "llm", "yb", "map"];
+                 "sldl", "pegkeeper", "lp", "llm",
+                 "yb", "map"];
   for (const t of document.querySelectorAll(".tab")) {
     t.addEventListener("click", () => {
       for (const o of document.querySelectorAll(".tab")) o.classList.toggle("on", o === t);
@@ -4378,9 +4383,13 @@ window.loadCleaningTab = async function () {
 // ---- DAO Revenue tab -------------------------------------------------------
 // Daily revenue by source over the trailing 30 days. The point of the split
 // is that each source pays the DAO a different fraction: pool swap fees pay
-// the pool's admin_fee (100% 3pool / 0% Yield-Basis / 50% typical), crvUSD
-// mint markets pay 100% of interest (no lenders to share with), LlamaLend V2
-// pays admin_percentage (10%) of interest and V1 pays nothing.
+// the pool's admin_fee (100% 3pool / 0% Yield-Basis / 50% typical), counted
+// at 100% of that take — the ~10% slice routed onward to the treasury is
+// included, being a routing of DAO revenue rather than a reduction of it;
+// crvUSD mint markets pay 100% of interest (no lenders to share with),
+// LlamaLend V2 pays admin_percentage (10%) of interest and V1 pays nothing,
+// and pegkeepers pay 100% of the peg-defense profit they claim (bursty by
+// nature — profit is booked on the day it is claimed, not as it accrues).
 window.loadDaoRevTab = async function () {
   const note = document.getElementById("dr_note");
   const body = document.getElementById("dr_body");
@@ -4394,6 +4403,7 @@ window.loadDaoRevTab = async function () {
   };
   const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const dtISO = t => new Date(t * 1000).toISOString().slice(0, 10);
   // hover payload travels as an escaped JSON attribute and is rendered
   // with createElement/textContent only — pool and market names come from
   // chain metadata, so they never touch innerHTML.
@@ -4402,12 +4412,15 @@ window.loadDaoRevTab = async function () {
   //   s  one muted sub-line
   const tip = o => ` data-tip="${esc6(JSON.stringify(o))}"`;
   const SHORT = { pool_fees: "pools", mint_interest: "crvUSD mint",
-                  lend_v2_interest: "LlamaLend V2" };
+                  lend_v2_interest: "LlamaLend V2", pegkeeper: "pegkeeper" };
   const SRC = [
     { k: "pool_fees", label: "pool swap fees", color: "#58a6ff",
-      short: "the pool's admin_fee: 100% 3pool, 0% Yield-Basis, 50% typical",
+      short: "the pool's admin_fee: 100% 3pool, 0% Yield-Basis, 50% typical"
+          + " — incl. the 10% routed to the treasury",
       rule: "the pool's admin_fee — 100% on 3pool, 0% on Yield-Basis "
-          + "pools, 50% on a typical factory pool" },
+          + "pools, 50% on a typical factory pool. Counted in full: the "
+          + "~10% of the take routed onward to the treasury is included, "
+          + "since it is the DAO's revenue being routed, not forgone" },
     { k: "mint_interest", label: "crvUSD mint interest", color: "#e3b341",
       short: "100% of interest — a mint market has no lenders",
       rule: "100% of interest — a mint market has no lenders to share "
@@ -4416,7 +4429,12 @@ window.loadDaoRevTab = async function () {
     { k: "lend_v2_interest", label: "LlamaLend V2 interest", color: "#A78BFA",
       short: "admin_percentage — 10% of borrower interest (V1 takes none)",
       rule: "admin_percentage — 10% of borrower interest. V1 lend markets "
-          + "take no cut, so they contribute nothing" }];
+          + "take no cut, so they contribute nothing" },
+    { k: "pegkeeper", label: "pegkeeper profit", color: "#3FB950",
+      short: "100% of peg-defense profit, booked on the day it is claimed",
+      rule: "100% of the profit pegkeepers extract minting/burning crvUSD "
+          + "against the peg — claimed as LP tokens in bursts, so spiky "
+          + "days are real, not glitches" }];
 
   // 30d / 1y toggle. The file always carries the full 365-day series, so
   // switching range is a re-render, never a refetch.
@@ -4493,7 +4511,9 @@ window.loadDaoRevTab = async function () {
       mint: { hue: 45, sat: 72, label: "crvUSD mint interest",
               short: "crvUSD mint" },
       lend: { hue: 258, sat: 62, label: "LlamaLend V2 interest",
-              short: "LlamaLend V2" } };
+              short: "LlamaLend V2" },
+      peg: { hue: 137, sat: 55, label: "pegkeeper profit",
+             short: "pegkeeper" } };
     const contrib = [];
     for (const [k, v] of Object.entries(pfx.by_pool || {}))
       if ((v[wk] || 0) > 0)
@@ -4513,10 +4533,18 @@ window.loadDaoRevTab = async function () {
                                 chain: (nm.split("|")[1] || "").split(":")[0],
                                 key: nm, val: v });
     }
+    for (const [nm, arr] of Object.entries(
+        ((d.sources || {}).pegkeeper || {}).by_market || {})) {
+      const v = cut(arr).reduce((a, b) => a + (b || 0), 0);
+      if (v > 0) contrib.push({ name: nm.split("|")[0] + " pegkeeper",
+                                kind: "peg", chain: "ethereum",
+                                key: nm, val: v });
+    }
     // token art for a pie entry — pools show their coins, markets their
     // collateral. The pie has no legend, so these ride in the tooltip.
     const mintCoins = ((d.sources || {}).mint_interest || {}).coins || {};
     const lendCoins = ((d.sources || {}).lend_v2_interest || {}).coins || {};
+    const pegCoins = ((d.sources || {}).pegkeeper || {}).coins || {};
     const tokUrl = (addr, chain) => "https://cdn.jsdelivr.net/gh/curvefi/"
       + "curve-assets/images/"
       + ((!chain || chain === "ethereum") ? "assets" : "assets-" + chain)
@@ -4525,7 +4553,8 @@ window.loadDaoRevTab = async function () {
       if (c.other) return [];
       if (c.kind === "pool")
         return (c.coins || []).map(t => tokUrl(t, c.chain));
-      const a = c.kind === "mint" ? mintCoins[c.key] : lendCoins[c.key];
+      const a = c.kind === "mint" ? mintCoins[c.key]
+        : c.kind === "peg" ? pegCoins[c.key] : lendCoins[c.key];
       return a ? [tokUrl(a, c.chain || "ethereum")] : [];
     };
     contrib.sort((a, b) => b.val - a.val);
@@ -4533,11 +4562,12 @@ window.loadDaoRevTab = async function () {
     const famTot = {};
     contrib.forEach(c => { famTot[c.kind] = (famTot[c.kind] || 0) + c.val; });
     // the app's three source hues, one per family — same hex everywhere
-    const FAMC = { pool: "#58a6ff", mint: "#e3b341", lend: "#A78BFA" };
+    const FAMC = { pool: "#58a6ff", mint: "#e3b341", lend: "#A78BFA",
+                   peg: "#3FB950" };
 
     // ---- composition: one 100% strip for the source split, then the ----
     // ---- top contributors as ranked bars — no 100-slice pie ------------
-    const kinds = ["pool", "mint", "lend"].filter(k => famTot[k] > 0);
+    const kinds = ["pool", "mint", "lend", "peg"].filter(k => famTot[k] > 0);
     const strip = kinds.map((k, ki) => {
       const fr = (famTot[k] || 0) / cTot;
       const pct = (fr * 100).toFixed(1) + "%";
@@ -4598,8 +4628,6 @@ window.loadDaoRevTab = async function () {
       <div class="note" style="text-transform:uppercase; letter-spacing:.06em;
         margin-bottom:8px">top contributors</div>
       <div style="display:flex; flex-direction:column; gap:5px">${rows10}</div>
-      <div class="note" style="margin-top:10px">${contrib.length}
-        contributors · full ranking in the table below</div>
     </div>`;
 
     // ---- stacked bars ------------------------------------------------
@@ -4676,7 +4704,18 @@ window.loadDaoRevTab = async function () {
             background:${s.color}"></span>${esc6(s.label)}</span>`).join("")}
       </div>
       <svg viewBox="0 0 ${W} ${H}" style="width:100%; display:block">
-        ${grid}${bars}</svg></div>`;
+        ${grid}${bars}</svg>${(() => {
+        // the upstream fee feed reported every value at exactly half up to
+        // 2026-03-01; those days are scaled back up, so say so rather than
+        // let a corrected history pass as raw
+        const cut = pfx.halved_until;
+        if (!cut || !days.length || days[0] >= cut) return "";
+        const n = days.filter(t => t < cut).length;
+        return `<div class="note" style="margin-top:8px">${n} of the
+          ${days.length} days shown fall before ${dtISO(cut)}, when the
+          upstream fee feed reported every value at exactly half; they are
+          corrected back to full here</div>`;
+      })()}</div>`;
 
     // ---- the three source tables, side by side --------------------------
     // Cards rather than full-width tables: each column is only as wide as
@@ -4711,7 +4750,9 @@ window.loadDaoRevTab = async function () {
       { t: "LlamaLend V2 interest", c: "#A78BFA", short: "LlamaLend",
         rows: rowsOf("lend_v2_interest", "by_market") },
       { t: "crvUSD mint interest", c: "#e3b341", short: "crvUSD mint",
-        rows: rowsOf("mint_interest", "by_market") } ];
+        rows: rowsOf("mint_interest", "by_market") },
+      { t: "pegkeeper profit", c: "#3FB950", short: "pegkeeper",
+        rows: rowsOf("pegkeeper", "by_market") } ];
     SECT.forEach(s => { s.tot = s.rows.reduce((a, r) => a + r.sum, 0); });
     const ico = r => (r.logos || []).slice(0, 3)
       .map(t => tokImg(t, r.chain, 14)).join("");
@@ -6221,6 +6262,12 @@ window.loadLlmTab = async function () {
     }
 
     // -- borrowers ---------------------------------------------------------
+    // Open positions only. The users endpoint returns every address that
+    // ever borrowed, frozen at its last state, so the fetcher keeps just
+    // the market's n_loans most-recently-snapshotted rows — otherwise loans
+    // closed years ago show up here with live-looking health and soft-liq
+    // badges. b.as_of dates the snapshot those numbers come from and b.gate
+    // records whether the rows rebuild the market's own total debt.
     const b = e.borrowers || {};
     const bRows = (b.rows || []).map(r => `<tr>
       <td style="text-align:left">${aLink(ch, r.a)}</td>
@@ -6229,17 +6276,38 @@ window.loadLlmTab = async function () {
       <td style="color:${r.h == null ? "#8b949e" : r.h < 0 ? "#f85149"
         : r.h < 0.05 ? "#ED7D31" : "#70AD47"}">${r.h == null ? "—" : r.h.toFixed(3)}</td>
       <td>${r.sl ? '<span style="color:#ED7D31">soft-liq</span>' : ""}</td>
+      <td class="note" style="white-space:nowrap">${r.t ? day(r.t) : ""}</td>
     </tr>`).join("");
+    const g = b.gate;
+    const bHead = b.unknown
+      ? `<span style="color:#ED7D31">${(b.rows || []).length} positions —
+         open loan count unavailable, closed positions may be listed</span>`
+      : `${b.n ?? "?"} open loan${b.n === 1 ? "" : "s"}${
+          b.ever != null && b.ever > (b.n ?? 0)
+            ? ` <span class="note">· ${b.ever} addresses have ever
+                borrowed here</span>` : ""}`;
+    const bFoot = `<div class="note" style="margin-top:6px">${b.aged
+        ? `<span style="color:#ED7D31">last snapshotted ${
+            b.as_of ? day(b.as_of) : "?"} — these are the open positions, but
+            health and collateral are as of that date</span>`
+        : `open positions as of ${b.as_of ? day(b.as_of) : "?"}`}${
+        b.closed ? ` · ${b.closed} closed position${
+          b.closed === 1 ? "" : "s"} hidden` : ""}${g ? (g.ok
+        ? ` · rebuilds the market's total debt to ${g.err_pct.toFixed(2)}%`
+        : ` · <span style="color:#ED7D31">these rows sum to $${
+            Math.round(g.live).toLocaleString()} against a market total of $${
+            Math.round(g.market).toLocaleString()} — treat as unverified
+            </span>`) : ""}</div>`;
     const borrowersHtml = `
-      <details><summary class="note" style="cursor:pointer">
-        ${b.n ?? (m && m.n_loans) ?? "?"} borrowers${
-          (b.rows || []).length ? ` — top ${(b.rows || []).length} listed` : ""}
+      <details><summary class="note" style="cursor:pointer">${bHead}
       </summary>${(b.rows || []).length ? `
       <table class="study" style="font-size:11.5px; margin-top:6px"><tr>
         <th style="text-align:left">borrower</th><th>debt</th>
-        <th>backing</th><th>health</th><th></th></tr>${bRows}</table>`
+        <th>backing</th><th>health</th><th></th>
+        <th style="white-space:nowrap">last seen</th></tr>${bRows}</table>`
       : `<div class="note">${b.error ? "borrower scan unavailable ("
-          + esc(b.error) + ")" : "none"}</div>`}</details>`;
+          + esc(b.error) + ")" : "none"}</div>`}${
+        (b.rows || []).length ? bFoot : ""}</details>`;
 
     // -- history: every chart, stacked (no series picker) ------------------
     const histNote = e.hist_days
@@ -6713,8 +6781,9 @@ window.loadLlmTab = async function () {
           <span>${u != null ? u.toFixed(1) + "% util" : ""}</span>
           <span style="color:#8b949e">${m && m.amm_rate_apr_pct != null
             ? m.amm_rate_apr_pct.toFixed(1) + "% borrow" : ""}</span>
-          <span style="color:#8b949e">${(e.borrowers && e.borrowers.n)
-            ?? (m && m.n_loans) ?? "?"} loans</span>
+          <span style="color:#8b949e">${(m && m.n_loans)
+            ?? (e.borrowers && !e.borrowers.unknown ? e.borrowers.n : null)
+            ?? "?"} loans</span>
         </span>
       </div>
       <div id="lm_mkt"><div class="note">loading…</div></div>`;
@@ -7462,7 +7531,8 @@ window.loadLpTab = async function () {
       offpeg: H.offpeg.map(f10),
       mid: H.mid.map(pctOf),
       out: H.out.map(pctOf),
-      fg: H.fg.map(f10),
+      // fee_gamma is 1e18-scaled on-chain, unlike the 1e10-scaled fees
+      fg: H.fg.map(v => v == null ? null : v / 1e18),
     };
 
     // -- parameter boxes: what the DAO can and cannot change ------------
@@ -7477,7 +7547,8 @@ window.loadLpTab = async function () {
         + pRow("gamma (ramp)", last.gamma)
         + pRow("mid fee", fmtPct(pctOf(last.mid_fee)))
         + pRow("out fee", fmtPct(pctOf(last.out_fee)))
-        + pRow("fee gamma", f10(last.fee_gamma));
+        + pRow("fee gamma", last.fee_gamma == null ? null
+            : (last.fee_gamma / 1e18).toExponential(2));
       fixed = pRow("admin fee share", fmtPct(adminNow))
         + pRow("family", "cryptoswap");
     } else {

@@ -22,6 +22,7 @@ import tempfile
 import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -481,10 +482,16 @@ def _ph_walk(mk, start: int, end: int, max_calls: int = 16) -> list:
 
 
 _PH_FIELDS = ["bapr", "vol", "fees", "tvl", "a", "gamma", "fee", "admin",
-              "offpeg", "mid", "out", "fg"]
+              "offpeg", "mid", "out", "fg",
+              # cryptoswap state (research tab: repeg-lag / real-APR work);
+              # pscale/poracle are per-coin ARRAYS, 1e18-scaled
+              "pscale", "poracle", "vp", "xcp", "maht"]
 _PH_PARAMS = [("a", "a"), ("gamma", "gamma"), ("fee", "fee"),
               ("admin", "admin_fee"), ("offpeg", "offpeg_fee_multiplier"),
-              ("mid", "mid_fee"), ("out", "out_fee"), ("fg", "fee_gamma")]
+              ("mid", "mid_fee"), ("out", "out_fee"), ("fg", "fee_gamma"),
+              ("pscale", "price_scale"), ("poracle", "price_oracle"),
+              ("vp", "virtual_price"), ("xcp", "xcp_profit"),
+              ("maht", "ma_half_time")]
 
 
 def _ph_build(chain: str, addr: str, cached: dict | None = None) -> dict:
@@ -555,6 +562,8 @@ def pool_hist(chain: str, addr: str) -> dict:
             cached = json.loads(f.read_text())
         except (OSError, ValueError):
             cached = None
+    if cached and "pscale" not in cached:
+        cached = None          # pre-cryptoswap-state cache: full rebuild
     if cached and time.time() - cached.get("fetched_at", 0) < POOL_HIST_TTL:
         return cached
     try:
@@ -563,6 +572,94 @@ def pool_hist(chain: str, addr: str) -> dict:
         tmp.write_text(json.dumps(fresh))
         os.replace(tmp, f)
         return fresh
+    except Exception as e:
+        if cached:            # stale beats broken
+            return cached
+        return {"error": f"upstream fetch failed: {str(e)[:120]}"}
+
+
+PX_HIST_DIR = HERE / "data" / "px_hist"
+PX_HIST_TTL = 6 * 3600
+# a research page requests several coins at once; parallel cold builds
+# tripped the prices-API rate limit, so upstream crawls are serialised
+_PX_LOCK = threading.Lock()
+
+
+def _px_build(chain: str, addr: str) -> dict:
+    """Daily USD close history for one token from the prices API
+    (/usd_price/.../history, 300-row cap, oldest-first — same walker as
+    the pool history). Timestamps come back as ISO strings here."""
+    now = int(time.time())
+    start = now - POOL_HIST_DAYS * _PH_DAY
+
+    def rows(a, b):
+        time.sleep(0.4)                  # politeness between walk calls
+        out = None
+        for attempt, wait in ((0, 2), (1, 5), (2, 0)):
+            try:
+                out = _ph_get(f"/usd_price/{chain}/{addr}/history"
+                              f"?interval=day&start={a}&end={b}"
+                              ).get("data") or []
+                break
+            except Exception:
+                if attempt == 2:
+                    raise
+                time.sleep(wait)         # back off over a rate-limit blip
+        for r in out:
+            ts = r.get("timestamp")
+            if isinstance(ts, str):        # "2026-08-18T00:00:00"
+                r["timestamp"] = int(datetime.fromisoformat(ts)
+                                     .replace(tzinfo=timezone.utc)
+                                     .timestamp())
+        return out
+
+    # forward-only walk: this endpoint is oldest-first, and a token whose
+    # feed starts mid-window would make _ph_walk's chunk touch neither
+    # boundary and bail after one call (that bit cbBTC) — so just keep
+    # advancing the start past the newest row until now is reached
+    px = {}
+    lo = start
+    for _ in range(16):
+        chunk = rows(lo, now)
+        if not chunk:
+            break
+        mx = 0
+        for r in chunk:
+            ts = int(r["timestamp"])
+            mx = max(mx, ts)
+            px[ts // _PH_DAY * _PH_DAY] = r.get("price")
+        if mx >= now - 2 * _PH_DAY or mx + 1 <= lo:
+            break
+        lo = mx + 1
+    days = sorted(d for d in px if px[d] is not None)
+    # a walk that died mid-crawl leaves a series that stops in the past —
+    # caching it would freeze a useless window for 6h. treat as failure.
+    if days and days[-1] < now - 5 * _PH_DAY:
+        raise RuntimeError("incomplete walk (rate-limited?)")
+    return {"fetched_at": now, "chain": chain, "address": addr,
+            "t": days, "px": [px[d] for d in days]}
+
+
+def px_hist(chain: str, addr: str) -> dict:
+    PX_HIST_DIR.mkdir(parents=True, exist_ok=True)
+    f = PX_HIST_DIR / f"{chain}_{addr}.json"
+    cached = None
+    if f.is_file():
+        try:
+            cached = json.loads(f.read_text())
+        except (OSError, ValueError):
+            cached = None
+    if cached and cached.get("t") \
+            and time.time() - cached.get("fetched_at", 0) < PX_HIST_TTL:
+        return cached
+    try:
+        with _PX_LOCK:
+            fresh = _px_build(chain, addr)
+        if fresh.get("t"):     # never cache an empty series — retry next hit
+            tmp = f.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(fresh))
+            os.replace(tmp, f)
+        return fresh if fresh.get("t") or not cached else cached
     except Exception as e:
         if cached:            # stale beats broken
             return cached
@@ -1191,7 +1288,8 @@ class Handler(BaseHTTPRequestHandler):
     # data endpoint, the page path is /yb_)
     TAB_PATHS = ("home", "sim", "cleaning",
                  "bad-debt", "sldl", "util", "pegkeeper", "yb", "lp",
-                 "pools", "llm", "lending-markets", "dao-revenue", "map",
+                 "pools", "llm", "lending-markets", "dao-revenue",
+                 "map",
                  # legacy pre-rename paths still serve the page
                  "bad-debt-sim", "spring-cleaning", "s.l.-d.l.",
                  "high-util", "yb_")
@@ -1276,7 +1374,7 @@ class Handler(BaseHTTPRequestHandler):
             _http_json(self, 200, json.loads(f.read_text()))
             return
         if self.path in ("/cleanup", "/baddebt", "/lenders", "/lp", "/llm",
-                         "/dao_revenue"):
+                         "/dao_revenue", "/impl"):
             # cleanup/baddebt from fetch_cleanup.py, lenders from
             # fetch_lenders.py, llm from fetch_llm.py — all on the cycle.
             f = HERE / "data" / (self.path[1:] + ".json")
@@ -1297,6 +1395,18 @@ class Handler(BaseHTTPRequestHandler):
                 _http_json(self, 400, {"error": "bad ?m="})
                 return
             _http_json(self, 200, pool_hist(ch, pa))
+            return
+        if self.path.startswith("/pxhist"):
+            # 2y daily USD closes for one token, cached — ?t=chain:0xtoken
+            q = parse_qs(urlparse(self.path).query)
+            key = (q.get("t") or [""])[0].lower()
+            ch, _, ta = key.partition(":")
+            if not (ch.isalnum() or ch.replace("-", "").isalnum()) \
+                    or not ta.startswith("0x") \
+                    or not all(c in "0123456789abcdefx" for c in ta):
+                _http_json(self, 400, {"error": "bad ?t="})
+                return
+            _http_json(self, 200, px_hist(ch, ta))
             return
         if self.path.startswith("/llmhist"):
             # per-market daily history arrays (fetch_llm.py) — ?m=chain:ctrl

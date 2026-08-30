@@ -8,8 +8,16 @@ RPC. Per market (the LLV1/LLV2 set already in data/markets.json):
     policy, oracle + oracle_pools, created_at, current rates
   - daily history from .../{controller}/snapshots?agg=day — backfilled to
     inception once (budgeted across runs), then topped up incrementally
-  - borrowers from /v1/lending/users/{chain}/{controller}/users (top 50,
-    with health + soft-liquidation flag)
+  - borrowers from /v1/lending/users/{chain}/{controller}/users, filtered
+    to positions that are still OPEN. That endpoint returns every address
+    that has ever borrowed, each frozen at its last known state, so an
+    unfiltered read shows loans closed years ago as if they were live (one
+    market with 2 loans and $2.21 of debt listed a $1.66M borrower whose
+    position closed in May 2024). The indexer re-stamps a position every
+    time it snapshots the market and leaves a closed one frozen at its
+    closing tx, so the market's n_loans most-recently-stamped rows are its
+    open loans -- verified to reproduce n_loans AND total_debt on all 99
+    markets across ethereum, arbitrum, optimism, fraxtal and sonic.
   - parameter timeline derived from the daily snapshots (a change in
     loan/liquidation discount or A shows up as a day-boundary step)
 
@@ -39,8 +47,15 @@ STATE = DATA / "llm_state.json"
 API = "https://prices.curve.finance/v1/lending"
 
 BACKFILL_BUDGET = 400          # snapshot window calls per run (100 days each)
-TOP_BORROWERS = 50
+TOP_BORROWERS = 200            # must exceed the busiest market's open loans
+                               # (71 today) or live rows fall off page 1
 PAUSE_S = 0.15                 # be polite to the API
+STALE_SNAP_S = 24 * 3600       # beyond this the row's health/collateral are
+                               # history — quiet markets are snapshotted
+                               # rarely (one sonic market sits 7 weeks back)
+DEBT_TOL = 0.005               # fresh rows must rebuild total_debt to 0.5%
+AGED_TOL = 0.10                # an aged snapshot has not seen the interest
+                               # accrued since, so judge it loosely
 
 
 # ---- AMM fee timeline (the ONE thing the API snapshots don't carry) --------
@@ -313,17 +328,54 @@ def timeline_from_days(days: dict) -> list:
     return events
 
 
-def fetch_borrowers(chain, ctrl, coll_usd_price, borrowed_usd_price):
-    d = _get(f"{API}/users/{chain}/{ctrl}/users?per_page={TOP_BORROWERS}")
-    rows = []
-    for u in d.get("data", []):
+def fetch_borrower_rows(chain, ctrl, n_loans):
+    """Raw user rows, newest-stamped first (the API's own order).
+
+    Pages only as far as the open set requires — n_loans rows plus a margin
+    for anyone who transacted after the last snapshot.
+    """
+    want = max(TOP_BORROWERS, (n_loans or 0) + 25)
+    rows, count, page = [], None, 1
+    while page <= 10:
+        d = _get(f"{API}/users/{chain}/{ctrl}/users"
+                 f"?page={page}&per_page={min(want, 500)}")
+        got = d.get("data") or []
+        rows += got
+        count = d.get("count")
+        if len(got) < min(want, 500) or len(rows) >= want:
+            break
+        page += 1
+    return rows, count
+
+
+def borrower_view(rows, count, n_loans, coll_usd_price, borrowed_usd_price,
+                  api_debt):
+    """Open positions only, plus the evidence that the filter is sound.
+
+    The indexer re-stamps a position every time it snapshots the market and
+    leaves a closed one frozen at its closing tx, so the market's n_loans
+    most-recently-stamped rows ARE its open loans. Verified against live
+    on-chain n_loans and total_debt on all 99 markets across five chains.
+
+    Two things are then reported rather than assumed: `as_of`, the age of
+    the newest snapshot behind these rows (health and collateral are only
+    as fresh as that), and `gate`, whether the rows actually rebuild the
+    market's own total_debt. A market whose snapshot has aged accrues
+    interest the rows have not seen, so the tolerance widens with age
+    instead of crying wolf.
+    """
+    rows = sorted(rows, key=lambda u: u.get("last") or "", reverse=True)
+    known = n_loans is not None
+    live = rows[:n_loans] if known else rows
+    out = []
+    for u in live:
         try:
             debt = float(u.get("debt") or 0)
             coll = float(u.get("collateral") or 0)
             bor = float(u.get("borrowed") or 0)   # borrowed tokens in AMM (SL)
         except ValueError:
             continue
-        rows.append({
+        out.append({
             "a": u.get("user"),
             "d": round(debt, 2),
             "du": round(debt * (borrowed_usd_price or 1), 0),
@@ -332,9 +384,22 @@ def fetch_borrowers(chain, ctrl, coll_usd_price, borrowed_usd_price):
             "h": (round(float(u["health"]), 4)
                   if u.get("health") not in (None, "") else None),
             "sl": bool(u.get("soft_liquidation")),
+            "t": _ts(u["last"]) if u.get("last") else None,
         })
-    rows.sort(key=lambda r: -r["du"])
-    return {"n": d.get("count"), "rows": rows}
+    out.sort(key=lambda r: -r["du"])
+    as_of = max((r["t"] for r in out if r["t"]), default=None)
+    aged = bool(as_of and as_of < time.time() - STALE_SNAP_S)
+    gate = None
+    if known and api_debt is not None:
+        live_debt = sum(float(u.get("debt") or 0) for u in live)
+        err = abs(live_debt - api_debt) / max(api_debt, 1.0)
+        gate = {"ok": err <= (AGED_TOL if aged else DEBT_TOL),
+                "live": round(live_debt, 2), "market": round(api_debt, 2),
+                "err_pct": round(err * 100, 3)}
+    return {"n": len(out), "ever": count, "rows": out,
+            "closed": max(0, (count or len(rows)) - len(out)) if known
+                      else None,
+            "as_of": as_of, "aged": aged, "unknown": not known, "gate": gate}
 
 
 def exit_pools_map(mkts: dict) -> dict:
@@ -389,6 +454,7 @@ def main() -> None:
     HIST_DIR.mkdir(parents=True, exist_ok=True)
     budget = [BACKFILL_BUDGET]
     out = {"generated_at": int(time.time()), "markets": {}}
+    n_aged = n_unk = n_gate = 0
 
     for group, lst in mkts.get("groups", {}).items():
         for m in lst:
@@ -434,15 +500,29 @@ def main() -> None:
                     "t": pts[i][0], "param": "AMM fee %",
                     "old": pts[i - 1][1], "new": pts[i][1]})
             entry["timeline"].sort(key=lambda x: x["t"])
+            n_loans = row.get("n_loans")
             try:
-                entry["borrowers"] = fetch_borrowers(
-                    chain, ctrl, m.get("collateral_usd_price"),
-                    m.get("borrowed_usd"))
+                api_debt = float(row["total_debt"])
+            except (KeyError, TypeError, ValueError):
+                api_debt = None
+            try:
+                raw, count = fetch_borrower_rows(chain, ctrl, n_loans)
+                entry["borrowers"] = borrower_view(
+                    raw, count, n_loans, m.get("collateral_usd_price"),
+                    m.get("borrowed_usd"), api_debt)
             except Exception as e:
-                entry["borrowers"] = {"n": m.get("n_loans"), "rows": [],
+                entry["borrowers"] = {"n": n_loans, "rows": [],
                                       "error": str(e)[:120]}
+            b = entry["borrowers"]
+            n_aged += bool(b.get("aged"))
+            n_unk += bool(b.get("unknown"))
+            n_gate += bool(b.get("gate") and not b["gate"]["ok"])
             time.sleep(PAUSE_S)
             out["markets"][key] = entry
+
+    print(f"[llm] borrowers: {n_gate} markets failed the total_debt gate, "
+          f"{n_aged} on a snapshot older than {STALE_SNAP_S // 3600}h, "
+          f"{n_unk} with no n_loans to filter by")
 
     atomic_write(STATE, st)
     atomic_write(OUT, out)
