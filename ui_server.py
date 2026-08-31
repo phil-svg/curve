@@ -508,7 +508,11 @@ _PH_FIELDS = ["bapr", "vol", "fees", "tvl", "a", "gamma", "fee", "admin",
               # pscale/poracle are per-coin ARRAYS, 1e18-scaled
               "pscale", "poracle", "vp", "xcp", "maht",
               # repeg knobs + the v7/YB donation-protection parameters
-              "aep", "astep", "dd", "dpp", "dsm"]
+              "aep", "astep", "dd", "dpp", "dsm",
+              # ng EMA times: on-chain only (no API field) — each build
+              # stamps the impl-map probe onto its newest day, so a daily
+              # change history accrues going forward
+              "maet", "dmat"]
 _PH_PARAMS = [("a", "a"), ("gamma", "gamma"), ("fee", "fee"),
               ("admin", "admin_fee"), ("offpeg", "offpeg_fee_multiplier"),
               ("mid", "mid_fee"), ("out", "out_fee"), ("fg", "fee_gamma"),
@@ -575,6 +579,18 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None) -> dict:
         if t_:
             row["tvl"] = t_.get("tvl_usd")
     days = sorted(d for d in rows if d >= full_start)
+    if days:
+        try:
+            oc = json.loads(
+                (HERE / "data" / "impl_map.json").read_text()) \
+                .get("pools", {}).get(f"{chain}:{addr}", {}) \
+                .get("params") or {}
+            if oc.get("ma_exp_time"):
+                rows[days[-1]]["maet"] = oc["ma_exp_time"]
+            if oc.get("D_ma_time"):
+                rows[days[-1]]["dmat"] = oc["D_ma_time"]
+        except (OSError, ValueError):
+            pass
     # walkfix: built (or extended) after the truncated-volume-walk fix —
     # caches without it get one full heal rebuild if they carry holes
     out = {"fetched_at": now, "chain": chain, "address": addr, "t": days,

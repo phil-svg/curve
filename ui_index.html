@@ -7639,6 +7639,10 @@ window.loadLpTab = async function () {
       out: H.out.map(pctOf),
       // fee_gamma is 1e18-scaled on-chain, unlike the 1e10-scaled fees
       fg: H.fg.map(v => v == null ? null : v / 1e18),
+      aep: (H.aep || []).map(v => v == null ? null : v / 1e18),
+      astep: (H.astep || []).map(v => v == null ? null : v / 1e18),
+      maht: H.maht || [],
+      maet: H.maet || [], dmat: H.dmat || [],
     };
 
     // -- parameter boxes: what the DAO can and cannot change ------------
@@ -7753,13 +7757,23 @@ window.loadLpTab = async function () {
           + step("gamma", series.gamma, "#4DB6AC")
           + step("mid fee %", series.mid, "#ED7D31", { pct: true })
           + step("out fee %", series.out, "#F778BA", { pct: true })
-          + step("fee gamma", series.fg, "#A78BFA");
+          + step("fee gamma", series.fg, "#A78BFA")
+          + step("allowed extra profit", series.aep, "#e3b341")
+          + step("adjustment step", series.astep, "#DB61A2")
+          + step(oc.ma_time != null ? "ma time (s)" : "ma half time (s)",
+                 series.maht, "#3FB950");
       } else {
         params = step("A", series.A, "#58a6ff")
           + step("fee %", series.fee, "#ED7D31", { pct: true })
           + (isNg ? step("offpeg fee multiplier", series.offpeg, "#DB61A2")
                   : step("admin fee share %", series.admin, "#e3b341",
-                         { pct: true }));
+                         { pct: true }))
+          // stamped from on-chain probes one day at a time — a chart
+          // needs at least two accrued days to say anything
+          + (series.maet.filter(v => v != null).length > 1
+             ? step("ma_exp_time (s)", series.maet, "#3FB950") : "")
+          + (series.dmat.filter(v => v != null).length > 1
+             ? step("D ma_time (s)", series.dmat, "#4DB6AC") : "");
       }
       document.getElementById("lp_charts").innerHTML = perf;
       document.getElementById("lp_params").innerHTML = params
