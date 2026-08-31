@@ -47,7 +47,10 @@ POOL_PROBES = [("gamma()", None), ("version()", None), ("base_pool()", None),
                ("stored_rates()", None), ("offpeg_fee_multiplier()", None),
                ("A_precise()", None), ("underlying_coins(uint256)", 0),
                ("underlying_coins(int128)", 0), ("MATH()", None),
-               ("price_scale()", None), ("price_scale(uint256)", 0)]
+               ("price_scale()", None), ("price_scale(uint256)", 0),
+               # EMA-time params: on-chain only, surfaced on pool pages
+               ("ma_exp_time()", None), ("D_ma_time()", None),
+               ("ma_time()", None)]
 
 POLICY_PROBES = [("sigma()", None), ("rate0()", None), ("min_rate()", None),
                  ("max_rate()", None), ("target_utilization()", None),
@@ -171,8 +174,18 @@ def main() -> None:
                     ln = int.from_bytes(b[32:64], "big")
                     ver = b[64:64 + ln].decode("utf-8", "replace").strip() \
                         or None
+                oc = {}
+                for fn, key in (("ma_exp_time()", "ma_exp_time"),
+                                ("D_ma_time()", "D_ma_time"),
+                                ("ma_time()", "ma_time")):
+                    x = m.get(fn)
+                    if x and x != "0x" and len(x) >= 66:
+                        v = int(x[:66], 16)
+                        if 0 < v < 10**9:
+                            oc[key] = v
                 pools[f"{ch}:{a}"] = {"impl": impl, "verified": True,
-                                      **({"version": ver} if ver else {})}
+                                      **({"version": ver} if ver else {}),
+                                      **({"params": oc} if oc else {})}
         except Exception as e:
             print(f"[impl] {ch}: probe sweep failed ({str(e)[:80]}) — "
                   f"keeping previous / unknown", flush=True)

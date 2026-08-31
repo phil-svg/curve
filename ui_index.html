@@ -5369,10 +5369,15 @@ window.loadSldlTab = async function loadSldlTab() {
         // in browser caches; the server now answers this URL no-cache
         const mod = await import("/wasm/sldl_client.js?v=" +
           ((srcs.client && srcs.client.js_v) || 0));
-        const d = await mod.sldlLocalRun(params, srcs, (done, total) => {
+        const d = await mod.sldlLocalRun(params, srcs,
+            (done, total, label) => {
           const ring = document.getElementById("sldl_ring");
           if (ring) ring.style.strokeDashoffset =
             (C * (1 - done / total)).toFixed(1);
+          // stage narration — the fee-curve stage ticks are coarse
+          // (seconds to minutes apiece), and a silent ring reads as a
+          // hang on slower machines
+          if (label) note.textContent = label + "…";
         });
         renderTable(d);
         go.disabled = false;
@@ -7602,7 +7607,11 @@ window.loadLpTab = async function () {
     const last = { a: lastOf(H.a), gamma: lastOf(H.gamma),
       fee: lastOf(H.fee), admin_fee: lastOf(H.admin),
       offpeg_fee_multiplier: lastOf(H.offpeg), mid_fee: lastOf(H.mid),
-      out_fee: lastOf(H.out), fee_gamma: lastOf(H.fg) };
+      out_fee: lastOf(H.out), fee_gamma: lastOf(H.fg),
+      aep: lastOf(H.aep || []), astep: lastOf(H.astep || []),
+      maht: lastOf(H.maht || []), dd: lastOf(H.dd || []),
+      dpp: lastOf(H.dpp || []), dsm: lastOf(H.dsm || []) };
+    const oc = H.oc || {};   // on-chain-only params (EMA times)
     const f10 = v => v == null ? null : v / 1e10;         // 1e10-scaled
     const pctOf = v => v == null ? null : v / 1e10 * 100; // -> percent
 
@@ -7639,13 +7648,26 @@ window.loadLpTab = async function () {
     const fmtPct = v => v == null ? null : v.toFixed(v < 0.2 ? 4 : 2) + "%";
     const adminNow = pctOf(last.admin_fee);
     let dao = "", fixed = "";
+    const secs = v => v == null ? null
+      : v >= 3600 ? (v / 3600).toFixed(1) + " h" : Math.round(v) + " s";
+    const e18 = v => v == null || !+v ? null
+      : (v / 1e18).toExponential(2);
     if (isCrypto) {
+      // ng-generation cryptos report ma_time (= half-life / ln 2, on
+      // chain only); the older ones report ma_half_time via the API
+      const maRow = oc.ma_time != null
+        ? pRow("ma_time", secs(oc.ma_time) + " (" +
+            secs(oc.ma_time * Math.LN2) + " half-life)")
+        : pRow("ma half time", secs(last.maht));
       dao = pRow("A (ramp)", pNum(last.a))
         + pRow("gamma (ramp)", last.gamma)
         + pRow("mid fee", fmtPct(pctOf(last.mid_fee)))
         + pRow("out fee", fmtPct(pctOf(last.out_fee)))
         + pRow("fee gamma", last.fee_gamma == null ? null
-            : (last.fee_gamma / 1e18).toExponential(2));
+            : (last.fee_gamma / 1e18).toExponential(2))
+        + pRow("allowed extra profit", e18(last.aep))
+        + pRow("adjustment step", e18(last.astep))
+        + maRow;
       fixed = pRow("admin fee share", fmtPct(adminNow))
         + pRow("family", "cryptoswap");
     } else {
@@ -7653,10 +7675,23 @@ window.loadLpTab = async function () {
         + pRow("fee", fmtPct(pctOf(last.fee)))
         + (isNg ? pRow("offpeg fee multiplier",
             f10(last.offpeg_fee_multiplier) + "×")
-          : pRow("admin fee share", fmtPct(adminNow)));
+          : pRow("admin fee share", fmtPct(adminNow)))
+        + (isNg && oc.ma_exp_time != null
+          ? pRow("ma_exp_time", secs(oc.ma_exp_time) + " (" +
+              secs(oc.ma_exp_time * Math.LN2) + " half-life)")
+            + pRow("D ma_time", oc.D_ma_time == null ? null
+                : secs(oc.D_ma_time) + " (" +
+                  secs(oc.D_ma_time * Math.LN2) + " half-life)")
+          : "");
       fixed = (isNg ? pRow("admin fee share", fmtPct(adminNow)) : "")
         + pRow("family", isNg ? "stableswap-ng" : "stableswap");
     }
+    // donation protection (v7 stableswap-ng / YB twocrypto forks)
+    if (last.dd != null || last.dpp != null)
+      fixed += pRow("donation duration", secs(last.dd))
+        + pRow("donation protection", secs(last.dpp))
+        + pRow("max donation share", last.dsm == null ? null
+            : (last.dsm / 1e18 * 100).toFixed(0) + "%");
     fixed += pRow("coins", (p && p.coins ? p.coins.length
       : (last.n_coins || "")) + "");
     const boxes = `

@@ -94,8 +94,10 @@ export function createRunner(deps) {
     const prepTicks = model === "v2" ? 1 : 3;
     const total = prepTicks + A.length * F.length * R + FC_N;
     let done = 0;
-    const tick = n => { done += n; onTick(Math.min(done, total), total); };
-    const frac = f => onTick(Math.min(done + f * prepTicks, total), total);
+    const tick = (n, label) =>
+      { done += n; onTick(Math.min(done, total), total, label); };
+    const frac = f => onTick(Math.min(done + f * prepTicks, total), total,
+                             "downloading data");
 
     // ---- data + engine input files ---------------------------------------
     const texp = p.oracle_hl;
@@ -165,9 +167,10 @@ export function createRunner(deps) {
           max_pct: pyRound(c.max_pct, 5), transfer: c.transfer });
       }
       n_all = c.n_all; n_top = c.m;
-      if (R === 1) tick(1);
+      if (R === 1) tick(1, `grid ${cells.length}/${A.length * F.length}`);
     };
-    const onErr = line => { if (line.startsWith("reality ") && R > 1) tick(1); };
+    const onErr = line => { if (line.startsWith("reality ") && R > 1)
+      tick(1, "grid realities"); };
     if (model === "v2") {
       const warmup = Number.isInteger(srcMeta.warmup_rows)
         ? srcMeta.warmup_rows : Math.ceil(10 * texp / cadenceS);
@@ -220,7 +223,7 @@ export function createRunner(deps) {
         let s = 0, n = 0;
         for (const v of vals) if (v === v) { s += v; n++; }
         avg.push(pyRound((100 * s) / n, 5));
-        tick(1);
+        tick(1, `fee curve ${avg.length}/${fcFees.length}`);
       }
       fee_curve = { A: best_A, loan_days: 3,
         kind: `${starts.length.toLocaleString("en-US")} loans, ` +
@@ -235,7 +238,8 @@ export function createRunner(deps) {
          "--texp", String(texp), "--ext-fee", String(EXT_FEE),
          "--samples", "4000", "--n-top", "4000", "--seed", "1",
          "--oracle", "/oracle.json", "--threads", threads],
-        l => { if (l.startsWith("{")) { fc.push(JSON.parse(l)); tick(1); } });
+        l => { if (l.startsWith("{")) { fc.push(JSON.parse(l));
+          tick(1, `fee curve ${fc.length}/${fcFees.length}`); } });
       if (fc.length === fcFees.length)
         fee_curve = { A: best_A, loan_days: 3, kind: "4,000 sampled loans",
           fee_pct: fc.map(c => c.fee_pct),

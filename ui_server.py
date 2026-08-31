@@ -506,13 +506,19 @@ _PH_FIELDS = ["bapr", "vol", "fees", "tvl", "a", "gamma", "fee", "admin",
               "offpeg", "mid", "out", "fg",
               # cryptoswap state (research tab: repeg-lag / real-APR work);
               # pscale/poracle are per-coin ARRAYS, 1e18-scaled
-              "pscale", "poracle", "vp", "xcp", "maht"]
+              "pscale", "poracle", "vp", "xcp", "maht",
+              # repeg knobs + the v7/YB donation-protection parameters
+              "aep", "astep", "dd", "dpp", "dsm"]
 _PH_PARAMS = [("a", "a"), ("gamma", "gamma"), ("fee", "fee"),
               ("admin", "admin_fee"), ("offpeg", "offpeg_fee_multiplier"),
               ("mid", "mid_fee"), ("out", "out_fee"), ("fg", "fee_gamma"),
               ("pscale", "price_scale"), ("poracle", "price_oracle"),
               ("vp", "virtual_price"), ("xcp", "xcp_profit"),
-              ("maht", "ma_half_time")]
+              ("maht", "ma_half_time"),
+              ("aep", "allowed_extra_profit"), ("astep", "adjustment_step"),
+              ("dd", "donation_duration"),
+              ("dpp", "donation_protection_period"),
+              ("dsm", "donation_shares_max_ratio")]
 
 
 def _ph_build(chain: str, addr: str, cached: dict | None = None) -> dict:
@@ -547,7 +553,8 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None) -> dict:
     rows: dict[int, dict] = {}
     lastp = {k: None for k, _ in _PH_PARAMS}
     for i, d in enumerate(prev_t):
-        rows[d] = {k: cached[k][i] for k in _PH_FIELDS}
+        rows[d] = {k: (cached.get(k) or [None] * len(prev_t))[i]
+                   for k in _PH_FIELDS}
     if prev_t:                       # params continue from the cache edge
         for k, _ in _PH_PARAMS:
             lastp[k] = rows[prev_t[-1]][k]
@@ -1583,7 +1590,19 @@ class Handler(BaseHTTPRequestHandler):
                     or not all(c in "0123456789abcdefx" for c in pa):
                 _http_json(self, 400, {"error": "bad ?m="})
                 return
-            _http_json(self, 200, pool_hist(ch, pa))
+            h = pool_hist(ch, pa)
+            # EMA-time parameters exist only on-chain (the prices API has
+            # no field for them) — the impl-map cycle probes them
+            try:
+                imap = json.loads(
+                    (HERE / "data" / "impl_map.json").read_text())
+                oc = (imap.get("pools", {}).get(f"{ch}:{pa}") or {}) \
+                    .get("params")
+                if oc:
+                    h = {**h, "oc": oc}
+            except (OSError, ValueError):
+                pass
+            _http_json(self, 200, h)
             return
         if self.path.startswith("/pxhist"):
             # 2y daily USD closes for one token, cached — ?t=chain:0xtoken
