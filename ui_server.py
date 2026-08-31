@@ -772,6 +772,45 @@ def _kl_sources() -> dict:
             for n, (p, d) in best.items()}
 
 
+def _paired_v2_sources() -> dict:
+    """Precomputed v2 market/oracle pairs exported by an external study.
+
+    A paired source preserves a market-specific composed oracle instead of
+    asking the browser to synthesize a plain EMA from one price series. The
+    metadata owns the two safe, data-directory-local file names and the row
+    cadence used to translate human durations into engine row counts.
+    """
+    out: dict = {}
+    for mf in (HERE / "data").glob("_paired_v2_*.meta.json"):
+        try:
+            m = json.loads(mf.read_text())
+            if m.get("format") != "llamma-v2-paired-f64-v1":
+                continue
+            key = str(m["key"])
+            if not key or any(not (c.isalnum() or c in "-_") for c in key):
+                continue
+            market_name = str(m["market_file"])
+            oracle_name = str(m["oracle_file"])
+            if (Path(market_name).name != market_name
+                    or Path(oracle_name).name != oracle_name):
+                continue
+            market_path = HERE / "data" / market_name
+            oracle_path = HERE / "data" / oracle_name
+            if not market_path.is_file() or not oracle_path.is_file():
+                continue
+            cadence = int(m["cadence_s"])
+            if (cadence <= 0 or int(m["n"]) <= 1
+                    or int(m["warmup_rows"]) < 0):
+                continue
+            days = (float(m["to"]) - float(m["from"])) / 86400
+        except (KeyError, OSError, TypeError, ValueError):
+            continue
+        out[key] = {"market_path": market_path,
+                    "oracle_path": oracle_path,
+                    "days": round(days), "meta": m}
+    return out
+
+
 def _kl_daily() -> None:
     """Daily top-up of the S.L./D.L. price histories (fetchers/
     update_klines.py: Binance API append + incremental NAV rebuild) at
@@ -1416,6 +1455,9 @@ class Handler(BaseHTTPRequestHandler):
                      "zchf.bin": HERE / "zchf" / "his_klines.json.bin"}
             for k, v in _kl_sources().items():
                 files[f"{k}.bin"] = Path(str(v["path"]) + ".bin")
+            for v in _paired_v2_sources().values():
+                files[v["meta"]["market_file"]] = v["market_path"]
+                files[v["meta"]["oracle_file"]] = v["oracle_path"]
             f = files.get(name)
             if f is None or not f.is_file():
                 self.send_response(404); self.end_headers(); return
@@ -1551,6 +1593,11 @@ class Handler(BaseHTTPRequestHandler):
                 except (OSError, ValueError):
                     pass
                 out.append(row)
+            for k, v in sorted(_paired_v2_sources().items()):
+                out.append({"key": k,
+                            "label": v["meta"].get("label", k),
+                            "days": v["days"], "models": ["v2"],
+                            "meta": v["meta"]})
             zchf_v2 = HERE / "data" / "sldl_zchf_market.bin"
             client = {"wasm_v": int((HERE / "wasm" / "ref_model_v2.wasm")
                                     .stat().st_mtime)
