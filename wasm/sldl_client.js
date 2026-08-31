@@ -25,6 +25,7 @@ const utc = s => {
 //         threads: int }
 export function createRunner(deps) {
   const cache = new Map(); // sourceKey -> Float64Array (v1 kl rows, t ms)
+  const pairedCache = new Map(); // sourceKey -> Promise<[market, oracle]>
   let zchfV2Bytes = null, usdTab = null, hourly = null;
 
   async function runEngine(model, files, argv, onLine, onErrLine) {
@@ -59,6 +60,17 @@ export function createRunner(deps) {
         bytes.buffer, bytes.byteOffset, bytes.byteLength / 8));
     }
     return cache.get(srcKey);
+  }
+  async function loadPairedSource(srcKey, meta, onFrac) {
+    if (!pairedCache.has(srcKey)) {
+      let marketFrac = 0, oracleFrac = 0;
+      const progress = () => onFrac((marketFrac + oracleFrac) / 2);
+      pairedCache.set(srcKey, Promise.all([
+        deps.fetchBin(meta.market_file, f => { marketFrac = f; progress(); }),
+        deps.fetchBin(meta.oracle_file, f => { oracleFrac = f; progress(); }),
+      ]));
+    }
+    return pairedCache.get(srcKey);
   }
   async function loadUsd() {
     if (!usdTab) usdTab = parseUsdBin(await deps.fetchBin("usd_1m.bin"));
@@ -104,6 +116,13 @@ export function createRunner(deps) {
       srcMeta = { ...meta, symbol: "ZCHF",
         pool_name: "author dataset: zchf_crvusd_1m (ZCHF/crvUSD) " +
                    "x crvUSD/USD aggregate, 1-min" };
+    } else if (model === "v2" &&
+               meta.format === "llamma-v2-paired-f64-v1") {
+      const [marketBytes, oracleBytes] = await loadPairedSource(
+        params.source, meta, frac);
+      files = [["/market.json.bin", marketBytes],
+               ["/oracle.json.bin", oracleBytes]];
+      srcMeta = meta;
     } else if (model === "v2") {
       const kl = await loadSource(params.source, frac);
       const mkt = klToV2Market(kl);
@@ -122,6 +141,13 @@ export function createRunner(deps) {
       srcMeta = meta;
     }
     tick(prepTicks);
+
+    // Engine durations are row counts, while the UI accepts human time.
+    // Ordinary sources are one minute; paired sources declare their cadence.
+    const cadenceS = model === "v2" ? Number(srcMeta.cadence_s || 60) : 60;
+    if (!Number.isFinite(cadenceS) || cadenceS <= 0)
+      throw new Error("source cadence_s must be positive");
+    const rowsPerDay = 86400 / cadenceS;
 
     // ---- grid stage ------------------------------------------------------
     const cells = [];
@@ -143,11 +169,12 @@ export function createRunner(deps) {
     };
     const onErr = line => { if (line.startsWith("reality ") && R > 1) tick(1); };
     if (model === "v2") {
-      const warmup = Math.ceil(10 * texp / 60);
+      const warmup = Number.isInteger(srcMeta.warmup_rows)
+        ? srcMeta.warmup_rows : Math.ceil(10 * texp / cadenceS);
       gridArgv = ["--market", "/market.json", "--oracle", "/oracle.json",
         "--a-list", A.join(","),
         "--fee-list", F.map(f => String(f / 100)).join(","),
-        "--length", String(Math.max(2, pyRound(p.loan_days * 1440))),
+        "--length", String(Math.max(2, pyRound(p.loan_days * rowsPerDay))),
         "--bands", String(p.bands), "--ext-fee", String(EXT_FEE),
         "--dyn-mult", String(DYN_MULT), "--threads", threads,
         "--warmup", String(warmup), "--tail-frac", String(p.tail_pct / 100),
@@ -171,10 +198,11 @@ export function createRunner(deps) {
     const best_A = cells.every(c => c.max_pct != null)
       ? bestA(cells, p.bands) : null;
     if (model === "v2" && n_all && best_A != null) {
-      const L3 = 3 * 1440;
+      const L3 = Math.max(2, pyRound(3 * rowsPerDay));
       const warmup = v2warmup;
+      const startStride = Math.max(1, pyRound(400 * 60 / cadenceS));
       const starts = [];
-      for (let s = warmup; s < n_all - L3; s += 400) starts.push(s);
+      for (let s = warmup; s < n_all - L3; s += startStride) starts.push(s);
       const startsBytes = new TextEncoder().encode(JSON.stringify(starts));
       const avg = [];
       for (const f of fcFees) {
@@ -227,13 +255,14 @@ export function createRunner(deps) {
     const common = {
       range_size: p.bands, loan_days: p.loan_days, realities: R,
       n_all, n_top, tail_pct: p.tail_pct, texp_s: texp,
-      ext_fee: EXT_FEE, client: true,
+      ext_fee: EXT_FEE, cadence_s: cadenceS, client: true,
     };
     const config = model === "v2"
       ? { model: "llamma-simulator_v2 port, C++ (cpp/src/ref_model_v2.cpp)",
           model_variant: "v2", backend: "cpp", collateral: history.base_symbol,
           history, ...common, method: "exact", samples: null,
-          oracle_mode: "usd-basis", dyn_mult: DYN_MULT, warmup: v2warmup,
+          oracle_mode: srcMeta.oracle_mode ?? "usd-basis",
+          dyn_mult: DYN_MULT, warmup: v2warmup,
           add_reverse: false }
       : { model: "llamma-simulator port, C++ (cpp/src/ref_model.cpp)",
           backend: "cpp", collateral: history.base_symbol, history, ...common,
@@ -302,6 +331,9 @@ export async function sldlLocalRun(params, sourcesPayload, onTick) {
     ? sourcesPayload.client?.zchf_v2_meta
     : row?.meta;
   if (!meta) throw new Error("source metadata unavailable");
+  const models = row?.models;
+  if (models && !models.includes(params.model))
+    throw new Error(`${params.source} supports ${models.join(", ")} only`);
   if (params.model === "v2" && params.source === "zchf" &&
       !sourcesPayload.client?.zchf_v2)
     throw new Error("v2 zchf data not exported on the server");
