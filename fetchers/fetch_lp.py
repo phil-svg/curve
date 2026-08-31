@@ -63,6 +63,7 @@ def write_state(st: dict) -> None:
 OUT = HERE / "data" / "lp.json"
 CVX_SEED = HERE / "data" / "convex_stakers_seed.json"
 MIN_TVL = 100_000       # track every pool at or above this TVL
+MIN_VOL = 100_000       # ...or with daily volume at or above this
 MAX_POOLS = 400         # hard safety cap
 LIST_N = 60             # rows kept per pool in lp.json
 # per-run onboarding budgets: the pool set converges over a few cycles
@@ -188,20 +189,30 @@ def exit_tokens() -> dict:
 
 def top_pools() -> list[dict]:
     pools = []
+    vols: dict = {}     # (chain, addr) -> daily volume USD
     for ch in http("https://api.curve.finance/v1/getPlatforms"
                    )["data"]["platforms"]:
         try:
+            for v in http(f"https://api.curve.finance/v1/getVolumes/{ch}"
+                          )["data"].get("pools", []):
+                vols[(ch, v["address"].lower())] = v.get("volumeUSD") or 0
+        except Exception:
+            pass
+        try:
             for p in http(f"https://api.curve.finance/v1/getPools/all/{ch}"
                           )["data"]["poolData"]:
-                if p.get("usdTotal"):
-                    pools.append((p["usdTotal"], ch, p))
+                if p.get("usdTotal") or \
+                        vols.get((ch, p["address"].lower()), 0) >= MIN_VOL:
+                    pools.append((p.get("usdTotal") or 0, ch, p))
         except Exception:
             pass
     pools.sort(key=lambda x: -x[0])
-    # slim census for the LLM tab's exit-liquidity join (>= $25k)
+    vol_of = lambda ch, p: vols.get((ch, p["address"].lower()), 0)
+    # slim census for the LLM tab's exit-liquidity join (>= $25k TVL,
+    # or active enough that its LP pie matters regardless of TVL)
     census: dict = {}
     for tvl, ch, p in pools:
-        if tvl < 25_000:
+        if tvl < 25_000 and vol_of(ch, p) < MIN_VOL:
             continue
         census.setdefault(ch, []).append(
             [p["address"].lower(), p.get("name") or p.get("symbol") or "",
@@ -212,7 +223,8 @@ def top_pools() -> list[dict]:
     ctmp.write_text(json.dumps({"fetched_at": int(time.time()),
                                 "pools": census}, separators=(",", ":")))
     ctmp.replace(HERE / "data" / "census.json")
-    pools_kept = [p for p in pools if p[0] >= MIN_TVL][:MAX_POOLS]
+    pools_kept = [p for p in pools if p[0] >= MIN_TVL
+                  or vol_of(p[1], p[2]) >= MIN_VOL][:MAX_POOLS]
     # oracle-read + venue pools ride along below the TVL cutoff
     must = oracle_pools()
     kept_keys = {(ch, p["address"].lower()) for _t, ch, p in pools_kept}

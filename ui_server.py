@@ -157,6 +157,7 @@ SLDL_PROG = SCRATCH / "sldl_progress.json"
 # re-enable POST /sldl_run.
 SLDL_SERVER_COMPUTE = False
 _PK_CACHE: dict = {"at": 0.0, "data": None, "busy": False}  # /pegkeeper
+_IMPL_CACHE: dict = {}   # /impl_index — implementations-tab search index
 
 
 def _pk_refresh() -> None:
@@ -896,6 +897,20 @@ def _do_refresh():
         print(f"[ui] dao revenue refreshed in {time.time() - t5:.1f} s")
     except Exception as e:
         print(f"[ui] dao revenue refresh FAILED: {str(e)[:300]}")
+    # implementation map: re-classify pools + re-read every market's
+    # monetary policy from its controller (policies can be swapped out —
+    # swaps are detected and logged here) + pegkeepers + the YB stack
+    try:
+        p = subprocess.run([PY, str(HERE / "fetchers" / "fetch_impl_map.py")],
+                           capture_output=True, text=True, timeout=600)
+        tail = ((p.stdout or "") + (p.stderr or "")).strip().splitlines()
+        print(f"[ui] impl map rc={p.returncode} "
+              f"{tail[-1] if tail else ''}", flush=True)
+        for ln in tail:
+            if "POLICY SWAP" in ln:
+                print(f"[ui] {ln}", flush=True)
+    except Exception as e:
+        print(f"[ui] impl map FAILED: {str(e)[:200]}", flush=True)
     # pool-history warmer: keep every census pool's 2y daily history fresh
     # on disk so /poolhist never fetches upstream during a page visit.
     # Incremental after the first sweep (last-day top-up, ~3 calls/pool).
@@ -1338,6 +1353,7 @@ class Handler(BaseHTTPRequestHandler):
     TAB_PATHS = ("home", "sim", "cleaning",
                  "bad-debt", "sldl", "util", "pegkeeper", "yb", "lp",
                  "pools", "llm", "lending-markets", "dao-revenue",
+                 "implementations", "impl",
                  "map",
                  # legacy pre-rename paths still serve the page
                  "bad-debt-sim", "spring-cleaning", "s.l.-d.l.",
@@ -1528,6 +1544,96 @@ class Handler(BaseHTTPRequestHandler):
                 _http_json(self, 404, {"error": "no history for this market"})
                 return
             _http_json(self, 200, json.loads(f.read_text()))
+            return
+        if self.path == "/impl_index":
+            # Implementations tab: one search index over lending markets
+            # (LLV1/LLV2 incl every contract address) + census pools +
+            # a token-symbol map. Rebuilt only when the source files move.
+            global _IMPL_CACHE
+            try:
+                stamp = tuple(int((HERE / "data" / f).stat().st_mtime)
+                              for f in ("llm.json", "markets.json",
+                                        "census.json"))
+                if (HERE / "data" / "impl_map.json").exists():
+                    stamp += (int((HERE / "data" / "impl_map.json")
+                                  .stat().st_mtime),)
+            except OSError:
+                stamp = None
+            if _IMPL_CACHE.get("stamp") != stamp or stamp is None:
+                try:
+                    llm = json.loads(
+                        (HERE / "data" / "llm.json").read_text())["markets"]
+                    mkts = json.loads(
+                        (HERE / "data" / "markets.json").read_text())["groups"]
+                    cen = json.loads(
+                        (HERE / "data" / "census.json").read_text())["pools"]
+                except (OSError, ValueError, KeyError) as e:
+                    _http_json(self, 500, {"error": f"index build: {e}"})
+                    return
+                tokens: dict = {}
+                extra = {}      # (chain, controller) -> token info
+                for grp, rows in mkts.items():
+                    for r in rows:
+                        for side in ("collateral", "borrowed"):
+                            tk = r.get(side) or {}
+                            if tk.get("addr") and tk.get("symbol"):
+                                tokens[tk["addr"].lower()] = tk["symbol"]
+                        v = r.get("venue") or {}
+                        syms = v.get("coins") or []
+                        addrs = (v.get("state") or {}).get("coins") or []
+                        if len(syms) == len(addrs):
+                            for a, s in zip(addrs, syms):
+                                tokens.setdefault(a.lower(), s)
+                        extra[(r["chain"], r["controller"].lower())] = {
+                            "collateral": r.get("collateral"),
+                            "borrowed": r.get("borrowed")}
+                imap = {}
+                try:
+                    imap = json.loads(
+                        (HERE / "data" / "impl_map.json").read_text())
+                except (OSError, ValueError):
+                    pass
+                ipools = imap.get("pools", {})
+                ipol = imap.get("policies", {})
+                markets = []
+                for key, r in llm.items():
+                    e = extra.get((r.get("chain"),
+                                   (r.get("controller") or "").lower()), {})
+                    row = {k: r.get(k) for k in
+                           ("group", "chain", "name", "controller",
+                            "amm", "vault", "gauge", "policy",
+                            "oracle")} | e
+                    pk = f"{r.get('chain')}:{(r.get('controller') or '').lower()}"
+                    if pk in ipol:
+                        p = ipol[pk]
+                        row["policy"] = p.get("policy") or row.get("policy")
+                        row["policy_kind"] = p.get("kind")
+                        row["policy_verified"] = p.get("verified")
+                        if p.get("swaps"):
+                            row["policy_swaps"] = p["swaps"]
+                    markets.append(row)
+                pools = []
+                for ch, rows in cen.items():
+                    for row in rows:
+                        if isinstance(row, list) and row:
+                            im = ipools.get(f"{ch}:{row[0].lower()}", {})
+                            pools.append({
+                                "chain": ch, "addr": row[0],
+                                "name": row[1] if len(row) > 1 else "",
+                                "tvl": row[2] if len(row) > 2 else None,
+                                "coins": row[3] if len(row) > 3 else [],
+                                **({"impl": im["impl"],
+                                    "verified": im.get("verified", False),
+                                    **({"iver": im["version"]}
+                                       if im.get("version") else {})}
+                                   if im else {})})
+                _IMPL_CACHE = {"stamp": stamp,
+                               "data": {"markets": markets, "pools": pools,
+                                        "tokens": tokens,
+                                        "pegkeepers":
+                                            imap.get("pegkeepers", []),
+                                        "yb": imap.get("yb", {})}}
+            _http_json(self, 200, _IMPL_CACHE["data"])
             return
         if self.path == "/sldl_sources":
             # data choices for the S.L./D.L. dropdown, with span so the UI

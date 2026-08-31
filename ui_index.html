@@ -309,6 +309,7 @@
     <button type="button" class="tab" data-view="lp">Pools</button>
     <button type="button" class="tab" data-view="llm">Lending Markets</button>
     <button type="button" class="tab" data-view="daorev">DAO Revenue</button>
+    <button type="button" class="tab" data-view="impl">Implementations</button>
     <button type="button" class="tab" data-view="yb">yb_</button>
     <button type="button" class="tab" data-view="map">Map</button>
   </nav>
@@ -1015,6 +1016,12 @@
                   border-radius:6px; font-size:12.5px">
   </div>
   <div id="lp_body"></div>
+</div>
+
+<!-- Implementations: engine taxonomy (which code models which on-chain
+     version, mono tree design) + search over markets/pools/contracts. -->
+<div id="view_impl" style="display:none">
+  <div id="impl_root"><div class="note">loading…</div></div>
 </div>
 
 <div id="view_yb" style="display:none">
@@ -3611,7 +3618,7 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
   // -- view switching -------------------------------------------------------
   const VIEWS = ["home", "sim", "study", "cleaning", "baddebt", "daorev",
                  "sldl", "pegkeeper", "lp", "llm",
-                 "yb", "map"];
+                 "impl", "yb", "map"];
   for (const t of document.querySelectorAll(".tab")) {
     t.addEventListener("click", () => {
       for (const o of document.querySelectorAll(".tab")) o.classList.toggle("on", o === t);
@@ -3629,6 +3636,8 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
           && !window.__pkLoaded) { window.__pkLoaded = true; loadPegkeeperTab(); }
       if (t.dataset.view === "yb" && typeof loadYbTab === "function"
           && !window.__ybLoaded) { window.__ybLoaded = true; loadYbTab(); }
+      if (t.dataset.view === "impl" && typeof loadImplTab === "function"
+          && !window.__imLoaded) { window.__imLoaded = true; loadImplTab(); }
       if (t.dataset.view === "lp") {
         if (typeof loadLpTab === "function" && !window.__lpLoaded) {
           window.__lpLoaded = true; loadLpTab();
@@ -3708,12 +3717,14 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
                       sldl: "sldl",
                       pegkeeper: "pegkeeper", lp: "pools",
                       llm: "lending-markets", daorev: "dao-revenue",
+                      impl: "implementations",
                       yb: "yb", map: "map" };
   // pre-rename bookmarks (/S.L.-D.L., /yb_ …) keep working
   const TAB_ALIASES = { "bad-debt-sim": "sim",
                         "spring-cleaning": "cleaning", "s.l.-d.l.": "sldl",
                         lp: "lp",
                         "high-util": "llm", util: "llm", llm: "llm",
+                        impl: "impl",
                         "yb_": "yb" };
   // ---- token logos (curve-assets CDN), shared by every tab ---------------
   window.__tokIdx = {};
@@ -7969,6 +7980,382 @@ window.loadHighUtilTab = async function loadHighUtilTab() {
   } catch (e) {
     meta.textContent = "failed to load markets: " + e.message;
   }
+};
+</script>
+
+<style>
+/* ---- Implementations tab (10 design variants, D1..D10) ------------------ */
+#impl_root { --ia:#58a6ff; --ifg:#c9d1d9; --imut:#8b949e; --ibd:#21262d;
+  --ibg:transparent; color:var(--ifg); }
+#impl_root a { color:var(--ia); text-decoration:none; }
+#impl_root a:hover { text-decoration:underline; }
+.impl-top { display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  margin-bottom:14px; }
+.impl-title { font-weight:700; letter-spacing:.08em; font-size:15px; }
+.impl-gh { font-size:12.5px; }
+.impl-search { width:100%; max-width:640px; background:#11161d;
+  border:1px solid #3d444d; border-radius:8px; color:var(--ifg);
+  font:inherit; font-size:15px; padding:11px 15px; outline:none;
+  display:block; margin:4px 0 18px;
+  box-shadow:0 0 0 1px rgba(88,166,255,.08); }
+.impl-search:focus { border-color:var(--ia);
+  box-shadow:0 0 0 3px rgba(88,166,255,.18); }
+.impl-search::placeholder { color:#6e7681; }
+.impl-count { font-size:12px; color:var(--imut); margin:6px 0 14px; }
+.impl-sec { margin:20px 0 8px; font-size:12px; letter-spacing:.14em;
+  color:var(--imut); text-transform:uppercase; }
+.impl-vtag { font-size:10.5px; border:1px solid var(--ibd); border-radius:3px;
+  padding:0 5px; color:var(--imut); white-space:nowrap; }
+.impl-res { border:1px solid var(--ibd); border-radius:8px; padding:10px 13px;
+  margin-bottom:8px; }
+.impl-res a::after { content:""; display:inline-block; width:9px;
+  height:9px; margin-left:4px; background-color:#6e7681; opacity:.9;
+  vertical-align:baseline;
+  -webkit-mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="black" stroke-width="1.6"><path d="M5 2H2v8h8V7"/><path d="M7 1h4v4"/><path d="M11 1L5.5 6.5"/></svg>') center/contain no-repeat;
+  mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" stroke="black" stroke-width="1.6"><path d="M5 2H2v8h8V7"/><path d="M7 1h4v4"/><path d="M11 1L5.5 6.5"/></svg>') center/contain no-repeat; }
+.impl-badge { font-size:10px; border-radius:3px; padding:1px 6px;
+  font-weight:700; letter-spacing:.05em; margin-right:8px; }
+.impl-addr { font-family:ui-monospace,monospace; font-size:11.5px; }
+.impl-cgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(215px,1fr));
+  gap:2px 16px; margin-top:7px; }
+.impl-crow { display:flex; gap:7px; font-size:12px; align-items:baseline; }
+.impl-crole { color:var(--imut); min-width:64px; font-size:11px; }
+/* tree design (bare style — descriptions live in the name tooltips) */
+.impl-tree { font-family:ui-monospace,monospace; font-size:12.5px;
+  line-height:1.85; white-space:pre-wrap; margin-top:14px; }
+.impl-tree .tr-note { color:var(--imut); }
+</style>
+<script>
+// ---- Implementations tab --------------------------------------------------
+// Engine taxonomy (which C++ code models which on-chain contract version)
+// + one search over lending markets (LLV1/LLV2, every contract address),
+// pools and tokens. 10 selectable design variants, to be collapsed later.
+window.loadImplTab = async function loadImplTab() {
+  const root = document.getElementById("impl_root");
+  const esc = s => String(s ?? "").replace(/[&<>"']/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;",
+            "'": "&#39;" }[c]));
+  const GH = "https://github.com/phil-svg/curve";
+  const GHI = GH + "/tree/main/cpp-implementations";
+  const gh = f => GH + "/blob/main/cpp-implementations/" + f;
+  const SCAN = { ethereum: "https://etherscan.io",
+    arbitrum: "https://arbiscan.io", optimism: "https://optimistic.etherscan.io",
+    base: "https://basescan.org", fraxtal: "https://fraxscan.com",
+    sonic: "https://sonicscan.org", bsc: "https://bscscan.com",
+    polygon: "https://polygonscan.com", gnosis: "https://gnosisscan.io",
+    fantom: "https://ftmscan.com", xdai: "https://gnosisscan.io" };
+  const scan = (ch, a) => (SCAN[ch] || SCAN.ethereum) + "/address/" + a;
+  const short = a => a ? a.slice(0, 8) + "…" + a.slice(-4) : "—";
+
+  const FAM = [
+    { key: "stable", name: "Stableswap", accent: "#58a6ff",
+      note: "pegged-asset pools — every deployed generation",
+      versions: [
+        { n: "classic v1", t: "A_PRECISION 1", impls: ["classic_v1"],
+          d: "3pool-vintage stableswap", f: "pools/src/stable_classic.hpp" },
+        { n: "factory plain", t: "A_PRECISION 100", impls: ["factory_plain"],
+          d: "factory plain pools", f: "pools/src/stable_classic.hpp" },
+        { n: "lido flavors", t: "live balances", impls: ["lido_flavors"],
+          d: "steth / ng / balances live-balance variants",
+          f: "pools/src/stable_classic.hpp" },
+        { n: "stableswap-ng", t: "dynamic fee", impls: ["stableswap_ng"],
+          d: "dynamic fee, admin_balances, per-event stored rates; " +
+             "rebasing coins", f: "pools/src/stable_ng.hpp" },
+        { n: "metapools", t: "meta", impls: ["meta_classic", "meta_ng"],
+          d: "classic-on-3pool + NG meta — embeds the base-pool machine, " +
+             "merged event stream", f: "pools/src/stable_meta.hpp" },
+        { n: "lending pool", t: "cyToken", impls: ["lending_underlying"],
+          d: "IronBank cyToken pool (Compound accrual rates)",
+          f: "pools/src/stable_lending.hpp" }] },
+    { key: "crypto", name: "Cryptoswap", accent: "#d2a8ff",
+      note: "volatile-pair pools with internal repegging",
+      versions: [
+        { n: "crypto2 classic", t: "2-coin", impls: ["crypto2"],
+          d: "the original 2-coin cryptoswap",
+          f: "pools/src/crypto2_classic.hpp" },
+        { n: "tricrypto2", t: "vintage", impls: ["tricrypto2"],
+          d: "original USDT/WBTC/WETH tricrypto2",
+          f: "pools/src/tricrypto2.hpp" },
+        { n: "tricrypto-NG", t: "crypto3", impls: ["tricrypto_ng"],
+          d: "new-generation 3-coin cryptoswap",
+          f: "pools/src/tricrypto_ng.hpp" },
+        { n: "twocrypto", t: "v2.1.0d", impls: ["twocrypto"],
+          d: "twocrypto v2.1.0d (also the older Yield Basis pools / iREET)",
+          f: "pools/src/twocrypto_ng.hpp" },
+        { n: "shared math", t: "solvers", impls: [],
+          d: "invariant + price solvers shared by the crypto engines",
+          f: "pools/src/crypto_math.hpp" }] },
+    { key: "yb", name: "Yield Basis", accent: "#7ee787",
+      note: "the current YB stack: cryptopool + leverage AMM + LT vault",
+      versions: [
+        { n: "twocrypto fork", t: "v3.0.0", impls: ["yb_twocrypto"],
+          d: "stableswap math, donations, WBTC policy controller",
+          f: "yieldbasis/twocrypto_yb.hpp" },
+        { n: "leverage AMM", t: "LEVAMM", impls: [], yb: "amm",
+          d: "constant-leverage AMM around each market's LP token",
+          f: "yieldbasis/levamm.hpp" },
+        { n: "LT vault", t: "3 vintages", impls: [], yb: "lt",
+          d: "leveraged-liquidity vault — value split, share accounting; " +
+             "all three deployed generations", f: "yieldbasis/lt.hpp" }] },
+    { key: "llama", name: "LlamaLend · LLAMMA", accent: "#ffa657",
+      note: "soft-liquidation AMM behind the lending markets",
+      versions: [
+        { n: "LLV1", t: "V1 contracts", impls: [],
+          d: "CRV / WETH / wstETH / WBTC / sfrxETH / tBTC vintage",
+          f: "llamalend/llv1/src/llama_amm.cpp" },
+        { n: "LLV2", t: "V2 contracts", impls: [],
+          d: "sDOLA vintage (2026-07)",
+          f: "llamalend/llv2/src/llama_amm.cpp" }] },
+    { key: "policy", name: "Monetary policies", accent: "#f2cc60",
+      note: "per-market rate policies — re-read from every controller " +
+            "each refresh cycle (swaps are detected and logged)",
+      versions: [
+        { n: "flat time-linear", t: "clamped ramp", pol: "flat_linear",
+          d: "rate = clamp(base + slope\u00b7dt) — single instance, " +
+             "utilization-independent", f: "mpolicies/mpolicies.hpp" },
+        { n: "semilog", t: "min/max rate", pol: "semilog",
+          d: "log-interpolated rate between min_rate and max_rate by " +
+             "utilization", f: "mpolicies/mpolicies.hpp" },
+        { n: "EMA secondary", t: "hyperbolic", pol: "secondary_ema",
+          d: "utilization hyperbola over an EMA of an external rate " +
+             "calculator", f: "mpolicies/mpolicies.hpp" },
+        { n: "LLV2 dynamic", t: "hyperbolic", pol: "llv2_dynamic",
+          d: "hyperbola over a clamped external calculator rate, " +
+             "reserves net of admin fees",
+          f: "mpolicies/mpolicies.hpp" }] },
+    { key: "pk", name: "PegKeepers", accent: "#79c0ff",
+      note: "crvUSD peg maintenance",
+      versions: [
+        { n: "PegKeeper V1", t: "standalone", pk: "V1",
+          d: "provide/withdraw by pool imbalance, aggregator price gate",
+          f: "pegkeeper/src/pegkeeper.hpp" },
+        { n: "PegKeeper V2", t: "regulated", pk: "V2",
+          d: "V2 keepers behind the PegKeeperRegulator",
+          f: "pegkeeper/src/pegkeeper.hpp" }] }];
+
+  let idx = { markets: [], pools: [], tokens: {}, pegkeepers: [], yb: {} };
+  try { idx = await fetch("/impl_index").then(r => r.json()); }
+  catch (e) { /* search degrades, taxonomy still renders */ }
+  const nGrp = g => idx.markets.filter(m => m.group === g).length;
+  const sym = a => idx.tokens[String(a || "").toLowerCase()] || null;
+
+  // impl key -> short label + engine file (chips on pool results)
+  const IMPL = {
+    classic_v1: ["stableswap classic v1", "pools/src/stable_classic.hpp"],
+    factory_plain: ["stableswap factory", "pools/src/stable_classic.hpp"],
+    lido_flavors: ["stableswap lido", "pools/src/stable_classic.hpp"],
+    stableswap_ng: ["stableswap-ng", "pools/src/stable_ng.hpp"],
+    meta_classic: ["metapool classic", "pools/src/stable_meta.hpp"],
+    meta_ng: ["metapool NG", "pools/src/stable_meta.hpp"],
+    lending_underlying: ["stableswap lending", "pools/src/stable_lending.hpp"],
+    crypto2: ["crypto2 classic", "pools/src/crypto2_classic.hpp"],
+    tricrypto2: ["tricrypto2", "pools/src/tricrypto2.hpp"],
+    tricrypto_ng: ["tricrypto-NG", "pools/src/tricrypto_ng.hpp"],
+    twocrypto: ["twocrypto", "pools/src/twocrypto_ng.hpp"],
+    yb_twocrypto: ["YB twocrypto v3", "yieldbasis/twocrypto_yb.hpp"],
+  };
+  const MPGH = gh("mpolicies/mpolicies.hpp");
+  const POLK = {
+    semilog: ["semilog", MPGH],
+    secondary: ["secondary", MPGH],
+    secondary_ema: ["EMA secondary", MPGH],
+    flat_linear: ["time-linear", MPGH],
+    mint_agg: ["mint agg", MPGH],
+    llv2_dynamic: ["LLV2 dynamic", MPGH],
+  };
+  const nImpl = keys => idx.pools.filter(
+    p => keys.includes(p.impl)).length;
+
+  // one haystack per searchable thing
+  const ENTRIES = [];
+  for (const m of idx.markets)
+    ENTRIES.push({ type: "market", m,
+      hay: [m.name, m.chain, m.group, m.controller, m.amm, m.vault, m.gauge,
+            m.policy, m.oracle, m.policy_kind,
+            m.collateral && m.collateral.symbol, m.collateral && m.collateral.addr,
+            m.borrowed && m.borrowed.symbol, m.borrowed && m.borrowed.addr]
+        .filter(Boolean).join(" ").toLowerCase() });
+  for (const p of idx.pools)
+    ENTRIES.push({ type: "pool", p,
+      hay: [p.name, p.chain, p.addr, p.impl, (IMPL[p.impl] || [])[0],
+            ...(p.coins || []),
+            ...(p.coins || []).map(sym).filter(Boolean)]
+        .filter(Boolean).join(" ").toLowerCase() });
+  for (const k of idx.pegkeepers || [])
+    ENTRIES.push({ type: "pk", k,
+      hay: ["pegkeeper", k.version, k.address, k.pool, k.pool_address,
+            k.regulator].filter(Boolean).join(" ").toLowerCase() });
+  for (const y of (idx.yb && idx.yb.markets) || [])
+    ENTRIES.push({ type: "yb", y,
+      hay: ["yield basis yb", y.asset, y.pool, y.amm, y.lt,
+            sym(y.asset)].filter(Boolean).join(" ").toLowerCase() });
+
+  const state = { q: "" };
+
+  const grpBadge = g => `<span class="impl-badge" style="background:${
+    g === "LLV2" ? "#3d2c00" : "#0d2440"}; color:${
+    g === "LLV2" ? "#ffa657" : "#58a6ff"}">${esc(g)}</span>`;
+  const poolBadge = `<span class="impl-badge" style="background:#1a2b1e;
+    color:#7ee787">POOL</span>`;
+
+  const implChip = (impl, verified, iver) => {
+    const e = IMPL[impl];
+    if (!e) return "";
+    return `<a class="impl-vtag" style="color:#7ee787; border-color:#1a2b1e;
+      text-decoration:none" href="${gh(e[1])}" target="_blank"
+      rel="noopener" title="engine: ${esc(e[1])}${verified
+        ? " · fingerprint verified on-chain" : ""}">${esc(e[0])}${
+      iver ? " " + esc(iver) : ""}${verified ? " ✓" : ""}</a>`;
+  };
+  function marketRow(m) {
+    const toks = [m.collateral, m.borrowed].filter(Boolean).map(t =>
+      `${window.tokImg ? tokImg(t.addr, m.chain, 15) : ""}${esc(t.symbol)}`)
+      .join(" / ");
+    const eng = m.group === "LLV2" ? "llamalend/llv2/src/llama_amm.cpp"
+      : "llamalend/llv1/src/llama_amm.cpp";
+    const pk = POLK[m.policy_kind];
+    const pol = m.policy_kind ? ` <a class="impl-vtag"
+      style="color:#f2cc60; border-color:#3d2c00; text-decoration:none"
+      href="${pk ? pk[1] : "#"}" target="_blank" rel="noopener"
+      title="monetary policy implementation — re-checked every refresh
+      cycle">${esc(pk ? pk[0] : m.policy_kind)} policy</a>` : "";
+    const swap = m.policy_swaps ? ` <span class="impl-vtag"
+      style="color:#ff7b72; border-color:#3d1418"
+      title="policy was swapped ${m.policy_swaps.length}x">policy swapped</span>`
+      : "";
+    return `<div class="impl-res">${grpBadge(m.group)}<a
+      href="/lending-markets/${esc(m.chain)}/${esc(m.controller)}"
+      style="color:var(--ifg)"><b>${esc(m.name)}</b></a>
+      <span style="color:var(--imut); font-size:12px"> · ${esc(m.chain)}
+      ${toks ? " · " + toks : ""}</span>
+      <a class="impl-vtag" style="color:#ffa657; border-color:#3d2c00;
+        text-decoration:none" href="${gh(eng)}" target="_blank"
+        rel="noopener" title="engine: ${esc(eng)}">${
+        m.group === "LLV2" ? "LLAMMA V2" : "LLAMMA V1"} engine</a>${pol}${swap}
+      </div>`;
+  }
+  function poolRow(p) {
+    const syms = (p.coins || []).map(sym).filter(Boolean);
+    return `<div class="impl-res">${poolBadge}<a href="/pools/${
+      esc(p.chain)}/${esc(p.addr)}"><b>${esc(p.name || short(p.addr))}</b></a>
+      <span style="color:var(--imut); font-size:12px"> · ${esc(p.chain)}${
+      syms.length ? " · " + syms.map(esc).join("/") : ""}</span>
+      ${implChip(p.impl, p.verified, p.iver)}
+      <span style="float:right"><span class="impl-addr" title="${
+      esc(p.addr)}">${short(p.addr)}</span></span></div>`;
+  }
+  function pkRow(k) {
+    return `<div class="impl-res"><span class="impl-badge"
+      style="background:#0d2440; color:#79c0ff">PEGKEEPER ${
+      esc(k.version)}</span><b>${esc(k.pool || short(k.address))}</b>
+      <div class="impl-cgrid">
+        <div class="impl-crow"><span class="impl-crole">keeper</span>
+          <span class="impl-addr" title="${esc(k.address)}">${
+          short(k.address)}</span></div>
+        ${k.pool_address ? `<div class="impl-crow">
+          <span class="impl-crole">pool</span>
+          <a class="impl-addr" href="/pools/ethereum/${esc(k.pool_address)}">${
+          short(k.pool_address)}</a></div>` : ""}
+        ${k.regulator ? `<div class="impl-crow">
+          <span class="impl-crole">regulator</span>
+          <span class="impl-addr" title="${esc(k.regulator)}">${
+          short(k.regulator)}</span></div>` : ""}</div></div>`;
+  }
+  function ybRow(y) {
+    const s = sym(y.asset) || short(y.asset);
+    return `<div class="impl-res"><span class="impl-badge"
+      style="background:#1a2b1e; color:#7ee787">YIELD BASIS</span>
+      <b>${esc(s)} market</b>
+      <div class="impl-cgrid">
+        <div class="impl-crow"><span class="impl-crole">pool</span>
+          <a class="impl-addr" href="/pools/ethereum/${esc(y.pool)}">${
+          short(y.pool)}</a></div>
+        <div class="impl-crow"><span class="impl-crole">amm</span>
+          <span class="impl-addr" title="${esc(y.amm)}">${short(y.amm)}
+          </span></div>
+        <div class="impl-crow"><span class="impl-crole">lt vault</span>
+          <span class="impl-addr" title="${esc(y.lt)}">${short(y.lt)}
+          </span></div>
+        <div class="impl-crow"><span class="impl-crole">asset</span>
+          <span class="impl-addr" title="${esc(y.asset)}">${short(y.asset)}
+          </span></div>
+      </div></div>`;
+  }
+  function results() {
+    const q = state.q.trim().toLowerCase();
+    if (q.length < 2) return "";
+    const hits = ENTRIES.filter(e => e.hay.includes(q));
+    const mk = hits.filter(h => h.type === "market").slice(0, 30);
+    const pl = hits.filter(h => h.type === "pool").slice(0, 30);
+    const pk = hits.filter(h => h.type === "pk").slice(0, 20);
+    const yb = hits.filter(h => h.type === "yb").slice(0, 20);
+    if (!mk.length && !pl.length && !pk.length && !yb.length)
+      return `<div class="impl-count">no matches for “${esc(q)}”</div>`;
+    return (mk.length ? `<div class="impl-sec">lending markets · ${
+        mk.length}</div>` + mk.map(h => marketRow(h.m)).join("") : "")
+      + (pl.length ? `<div class="impl-sec">pools · ${pl.length}</div>`
+        + pl.map(h => poolRow(h.p)).join("") : "")
+      + (pk.length ? `<div class="impl-sec">pegkeepers · ${pk.length}</div>`
+        + pk.map(h => pkRow(h.k)).join("") : "")
+      + (yb.length ? `<div class="impl-sec">yield basis · ${yb.length}</div>`
+        + yb.map(h => ybRow(h.y)).join("") : "");
+  }
+
+  function famTree() {
+    const vcount = v => {
+      if (v.impls && v.impls.length) {
+        const n = nImpl(v.impls);
+        return n ? `${n} pool${n > 1 ? "s" : ""}` : null;
+      }
+      if (v.pol) {
+        const n = idx.markets.filter(m => m.policy_kind === v.pol).length;
+        return n ? `${n} market${n > 1 ? "s" : ""}` : null;
+      }
+      if (v.pk) {
+        const n = (idx.pegkeepers || []).filter(
+          k => k.version === v.pk).length;
+        return n ? `${n} keeper${n > 1 ? "s" : ""}` : null;
+      }
+      if (v.yb) {
+        const n = ((idx.yb && idx.yb.markets) || []).length;
+        return n ? `${n} on-chain` : null;
+      }
+      if (v.n === "LLV1" || v.n === "LLV2") {
+        const n = nGrp(v.n);
+        return n ? `${n} market${n > 1 ? "s" : ""}` : null;
+      }
+      return null;
+    };
+    let out = "";
+    for (const f of FAM) {
+      out += `<span style="color:${f.accent}">${esc(f.name)}</span>` +
+        `<span class="tr-note"> — ${esc(f.note)}</span>\n`;
+      f.versions.forEach((v, i) => {
+        const last = i === f.versions.length - 1;
+        out += `${last ? "└─" : "├─"} <b title="${esc(v.d)}">${esc(v.n)
+          }</b> <span class="impl-vtag">${esc(v.t)}</span>` +
+          (v.f ? ` <a href="${gh(v.f)}" target="_blank" rel="noopener">${
+            esc(v.f.split("/").pop())}</a>` : "") + "\n";
+      });
+      out += "\n";
+    }
+    return `<div class="impl-tree">${out}</div>`;
+  }
+
+  function render() {
+    root.innerHTML = `<input id="impl_q" class="impl-search" type="search"
+      placeholder="search markets, pools, coins, symbols, addresses…"
+      value="${esc(state.q)}" autocomplete="off" spellcheck="false">
+    <div id="impl_results"></div>` + famTree();
+    const q = document.getElementById("impl_q");
+    const res = document.getElementById("impl_results");
+    q.addEventListener("input", () => {
+      state.q = q.value;
+      res.innerHTML = results();
+    });
+    res.innerHTML = results();
+  }
+  render();
 };
 </script>
 </body>
