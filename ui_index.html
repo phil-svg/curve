@@ -110,6 +110,12 @@
   .hb-val.warn { color:#d29922; }
   .hb-val.bad  { color:#f85149; }
   .chart-wrap { background:#161b22; border:1px solid #30363d; border-radius:8px; padding:16px; }
+  /* ~10% shorter than the viewBox's natural height so a run's chart stack
+     fits more screens; preserveAspectRatio="none" stretches the drawing */
+  #results .chart-wrap > svg[viewBox$=" 220"] { aspect-ratio: 900 / 198; }
+  #results .chart-wrap > svg[viewBox$=" 260"] { aspect-ratio: 900 / 234; }
+  #results .chart-wrap > svg[viewBox$=" 300"] { aspect-ratio: 900 / 270; }
+  #results .chart-wrap > svg[viewBox$=" 430"] { aspect-ratio: 900 / 387; }
   /* Title row doubles as the badge rail — badge sits flush right of the title. */
   .chart-title {
     font-size:13px; font-weight:600; margin-bottom:8px;
@@ -301,7 +307,7 @@
     <img src="/favicon.png?v=8" alt="Curve-Sim — home">
   </button>
   <nav class="tabs">
-    <button type="button" class="tab" data-view="sim">Bad-debt sim</button>
+    <button type="button" class="tab" data-view="sim">Bad-Debt-Sim</button>
     <button type="button" class="tab" data-view="cleaning">Spring-Cleaning</button>
     <button type="button" class="tab" data-view="baddebt">Bad Debt</button>
     <button type="button" class="tab" data-view="sldl">S.L. / D.L.</button>
@@ -472,13 +478,6 @@
           rounding is not perfectly scale-free). The borrower therefore sits
           exactly at max LTV. Both fields stay editable after a pick.
         </div>
-        <label style="display:flex; align-items:center; gap:6px; margin-top:2px; cursor:pointer">
-          <input id="pinned_ladder" type="checkbox" style="width:auto; margin:0">
-          pin ladder top to start price (Curve-sim placement)
-        </label>
-        <div class="note">On = llamma-simulator anchoring: soft-liq starts a hair
-        below the start spot for ANY A (zero cushion, worst-case landing; kills
-        the grid-phase lottery). Off = on-chain max-LTV placement.</div>
         <label>Collateral (USD)</label>
         <input id="collateral_usd" type="number" step="100000" value="8000000">
         <div class="row2">
@@ -501,9 +500,18 @@
             <input id="loan_discount_pct" type="number" step="0.5" value="11">
           </div>
         </div>
-        <label>LLAMMA A (market band width)</label>
-        <input id="llamma_A" type="number" step="10" min="2" max="5000" value="30">
-        <div class="note" id="su_cap">max LTV —</div>
+        <div class="row2">
+          <div>
+            <label>LLAMMA A</label>
+            <input id="llamma_A" type="number" step="10" min="2" max="5000" value="30">
+          </div>
+          <div>
+            <label>LLAMMA fee (%)</label>
+            <input id="llamma_fee_pct" type="number" step="0.05" min="0"
+                   max="5" value="0.6">
+          </div>
+        </div>
+        <div class="note" id="su_cap" style="display:none"></div>
       </fieldset>
 
       <fieldset>
@@ -582,9 +590,10 @@
             <input id="crash_end_offset_min" type="number" step="1" value="10">
           </div>
         </div>
-        <div class="note" id="horizon_note">Horizon = start + duration + end.</div>
+        <div class="note" id="horizon_note" style="display:none"></div>
         <div class="note" id="replay_note" style="display:none"></div>
       </fieldset>
+
 
       <fieldset>
         <legend>Health / Liquidations</legend>
@@ -594,14 +603,6 @@
         <label>liquidation_discount (%)</label>
         <input id="liquidation_discount_pct" type="number" step="1" value="8">
         <div class="note">Settlement threshold. Soft-liq always on.</div>
-        <label style="display:flex; align-items:center; gap:6px; margin-top:8px; cursor:pointer">
-          <input id="disc_x_sl" type="checkbox" checked style="width:auto; margin:0">
-          liq. discount for health-math on crvUSD from S.L.
-        </label>
-        <div class="note">On = on-chain rule (Controller.vy L1099-1100: the whole
-        get_x_down, band-crvUSD included, is scaled by 1&minus;discount).
-        Off = band-crvUSD counts at par in the liquidation trigger only
-        (settlement always burns it 1:1 either way).</div>
       </fieldset>
 
       <fieldset>
@@ -652,6 +653,17 @@
       <div id="tooltip"></div>
       <div class="legend">
         <div class="legend-item"><span class="swatch" style="background:#ED7D31"></span>bad debt</div>
+      </div>
+    </div>
+    <div class="chart-wrap" id="fee_prev_card" style="display:none">
+      <div class="chart-title">Dynamic fee — %</div>
+      <svg id="fee_prev_svg" viewBox="0 0 900 260"
+           preserveAspectRatio="none"></svg>
+      <div class="legend">
+        <div class="legend-item"><span class="swatch" style="background:#7ee787"></span>charged fee</div>
+        <div class="legend-item"><span class="swatch" style="background:#58a6ff"></span>fee parameter</div>
+        <div class="legend-item"><span class="swatch" style="background:#ff7b72"></span>oracle-speed dynamic fee</div>
+        <div class="legend-item"><span class="swatch" style="background:#d2a8ff"></span>band-distance dynamic fee</div>
       </div>
     </div>
     <div class="chart-wrap">
@@ -1229,8 +1241,7 @@ function updMaNote() {
   document.getElementById("ma_note").innerHTML =
     `= EMA half-life <b>${Math.round(half)} s</b> (&asymp; ` +
     (mins < 90 ? `${mins.toFixed(1)} min` : `${(mins / 60).toFixed(1)} h`) +
-    `). On-chain value from the venue pool when a market is picked. ` +
-    `Health oracle = EMA of the VENUE's spot, seeded at start spot.`;
+    `).`;
 }
 document.getElementById("ma_exp_time_s").addEventListener("input", updMaNote);
 updMaNote();
@@ -1252,44 +1263,8 @@ function applyReplayUI(fallbackWhy) {
     w.title = on ? "" : "applies when replaying a real crash";
   }
   const note = document.getElementById("replay_note");
-  note.style.display = (on || fallbackWhy) ? "" : "none";
+  note.style.display = (!on && fallbackWhy) ? "" : "none";
   if (!on && fallbackWhy) note.textContent = fallbackWhy;
-  if (on) {
-    const r = replayShape;
-    const sl = replaySlice();
-    const spanH = sl.secs[sl.secs.length - 1] / 3600;
-    let loI = 0;
-    for (let i = 1; i < sl.pct.length; i++) if (sl.pct[i] < sl.pct[loI]) loI = i;
-    const atH = sl.secs[loI] / 3600;
-    const hrs = h => h < 48 ? h.toFixed(1) + " h" : (h / 24).toFixed(1) + " d";
-    const uniq = new Set(sl.pct).size;
-    const flat = sl.pct.length > 1
-      ? sl.pct.filter((v, i) => i && v === sl.pct[i - 1]).length / (sl.pct.length - 1)
-      : 0;
-    note.innerHTML = r.minute
-      ? `Replaying <b style="color:#c9d1d9">${esc(r.symbol)}</b>'s ` +
-        `<b>${RANK_WORDS[r.rank || 0]}</b> real crash at minute resolution ` +
-        `(a "crash" = the deepest single-day wick — the day's low vs the ` +
-        `previous close — in the venue's stored daily history, ~2 years; ` +
-        `ranked crashes are distinct events ≥ 8 days apart): ` +
-        `crash day ${esc(r.crashDay)}, ` +
-        `<b>${spanH < 48 ? spanH.toFixed(1) + " h" : (spanH / 24).toFixed(1) + " d"}</b>` +
-        ` window bottoming <b style="color:#f85149">${(sl.drop * 100).toFixed(1)}%</b>` +
-        ` below its start <b>${hrs(atH)} in</b> (the window opens a third of its` +
-        ` length before the low, so the rest is the aftermath; ` +
-        `${sl.pct.length.toLocaleString()} minute candles, ` +
-        `<b>${uniq.toLocaleString()}</b> distinct prices, ` +
-        `${(flat * 100).toFixed(0)}% of minutes carried forward from the ` +
-        `previous one — the feed is one Curve pool's own trades, not a market ` +
-        `price). Engine steps every 12 s. Applied as % steps to the start spot ` +
-        `above; prices are today's, only the shape is historical.`
-      : `Replaying <b style="color:#c9d1d9">${esc(r.symbol)}</b>'s ` +
-        (r.sustained ? "worst 7-day fall that did not recover the following week"
-                     : "worst 7-day fall on record") +
-        `: <b style="color:#f85149">${(r.drop * 100).toFixed(1)}%</b> ` +
-        `(${r.fromDay} → ${r.toDay}), applied as daily % steps to the start spot ` +
-        `above. Prices are today's; only the shape is historical.`;
-  }
   if (horizonNoteNow) horizonNoteNow();
 }
 
@@ -1304,8 +1279,8 @@ function currentParams() {
     ma_time_s:               +document.getElementById("ma_exp_time_s").value
                              * Math.LN2,
     liquidation_discount_pct:+document.getElementById("liquidation_discount_pct").value,
-    discount_x_sl:           document.getElementById("disc_x_sl").checked,
-    pinned_ladder:           document.getElementById("pinned_ladder").checked,
+    discount_x_sl:           true,    // on-chain rule, always on
+    pinned_ladder:           true,    // llamma-simulator anchoring, always
     crash_start_spot:        +document.getElementById("crash_start_spot").value,
     crash_end_spot:          +document.getElementById("crash_end_spot").value,
     crash_start_offset_s:    +document.getElementById("crash_start_offset_min").value * 60,
@@ -1320,6 +1295,8 @@ function currentParams() {
     n_bands:                 +document.getElementById("n_bands").value,
     loan_discount_pct:       +document.getElementById("loan_discount_pct").value,
     llamma_A:                +document.getElementById("llamma_A").value,
+    amm_fee_wei:             Math.round(
+      +document.getElementById("llamma_fee_pct").value * 1e16) || null,
     pool_type:               document.getElementById("pool_type").value,
     n_coins:                 +document.getElementById("pool_n").value,
     ss_A:                    +document.getElementById("ss_A").value,
@@ -1618,8 +1595,7 @@ function bump(inp, dir) {
     const show = () => {
       const h = simHorizonMin();
       note.textContent =
-        (isReplay() ? "Horizon = start + replayed week + end = "
-                    : "Horizon = start + duration + end = ") +
+        "Horizon = " +
         `${(+h.toFixed(2))} min` + (h > 360 ? ` (${(h / 1440).toFixed(1)} d)` : "");
     };
     ["crash_start_offset_min", "crash_duration_min", "crash_end_offset_min"]
@@ -2804,9 +2780,7 @@ function drawBandsChart() {
       "font-family": "monospace" },
       timeLabel(rows[i], simSpan) || axisRows()[i].date));
   }
-  rangesEl.textContent =
-    `${nb} band${nb === 1 ? "" : "s"} · rows share one $ scale, fullest band = $` +
-    `${Math.round(vMax).toLocaleString()} · highest price on top`;
+  rangesEl.textContent = "";
 }
 
 // Executed hard liquidations (debt repaid per block, from the synth's profit-
@@ -3093,16 +3067,16 @@ document.getElementById("f").addEventListener("submit", async (ev) => {
       document.getElementById("results").classList.remove("stale");
       document.getElementById("stale_tag").classList.remove("on");
       lastShownMarket = pendingMarketLabel;
+      // the live fee preview only makes sense next to actual results
+      const fpc = document.getElementById("fee_prev_card");
+      if (fpc && fpc.style.display === "none") {
+        fpc.style.display = "";
+        if (window.__drawFeePreview) window.__drawFeePreview();
+      }
       slInfo = j.soft_liq || null;
       lastOracle = j.oracle || null;
       lastBorrower = j.borrower || null;   // debt/size, for the equity readout
       drawChart(j.rows);
-      if (j.borrower) {
-        const b = j.borrower;
-        document.getElementById("su_cap").textContent =
-          `max LTV ${b.max_ltv_pct.toFixed(2)}% · max $${Math.floor(b.max_borrowable_usd).toLocaleString()}` +
-          ` · bands ${b.n1}–${b.n2}` + (b.clamped ? " · clamped" : "");
-      }
       const client_ms = (performance.now() - t0) | 0;
       // Success is visible in the charts themselves; the old
       // "ok · Nms · SL $… · deliq $…" summary line was noise here.
@@ -3357,6 +3331,7 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
     const stale = () => seq !== pickSeq;
     const set = (id, v) => { document.getElementById(id).value = v; };
     set("llamma_A", m.llamma_A);
+    if (m.amm_fee_pct != null) set("llamma_fee_pct", m.amm_fee_pct);
     set("loan_discount_pct", m.loan_discount_pct);
     set("liquidation_discount_pct", m.liquidation_discount_pct);
     set("n_bands", 4);
@@ -3705,7 +3680,7 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
   // URL path -> tab: the tab label word for word, words joined by "-"
   // ("S.L. / D.L." drops the slash). Matched case-insensitively; the
   // server serves index.html for any of these paths.
-  const TAB_PATHS = { home: "", sim: "sim",
+  const TAB_PATHS = { home: "", sim: "bad-debt-sim",
                       cleaning: "cleaning", baddebt: "bad-debt",
                       sldl: "sldl",
                       pegkeeper: "pegkeeper", lp: "pools",
@@ -3713,7 +3688,7 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
                       impl: "implementations",
                       yb: "yb", map: "map" };
   // pre-rename bookmarks (/S.L.-D.L., /yb_ …) keep working
-  const TAB_ALIASES = { "bad-debt-sim": "sim",
+  const TAB_ALIASES = { "sim": "sim",
                         "spring-cleaning": "cleaning", "s.l.-d.l.": "sldl",
                         lp: "lp",
                         "high-util": "llm", util: "llm", llm: "llm",
@@ -8089,6 +8064,134 @@ window.loadHighUtilTab = async function loadHighUtilTab() {
   line-height:1.85; white-space:pre-wrap; margin-top:14px; }
 .impl-tree .tr-note { color:var(--imut); }
 </style>
+<script>
+// ---- live charged-fee preview (Bad-Debt-Sim tab) ---------------------------
+// Mirrors the pipeline's fee machinery on the schedule the form describes:
+// oracle = EMA of the schedule at ma_exp_time_s (alpha = 2^(-dt/ma), as in
+// build_ema_precompute.py), velocity dfee = llamma_book.limit_p_o, band
+// fee = llamma_book.get_dynamic_fee on an A-ladder pinned at the start
+// price, arbs assumed one 5-min step behind the oracle.
+{
+  const $id = i => document.getElementById(i);
+  const STEP = 12;                        // seconds per modelled block
+  function pricePath() {
+    const spot = +$id("crash_start_spot").value || 1;
+    const H = simHorizonMin() * 60;
+    let pts;
+    if (isReplay()) {
+      pts = replayPath();
+      if (!pts || pts.length < 2) return null;
+    } else {
+      const o = simOffsetMin() * 60, d = simDurationMin() * 60;
+      const end = +$id("crash_end_spot").value || spot;
+      pts = [[0, spot], [o, spot], [o + d, end], [H, end]];
+    }
+    const out = [];
+    let j = 0;
+    for (let t = 0; t <= H; t += STEP) {
+      while (j + 1 < pts.length && pts[j + 1][0] <= t) j++;
+      let p;
+      if (t <= pts[0][0]) p = pts[0][1];
+      else if (j + 1 >= pts.length) p = pts[pts.length - 1][1];
+      else {
+        const f = (t - pts[j][0]) / (pts[j + 1][0] - pts[j][0] || 1);
+        p = pts[j][1] * (1 - f) + pts[j + 1][1] * f;
+      }
+      out.push(p);
+    }
+    return out;
+  }
+  function series() {
+    const P = pricePath();
+    if (!P) return null;
+    const ma = +$id("ma_exp_time_s").value || 866;
+    const A = Math.max(2, +$id("llamma_A").value || 30);
+    const feeP = (+$id("llamma_fee_pct").value || 0) / 100;
+    // oracle EMA (half-time semantics, per build_ema_precompute.py)
+    const alpha = Math.pow(2, -STEP / ma);
+    const O = [];
+    let ema = P[0];
+    for (const p of P) { ema = ema * alpha + p * (1 - alpha); O.push(ema); }
+    // velocity dfee (limit_p_o), band fee on a pinned ladder
+    const DELAY = 120;
+    const r = (A - 1) / A, pBase = O[0] * (A / (A - 1) + 1e-4);
+    const lnR = Math.log(A / (A - 1));
+    const bandOf = p => Math.max(1, Math.floor(Math.log(pBase / p) / lnR));
+    const bandFee = (p, n) => {
+      const pu = pBase * Math.pow(r, n);
+      const pcd = p * p / pu * p / pu, pcu = pcd / (r * r);
+      if (p < pcd) return (pcd - p) / pcd / 4;
+      if (p > pcu) return (p - pcu) / p / 4;
+      return 0;
+    };
+    const LAG = Math.round(300 / STEP);
+    const vel = [], band = [], charged = [];
+    let oldP = O[0], oldRatio = 0;
+    for (let i = 0; i < O.length; i++) {
+      const p = O[i];
+      const dt = DELAY - Math.min(DELAY, STEP);
+      let ratio = 0;
+      if (dt > 0) {
+        let rt = p > oldP ? oldP / p : p / oldP;
+        rt = Math.max(rt, 1 / 1.25);
+        ratio = Math.min((1 + oldRatio - rt ** 3) * dt / DELAY, 1);
+      }
+      oldP = p; oldRatio = ratio;
+      const bf = bandFee(p, bandOf(O[Math.max(0, i - LAG)]));
+      vel.push(ratio); band.push(bf);
+      charged.push(Math.max(feeP, ratio, bf));
+    }
+    return { vel, band, charged, feeP, H: (P.length - 1) * STEP };
+  }
+  function draw() {
+    const svg = $id("fee_prev_svg");
+    if (!svg) return;
+    const card = $id("fee_prev_card");
+    if (card && card.style.display === "none") return;
+    const S = series();
+    if (!S) { svg.innerHTML = ""; return; }
+    const W = 900, H = 260, L = 52, R = 10, T = 12, B = 34;
+    const hi = Math.max(0.005, Math.max(...S.charged) * 1.15);
+    const X = i => L + i / (S.charged.length - 1) * (W - L - R);
+    const Y = v => T + (1 - v / hi) * (H - T - B);
+    const line = (arr, color, w) => `<polyline fill="none" stroke="${color}"
+      stroke-width="${w}" points="${arr.map((v, i) =>
+        X(i).toFixed(1) + "," + Y(v).toFixed(1)).join(" ")}"/>`;
+    let g = "";
+    for (let k = 0; k <= 3; k++) {
+      const v = hi * k / 3;
+      g += `<line x1="${L}" y1="${Y(v)}" x2="${W - R}" y2="${Y(v)}"
+             stroke="#21262d" stroke-dasharray="3 4"/>
+            <text x="${L - 6}" y="${Y(v) + 3.5}" text-anchor="end"
+             fill="#6e7681" font-size="10.5">${(v * 100).toFixed(2)}%</text>`;
+    }
+    const hrs = S.H / 3600;
+    for (let k = 0; k <= 4; k++) {
+      const t = hrs * k / 4;
+      g += `<text x="${X((S.charged.length - 1) * k / 4)}" y="${H - 8}"
+             text-anchor="middle" fill="#57606a" font-size="10.5">${
+             hrs >= 2 ? t.toFixed(1) + " h" : (t * 60).toFixed(0) + " m"
+             }</text>`;
+    }
+    g += line(S.vel, "#ff7b72", 1);
+    g += line(S.band, "#d2a8ff", 1);
+    g += `<line x1="${L}" y1="${Y(S.feeP)}" x2="${W - R}" y2="${Y(S.feeP)}"
+          stroke="#58a6ff" stroke-width="1.2"/>`;
+    g += line(S.charged, "#7ee787", 2);
+    svg.innerHTML = g;
+  }
+  window.__drawFeePreview = draw;
+  let tmr = null;
+  const kick = () => { clearTimeout(tmr); tmr = setTimeout(draw, 150); };
+  const f = document.getElementById("f");
+  if (f) { f.addEventListener("input", kick); f.addEventListener("change", kick); }
+  // replay shapes arrive async after a market pick — replay_note mutates then
+  const rn = document.getElementById("replay_note");
+  if (rn) new MutationObserver(kick).observe(
+    rn, { childList: true, characterData: true, subtree: true });
+  draw();
+}
+</script>
 <script>
 // ---- Implementations tab --------------------------------------------------
 // Engine taxonomy (which C++ code models which on-chain contract version)
