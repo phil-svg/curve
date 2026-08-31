@@ -5196,18 +5196,37 @@ window.loadSldlTab = async function loadSldlTab() {
       ? `<span style="color:#e3b341" title="only ${d} days of history">&#9888; &lt;1y</span>`
       : "";
   }
+  const srcModels = {};   // key -> models the source supports (both if unset)
+  function enforceModels() {
+    // a paired v2 source has no v1 representation: gray v1 out and hop
+    // the model over rather than letting the run dead-end
+    const mdl = document.getElementById("sldl_model");
+    const src = document.getElementById("sldl_src");
+    const allowed = srcModels[src.value] || ["v1", "v2"];
+    for (const o of mdl.options) o.disabled = !allowed.includes(o.value);
+    if (!allowed.includes(mdl.value)) {
+      mdl.value = allowed[0];
+      document.getElementById("sldl_hl").value =
+        mdl.value === "v2" ? 3603 : 1200;
+    }
+  }
   fetch("/sldl_sources").then(r => r.json()).then(j => {
     window.__sldlSources = j;      // full payload for the local wasm runner
     const src = document.getElementById("sldl_src");
     const cur = src.value;
     src.innerHTML = j.sources.map(s => {
       srcDays[s.key] = s.days;
+      if (s.models) srcModels[s.key] = s.models;
       return `<option value="${s.key}">${s.label}</option>`;
     }).join("");
     src.value = j.sources.some(s => s.key === cur) ? cur : "zchf";
+    enforceModels();
     updSrcDays();
   }).catch(() => {});
-  document.getElementById("sldl_src").addEventListener("change", updSrcDays);
+  document.getElementById("sldl_src").addEventListener("change", () => {
+    enforceModels();
+    updSrcDays();
+  });
   document.getElementById("sldl_model").addEventListener("change", () => {
     const v2 = document.getElementById("sldl_model").value === "v2";
     document.getElementById("sldl_hl").value = v2 ? 3603 : 1200;

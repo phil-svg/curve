@@ -795,6 +795,11 @@ def _paired_v2_sources() -> dict:
             if (Path(market_name).name != market_name
                     or Path(oracle_name).name != oracle_name):
                 continue
+            # served names must live in the paired namespace so a meta
+            # file can never shadow a built-in /sldl_data entry
+            if not (market_name.startswith("_paired_v2_")
+                    and oracle_name.startswith("_paired_v2_")):
+                continue
             market_path = HERE / "data" / market_name
             oracle_path = HERE / "data" / oracle_name
             if not market_path.is_file() or not oracle_path.is_file():
