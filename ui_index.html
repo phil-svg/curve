@@ -896,13 +896,6 @@
             style="flex:0 0 auto; width:auto; padding:7px 26px">Run sweep</button>
     <div class="note" id="sldl_note" style="align-self:center">loading…</div>
   </div>
-  <!-- speed hint: visible whenever the current knobs leave the fast regime
-       (fee max <= 0.5% keeps every cell on the anchor transfer; loans
-       <= 2 h keep it at ~4 s for a 15x15) -->
-  <div class="note" id="sldl_fast_hint" style="display:none; margin:2px 0 0;
-       color:#6e7681; font-size:11px">
-    hint: fee max &le; 0.5% and loan minutes &le; 120 run in a few seconds
-    (details: the i on fee max %)</div>
   <!-- one shared explainer panel; the blue "i" buttons above swap its text -->
   <div class="note" id="sldl_info" style="display:none; margin:6px 0 0;
        max-width:900px; line-height:1.6; padding:8px 10px;
@@ -5143,11 +5136,7 @@ window.loadSldlTab = async function loadSldlTab() {
       h += "</tr>";
     }
     body.innerHTML = `<div>${h}</table></div>`;
-    note.textContent = `last run ${new Date(d.generated_at * 1000)
-      .toISOString().replace("T", " ").slice(0, 16)} UTC · ` +
-      `${d.cells.length} cells ${exact ? "· exact tail" : "x " + (cfg.samples ?? 0).toLocaleString() + " samples"}` +
-      (d.runtime_s ? ` in ${d.runtime_s}s` : "") +
-      (cfg.client ? " · computed in your browser" : "");
+    note.textContent = "";
     for (const b of document.querySelectorAll("#sldl_statseg button"))
       b.addEventListener("click", () => {
         window.__sldlStat = b.dataset.stat;
@@ -5161,13 +5150,6 @@ window.loadSldlTab = async function loadSldlTab() {
 
   const loanMinutes = () => (+document.getElementById("sldl_loan").value || 0)
                             * +document.getElementById("sldl_loan_unit").value;
-  const fastHint = () => {
-    const slow = +document.getElementById("sldl_fmax").value > 0.5
-              || loanMinutes() > 120;
-    document.getElementById("sldl_fast_hint").style.display = slow ? "" : "none";
-  };
-  for (const id of ["sldl_fmax", "sldl_fmin", "sldl_loan"])
-    document.getElementById(id).addEventListener("input", fastHint);
   // switching the unit converts the value in place (120 minutes -> 2 hours)
   {
     const unitSel = document.getElementById("sldl_loan_unit");
@@ -5178,10 +5160,8 @@ window.loadSldlTab = async function loadSldlTab() {
       prevUnit = +unitSel.value;
       valInp.value = +(mins / prevUnit).toFixed(4);
       valInp.step = prevUnit === 1 ? 10 : prevUnit === 60 ? 0.5 : 0.25;
-      fastHint();
     });
   }
-  fastHint();
 
   const srcDays = {};
   window.__sldlSrcDays = srcDays;
