@@ -2881,6 +2881,7 @@ const HOVER_GEOM = {
   compchart: { l: 88, r: 20 }, slchart: { l: 88, r: 20 },
   hlchart: { l: 88, r: 20 }, bandschart: { l: 118, r: 20 },
   healthchart: { l: 88, r: 20 },
+  equitychart: { l: 88, r: 20 }, lenderchart: { l: 88, r: 20 },
 };
 
 function hoverRows(svgId, r, b) {
@@ -2924,6 +2925,27 @@ function hoverRows(svgId, r, b) {
       }
       if (r.extArbUsd) rows.push(["ext arb", usd(r.extArbUsd), "#8b949e"]);
       return rows;
+    }
+    case "equitychart": {
+      const eq = (r.comp_coll_usd != null && r.comp_lend_usd != null
+                  && r.debtUsd != null)
+        ? r.comp_coll_usd + r.comp_lend_usd - r.debtUsd : null;
+      if (eq == null) return [["equity", "n/a", null]];
+      return [["borrower equity", (eq < 0 ? "−$" : "$") +
+                Math.abs(Math.round(eq)).toLocaleString(),
+               eq < 0 ? "#f85149" : "#F28E2B"],
+              ["collateral", usd(r.comp_coll_usd), "#A78BFA"],
+              ["band crvUSD", usd(r.comp_lend_usd), "#4DB6AC"],
+              ["debt", usd(r.debtUsd), "#8b949e"]];
+    }
+    case "lenderchart": {
+      const debt0 = lastGenRows && lastGenRows.length
+        ? lastGenRows[0].debtUsd : null;
+      if (debt0 == null || r.badDebt == null)
+        return [["lender equity", "n/a", null]];
+      return [["lender equity", usd(debt0 - r.badDebt), "#70AD47"],
+              ["funded principal", usd(debt0), "#8b949e"],
+              ["bad debt", usd(r.badDebt), "#ED7D31"]];
     }
     case "hlchart":
       return r.hardLiqUsd > 0
@@ -8181,6 +8203,67 @@ window.loadHighUtilTab = async function loadHighUtilTab() {
     svg.innerHTML = g;
   }
   window.__drawFeePreview = draw;
+  // hover: the preview has its own series (not lastGenRows) — same
+  // fixed tooltip, index mapped over the modelled blocks
+  let lastS = null, hoverLine = null;
+  const _draw0 = draw;
+  draw = function () { _draw0(); lastS = series(); };
+  window.__drawFeePreview = draw;
+  {
+    const svg = $id("fee_prev_svg");
+    const L = 52, R = 10, T = 12, B = 34, W = 900, H = 260;
+    const hide = () => {
+      const tt = document.getElementById("tooltip");
+      if (tt) tt.style.display = "none";
+      if (hoverLine && hoverLine.parentNode) hoverLine.remove();
+    };
+    svg.addEventListener("mousemove", evt => {
+      const card = $id("fee_prev_card");
+      if (!lastS || (card && card.style.display === "none")) return;
+      const rect = svg.getBoundingClientRect();
+      const x = (evt.clientX - rect.left) * (W / rect.width);
+      if (x < L || x > W - R) { hide(); return; }
+      const n = lastS.charged.length;
+      const i = Math.max(0, Math.min(n - 1,
+        Math.round((x - L) / (W - L - R) * (n - 1))));
+      const t = i / (n - 1) * lastS.H;
+      const when = lastS.H >= 7200
+        ? (t / 3600).toFixed(2) + " h" : Math.round(t / 60) + " min";
+      const pc = v => (v * 100).toFixed(3) + "%";
+      if (!hoverLine) {
+        hoverLine = document.createElementNS(
+          "http://www.w3.org/2000/svg", "line");
+        hoverLine.setAttribute("stroke", "#6e7681");
+        hoverLine.setAttribute("stroke-width", "1");
+        hoverLine.setAttribute("stroke-dasharray", "3,3");
+      }
+      const xPix = L + i / (n - 1) * (W - L - R);
+      hoverLine.setAttribute("x1", xPix); hoverLine.setAttribute("x2", xPix);
+      hoverLine.setAttribute("y1", 6); hoverLine.setAttribute("y2", H - 28);
+      svg.appendChild(hoverLine);
+      const rows = [
+        ["charged fee", pc(lastS.charged[i]), "#7ee787"],
+        ["fee parameter", pc(lastS.feeP), "#58a6ff"],
+        ["oracle-speed dfee", pc(lastS.vel[i]), "#ff7b72"],
+        ["band-distance fee", pc(lastS.band[i]), "#d2a8ff"]];
+      let html = `<div class="tt-time">t = ${when}</div>`;
+      for (const [lab, val, col] of rows)
+        html += `<div class="tt-row"><span class="tt-label"` +
+          (col ? ` style="color:${col}"` : "") +
+          `>${lab}</span><span>${val}</span></div>`;
+      const tt = document.getElementById("tooltip");
+      tt.innerHTML = html;
+      tt.style.display = "block";
+      let tx = evt.clientX + 14, ty = evt.clientY + 14;
+      if (tx + tt.offsetWidth > window.innerWidth - 6)
+        tx = evt.clientX - tt.offsetWidth - 14;
+      if (ty + tt.offsetHeight > window.innerHeight - 6)
+        ty = evt.clientY - tt.offsetHeight - 14;
+      tt.style.left = tx + "px";
+      tt.style.top = ty + "px";
+    });
+    svg.addEventListener("mouseleave", hide);
+  }
   let tmr = null;
   const kick = () => { clearTimeout(tmr); tmr = setTimeout(draw, 150); };
   const f = document.getElementById("f");
