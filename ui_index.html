@@ -5225,6 +5225,15 @@ window.loadSldlTab = async function loadSldlTab() {
   }).catch(() => {});
   document.getElementById("sldl_src").addEventListener("change", () => {
     enforceModels();
+    // a paired market brings its own sensible defaults (the composed
+    // oracles are faster than the plain-EMA sources): 2-day loans, 866 s
+    const row = (window.__sldlSources?.sources || [])
+      .find(x => x.key === document.getElementById("sldl_src").value);
+    if (row?.meta?.format === "llamma-v2-paired-f64-v1") {
+      document.getElementById("sldl_loan_unit").value = "1440";
+      document.getElementById("sldl_loan").value = 2;
+      document.getElementById("sldl_hl").value = row.meta.default_ma_s || 866;
+    }
     updSrcDays();
   });
   document.getElementById("sldl_model").addEventListener("change", () => {
@@ -8129,8 +8138,7 @@ window.loadImplTab = async function loadImplTab() {
           d: "sDOLA vintage (2026-07)",
           f: "llamalend/llv2/src/llama_amm.cpp" }] },
     { key: "policy", name: "Monetary policies", accent: "#f2cc60",
-      note: "per-market rate policies — re-read from every controller " +
-            "each refresh cycle (swaps are detected and logged)",
+      note: "per-market rate policies",
       versions: [
         { n: "flat time-linear", t: "clamped ramp", pol: "flat_linear",
           d: "rate = clamp(base + slope\u00b7dt) — single instance, " +
