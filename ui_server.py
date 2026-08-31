@@ -1452,6 +1452,26 @@ class Handler(BaseHTTPRequestHandler):
             if not f.is_file():
                 self.send_response(404); self.end_headers(); return
             body = f.read_bytes()
+            if name in ("sldl_client.js", "sldl_shared.js"):
+                # the runner JS must revalidate: a stale runner silently
+                # mismatches the server's source list. (The engine modules
+                # below stay immutable — they only change together with a
+                # wasm rebuild, and the page busts them via ?v=wasm_v.)
+                st = f.stat()
+                tag = f'"{int(st.st_mtime)}-{st.st_size}"'
+                if self.headers.get("If-None-Match") == tag:
+                    self.send_response(304)
+                    self.send_header("ETag", tag)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "text/javascript")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("ETag", tag)
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                self.wfile.write(body)
+                return
             self.send_response(200)
             self.send_header("Content-Type",
                              "application/wasm" if name.endswith(".wasm")
@@ -1714,7 +1734,13 @@ class Handler(BaseHTTPRequestHandler):
                                     .stat().st_mtime)
                       if (HERE / "wasm" / "ref_model_v2.wasm").exists()
                       else None,
-                      "zchf_v2": zchf_v2.exists()}
+                      "zchf_v2": zchf_v2.exists(),
+                      "js_v": max(int((HERE / "wasm" / n).stat().st_mtime)
+                                  for n in ("sldl_client.js",
+                                            "sldl_shared.js")
+                                  if (HERE / "wasm" / n).exists())
+                      if (HERE / "wasm" / "sldl_client.js").exists()
+                      else None}
             if client["zchf_v2"]:
                 try:
                     client["zchf_v2_meta"] = json.loads(

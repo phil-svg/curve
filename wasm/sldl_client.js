@@ -7,7 +7,7 @@ import {
   aGrid, bestA, buildOracleV1, buildOracleV2, clampParams, feeGrid,
   klToV2Market, marketWithHeader, parseUsdBin, pyRound, spread, usdLookup,
   withHeader,
-} from "./sldl_shared.js";
+} from "./sldl_shared.js?v=2";
 
 const EXT_FEE = 5e-4;
 const DYN_MULT = 0.25;

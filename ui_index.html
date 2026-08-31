@@ -5373,10 +5373,13 @@ window.loadSldlTab = async function loadSldlTab() {
     if (!wantServer && window.crossOriginIsolated &&
         typeof SharedArrayBuffer !== "undefined") {
       try {
-        const mod = await import("/wasm/sldl_client.js");
         const srcs = window.__sldlSources ||
           (window.__sldlSources =
             await fetch("/sldl_sources").then(r => r.json()));
+        // ?v busts the year-long immutable copies older deploys planted
+        // in browser caches; the server now answers this URL no-cache
+        const mod = await import("/wasm/sldl_client.js?v=" +
+          ((srcs.client && srcs.client.js_v) || 0));
         const d = await mod.sldlLocalRun(params, srcs, (done, total) => {
           const ring = document.getElementById("sldl_ring");
           if (ring) ring.style.strokeDashoffset =
