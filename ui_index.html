@@ -7415,7 +7415,11 @@ window.loadLpTab = async function () {
         : Math.abs(hi) < 0.2 ? 3 : Math.abs(hi) < 10 ? 2 : 1) + "%"
       : money ? (Math.abs(hi) < 1000
           ? "$" + v.toFixed(hi - lo < 0.2 ? 4 : hi - lo < 20 ? 2 : 0)
-          : usd(v)) : pNum(v);
+          : usd(v))
+      // sub-0.001 scales (fee gamma, allowed extra profit, adjustment
+      // step) round to a flat "0" in plain notation
+      : Math.abs(hi) > 0 && Math.abs(hi) < 1e-3
+        ? (v === 0 ? "0" : v.toExponential(1)) : pNum(v);
     const span = xs[xs.length - 1] - xs[0];
     const fmtX = ts => {
       const dd = new Date(ts * 1000);
