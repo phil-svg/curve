@@ -19,6 +19,73 @@
   a { color:#58a6ff; text-decoration:none; }
   a:hover { text-decoration:underline; }
   .layout { display:grid; grid-template-columns: 300px 1fr; gap:24px; align-items:start; }
+
+  /* ---- bad-debt-sim: compact field rows (base) + layout bake-off ------- */
+  /* one field = one row: label left, right-sized input right — no more
+     full-width bars for four-digit numbers */
+  #f .fr { display:flex; align-items:center; justify-content:space-between;
+    gap:10px; margin:3px 0; min-height:24px; }
+  #f .fr .fl { font-size:11.5px; color:#a9b2bc; flex:1 1 auto;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #f .fi { flex:0 0 auto; display:flex; }
+  #f .fi.w-s { width:88px; }
+  #f .fi.w-m { width:116px; }
+  #f .fi.w-l { width:148px; }
+  #f .fi input, #f .fi select { width:100%; text-align:right; }
+  #f .fi select { text-align:left; }
+  #f .fi .num-wrap { width:100%; }
+  .cfg-row { display:flex; gap:6px; }
+  .cfg-row select, .cfg-row input { flex:1 1 0; min-width:0; }
+  #view_sim select {
+    appearance:none; -webkit-appearance:none;
+    background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="8" height="5" viewBox="0 0 8 5"><path fill="%236e7681" d="M0 0h8L4 5z"/></svg>');
+    background-repeat:no-repeat; background-position:right 9px center;
+    padding-right:24px; }
+  .mkt-row { display:flex; align-items:center; gap:8px; margin:2px 0 8px; }
+  .mkt-seg { display:inline-flex; background:#0d1117; border:1px solid
+    #30363d; border-radius:7px; padding:2px; gap:2px; }
+  .mkt-seg button { border:none; background:none; color:#8b949e;
+    font-size:11.5px; font-weight:600; padding:4px 14px; border-radius:5px;
+    cursor:pointer; font-family:inherit; }
+  .mkt-seg button.on { background:#1f6feb; color:#fff; }
+  .mkt-seg button:not(.on):hover { color:#c9d1d9; }
+  #view_sim #mkt_list.mkt-big { width:100%; font-size:13.5px;
+    padding:9px 26px 9px 11px; border-radius:8px; }
+  html[class*="simp-"] #view_sim .simd-bar { opacity:.55; }
+
+  /* ---- landing: live terminal session under the wordmark -------------- */
+  #home_stats, #home_formula { display:none; }
+  #home_lab { width:min(1000px, 94vw); margin:0 auto; }
+  #home_lab:empty { display:none; }
+  .lab-term { margin:36px auto 0; width:max-content; max-width:92vw;
+    text-align:left; font-family:"SF Mono",Menlo,ui-monospace,monospace;
+    font-size:12px; line-height:1.85; color:#8b949e; }
+  .lab-term div { opacity:0; animation:labIn .4s forwards; }
+  .lab-term i { font-style:normal; color:#3fb950; margin-right:8px; }
+  @keyframes labIn { to { opacity:1; } }
+  /* the settled design: C2-wide card sidebar with the amber accent */
+  #view_sim .layout { grid-template-columns:380px 1fr; gap:24px; }
+  #view_sim .panel { background:none; border:none; padding:0; }
+  #view_sim fieldset, #view_sim .runbar { background:#141922; border:none;
+    border-radius:12px; padding:12px 16px 14px; margin:0 0 12px;
+    box-shadow:0 2px 12px rgba(0,0,0,.3); }
+  #view_sim legend { color:#e3b341; }
+  #view_sim fieldset { display:grid; grid-template-columns:1fr 1fr;
+    gap:0 14px; }
+  #view_sim fieldset > legend, #view_sim fieldset > .note,
+  #view_sim fieldset > div:not(.fr), #view_sim fieldset > select
+    { grid-column:1 / -1; }
+  #view_sim #f .fr { flex-direction:column; align-items:stretch; gap:2px;
+    margin:3px 0; }
+  #view_sim #f .fr .fl { font-size:10.5px; color:#6e7681; }
+  #view_sim #f .fi { width:100% !important; }
+  #view_sim #f .fi input, #view_sim #f .fi select { background:#1b212b;
+    border:none; border-radius:7px; padding:5px 8px; text-align:left; }
+  #view_sim .chart-wrap { border:none; border-radius:12px;
+    background:#141922; box-shadow:0 2px 12px rgba(0,0,0,.3); }
+  #view_sim button.primary { border-radius:8px; background:#9e6a03; }
+  #view_sim button.primary:hover:not(:disabled) { background:#bb8009; }
+  #view_sim .mkt-seg button.on { background:#9e6a03; }
   .panel {
     background:#161b22; border:1px solid #30363d; border-radius:8px; padding:16px;
   }
@@ -177,11 +244,13 @@
     backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
     border-bottom:1px solid #30363d;
   }
-  .tabs { display:flex; gap:clamp(8px,1vw,22px); flex-wrap:wrap; }
+  .tabs { display:flex; gap:clamp(7px,0.8vw,18px); flex-wrap:wrap;
+    min-width:0; }
   .tab {
     background:none; border:none; padding:6px 2px; cursor:pointer;
-    font-family:inherit; font-size:11px; font-weight:500;
-    letter-spacing:.11em; text-transform:uppercase; color:#8b949e;
+    font-family:inherit; font-size:11.5px; font-weight:500;
+    letter-spacing:.06em; text-transform:uppercase; color:#8b949e;
+    white-space:nowrap;
   }
   .tab:hover { color:#e6edf3; }
   .tab.on { color:#e3b341; }
@@ -316,6 +385,7 @@
     <button type="button" class="tab" data-view="llm">Lending Markets</button>
     <button type="button" class="tab" data-view="daorev">DAO Revenue</button>
     <button type="button" class="tab" data-view="impl">Implementations</button>
+    <button type="button" class="tab" data-view="seed">Pool-Sim</button>
     <button type="button" class="tab" data-view="yb">yb_</button>
     <button type="button" class="tab" data-view="map">Map</button>
   </nav>
@@ -331,12 +401,6 @@
        is (bottle height) / phi^2 (clamped to the viewport width). -->
   <div style="display:flex; flex-direction:column; align-items:center;
               padding:0 0 96px">
-    <div style="margin:30px auto 0;
-         display:inline-flex; align-items:center; gap:8px; padding:7px 17px;
-         background:rgba(227,179,65,.10); border:1px solid rgba(227,179,65,.35);
-         border-radius:999px; color:#e3b341; font-size:13px; white-space:nowrap;
-         font-family:'SF Mono',Menlo,ui-monospace,monospace">
-      work in progress, expect heavy changes</div>
     <div id="home_art_block" style="display:flex; flex-direction:column;
          align-items:center; gap:4px; margin-top:7vh">
       <img id="home_art_img" src="/landing_art.png?v=klein4"
@@ -348,6 +412,16 @@
     </div>
     <div id="home_title" style="color:#fff; font-weight:700; line-height:1;
          white-space:nowrap; margin-top:24px">Curve-Sim</div>
+    <div id="home_lab"></div>
+    <div id="home_stats"></div>
+    <div id="home_formula">
+      <div>x·y·A·n² + D²/4 &nbsp;=&nbsp; D·A·n² + (D/2)²
+        <span>— stableswap invariant (n=2)</span></div>
+      <div>p↑(n) = p_base·((A−1)/A)ⁿ
+        <span>— LLAMMA band ladder</span></div>
+      <div>fee = max(f, dfee_oracle, ¼·|p_o − p_band|/p_o)
+        <span>— dynamic fee</span></div>
+    </div>
     <div id="home_links" class="links3">
     <div>
       <div class="lgh">Curve</div>
@@ -419,19 +493,18 @@
     <form id="f">
       <fieldset>
         <legend>Market</legend>
-        <div class="row2">
-          <div>
-            <label>Version</label>
-            <select id="mkt_version">
-              <option value="LLV2" selected>LLV2</option>
-              <option value="LLV1">LLV1</option>
-            </select>
+        <div class="mkt-row">
+          <div class="mkt-seg" id="mkt_seg">
+            <button type="button" data-v="LLV1" class="on">LLV1</button>
+            <button type="button" data-v="LLV2">LLV2</button>
           </div>
-          <div>
-            <label>Market</label>
-            <select id="mkt_list"><option value="">— pick —</option></select>
-          </div>
+          <select id="mkt_version" style="display:none">
+            <option value="LLV1" selected>LLV1</option>
+            <option value="LLV2">LLV2</option>
+          </select>
         </div>
+        <select id="mkt_list" class="mkt-big">
+          <option value="">— pick a market —</option></select>
         <div class="note" id="mkt_note">Loads A, discounts and the oracle price
         into the fields below. Snapshot from fetch_markets.py.</div>
 
@@ -452,8 +525,8 @@
             <option value="10800">3 hours</option>
             <option value="21600">6 hours</option>
             <option value="43200">12 hours</option>
-            <option value="86400">1 day</option>
-            <option value="172800" selected>2 days</option>
+            <option value="86400" selected>1 day</option>
+            <option value="172800">2 days</option>
             <option value="259200">3 days</option>
             <option value="432000">5 days</option>
             <option value="0">full week</option>
@@ -463,7 +536,8 @@
       </div>
 
       <fieldset>
-        <legend>Borrowing User <button id="bu_i" class="hb-i" type="button"
+        <legend>Position &amp; LLAMMA <button id="bu_i" class="hb-i"
+          type="button"
           aria-label="how these numbers are derived">i</button></legend>
         <div class="note" id="bu_note" style="display:none; margin:2px 0 6px">
           Picking a market abstracts its whole book into <b>one max-LTV
@@ -478,138 +552,101 @@
           rounding is not perfectly scale-free). The borrower therefore sits
           exactly at max LTV. Both fields stay editable after a pick.
         </div>
-        <label>Collateral (USD)</label>
-        <input id="collateral_usd" type="number" step="100000" value="8000000">
-        <div class="row2">
-          <div>
-            <label>Debt (crvUSD)</label>
-            <input id="debt_usd" type="number" step="100000" value="5600000">
-          </div>
-          <div>
-            <label>LTV (%)</label>
-            <input id="ltv_pct" type="number" step="1" value="70">
-          </div>
-        </div>
-        <div class="row2">
-          <div>
-            <label>N (bands, 4–50)</label>
-            <input id="n_bands" type="number" step="1" min="4" max="50" value="4">
-          </div>
-          <div>
-            <label>loan_discount (%)</label>
-            <input id="loan_discount_pct" type="number" step="0.5" value="11">
-          </div>
-        </div>
-        <div class="row2">
-          <div>
-            <label>LLAMMA A</label>
-            <input id="llamma_A" type="number" step="10" min="2" max="5000" value="30">
-          </div>
-          <div>
-            <label>LLAMMA fee (%)</label>
-            <input id="llamma_fee_pct" type="number" step="0.05" min="0"
-                   max="5" value="0.6">
-          </div>
-        </div>
+        <div class="fr"><span class="fl">Collateral (USD)</span>
+          <span class="fi w-l"><input id="collateral_usd" type="number"
+            step="100000" value="8000000" data-noarrow></span></div>
+        <div class="fr"><span class="fl">Debt (crvUSD)</span>
+          <span class="fi w-l"><input id="debt_usd" type="number"
+            step="100000" value="5600000" data-noarrow></span></div>
+        <input id="ltv_pct" type="number" step="1" value="70"
+               style="display:none" data-noarrow>
+        <div class="fr"><span class="fl">N bands</span>
+          <span class="fi w-s"><input id="n_bands" type="number" step="1"
+            min="4" max="50" value="4"></span></div>
+        <div class="fr"><span class="fl">loan_discount %</span>
+          <span class="fi w-s"><input id="loan_discount_pct" type="number"
+            step="0.5" value="11"></span></div>
+        <div class="fr"><span class="fl">LLAMMA A</span>
+          <span class="fi w-s"><input id="llamma_A" type="number" step="10"
+            min="2" max="5000" value="30"></span></div>
+        <div class="fr"><span class="fl">LLAMMA fee %</span>
+          <span class="fi w-s"><input id="llamma_fee_pct" type="number"
+            step="0.05" min="0" max="5" value="0.6"></span></div>
+        <div class="fr"><span class="fl">ma_exp_time (s)</span>
+          <span class="fi w-s"><input id="ma_exp_time_s" type="number"
+            step="1" value="866"></span></div>
+        <div class="note" id="ma_note"></div>
+        <div class="fr"><span class="fl">liquidation_discount %</span>
+          <span class="fi w-s"><input id="liquidation_discount_pct"
+            type="number" step="1" value="8"></span></div>
         <div class="note" id="su_cap" style="display:none"></div>
       </fieldset>
 
       <fieldset>
         <legend>Pool</legend>
-        <div class="row2">
-          <div>
-            <label>Pool type</label>
-            <select id="pool_type">
+        <div class="fr"><span class="fl">Type</span>
+          <span class="fi w-l"><select id="pool_type">
               <option value="cryptoswap" selected>cryptoswap</option>
               <option value="stableswap-ng">stableswap-NG</option>
               <option value="stableswap">stableswap</option>
-            </select>
-          </div>
-          <div id="pool_n_wrap">
-            <label>coins (N)</label>
-            <input id="pool_n" type="number" step="1" min="2" max="3" value="2">
-          </div>
-        </div>
-        <div class="note">wei-exact vs on-chain get_dy.</div>
-        <label>TVL (USD)</label>
-        <input id="tvl_usd" type="number" step="100000" value="6190000">
-        <div class="note">Pair-only TriCRV TVL, 21:10 UTC.</div>
-        <div class="note">An external arb bot with infinite depth at the market
-        price keeps the venue at spot; all liquidation flow routes THROUGH the
-        venue and pays its slippage.</div>
-        <div class="row2" id="crypto_a_row">
-          <div>
-            <label>A_raw</label>
-            <input id="A_raw" type="number" step="0.5" value="67.5">
-          </div>
-          <div>
-            <label>A (on-chain ANN)</label>
-            <input id="A_ann" type="number" step="100000" value="2700000">
-          </div>
+            </select></span></div>
+        <div class="fr" id="pool_n_wrap"><span class="fl">coins (N)</span>
+          <span class="fi w-s"><input id="pool_n" type="number" step="1"
+            min="2" max="3" value="2"></span></div>
+        <div class="fr"><span class="fl">TVL (USD)</span>
+          <span class="fi w-l"><input id="tvl_usd" type="number"
+            step="100000" value="6190000" data-noarrow></span></div>
+        <div id="crypto_a_row">
+          <div class="fr"><span class="fl">A_raw</span>
+            <span class="fi w-s"><input id="A_raw" type="number" step="0.5"
+              value="67.5" data-noarrow></span></div>
+          <div class="fr"><span class="fl">A (on-chain ANN)</span>
+            <span class="fi w-l"><input id="A_ann" type="number"
+              step="100000" value="2700000" data-noarrow></span></div>
         </div>
         <div class="note" id="crypto_note">A = A_raw × 40,000</div>
         <div id="ss_a_row" style="display:none">
-          <label>A (on-chain A(), raw)</label>
-          <input id="ss_A" type="number" step="50" value="500">
-          <div class="note">Raw A(), no multiplier.</div>
+          <div class="fr"><span class="fl">A (on-chain, raw)</span>
+            <span class="fi w-s"><input id="ss_A" type="number" step="50"
+              value="500" data-noarrow></span></div>
         </div>
       </fieldset>
 
       <fieldset>
         <legend>Crash schedule</legend>
-        <div class="row2">
-          <div>
-            <label>Mode</label>
-            <select id="crash_mode">
+        <div class="fr"><span class="fl">Mode</span>
+          <span class="fi w-l"><select id="crash_mode">
               <option value="linear" selected>linear ramp</option>
               <option value="replay">replay worst real crash (1-min)</option>
-            </select>
-          </div>
-          <div>
-            <label>Start spot ($)</label>
-            <input id="crash_start_spot" type="number" step="0.0001" value="0.6072">
-          </div>
+            </select></span></div>
+        <div class="fr"><span class="fl">Start spot ($)</span>
+          <span class="fi w-m"><input id="crash_start_spot" type="number"
+            step="0.0001" value="0.6072" data-noarrow></span></div>
+        <div id="linear_only">
+          <div class="fr"><span class="fl">End spot ($)</span>
+            <span class="fi w-m"><input id="crash_end_spot" type="number"
+              step="0.0001" value="0.2657" data-noarrow></span></div>
+          <div class="fr"><span class="fl">Duration (min)</span>
+            <span class="fi w-s"><input id="crash_duration_min"
+              type="number" step="1" value="8"></span></div>
         </div>
-        <div class="row2" id="linear_only">
-          <div>
-            <label>End spot ($)</label>
-            <input id="crash_end_spot" type="number" step="0.0001" value="0.2657">
-          </div>
-          <div>
-            <label>Duration (min)</label>
-            <input id="crash_duration_min" type="number" step="1" value="8">
-          </div>
-        </div>
-        <div class="row2">
-          <div>
-            <label>Start offset (min)</label>
-            <input id="crash_start_offset_min" type="number" step="1" value="10">
-          </div>
-          <div>
-            <label>End offset (min)</label>
-            <input id="crash_end_offset_min" type="number" step="1" value="10">
-          </div>
-        </div>
+        <div class="fr"><span class="fl">Start offset (min)</span>
+          <span class="fi w-s"><input id="crash_start_offset_min"
+            type="number" step="1" value="10"></span></div>
+        <div class="fr"><span class="fl">End offset (min)</span>
+          <span class="fi w-s"><input id="crash_end_offset_min"
+            type="number" step="1" value="10"></span></div>
         <div class="note" id="horizon_note" style="display:none"></div>
         <div class="note" id="replay_note" style="display:none"></div>
       </fieldset>
 
-
-      <fieldset>
-        <legend>Health / Liquidations</legend>
-        <label>ma_exp_time (s, venue oracle)</label>
-        <input id="ma_exp_time_s" type="number" step="1" value="866">
-        <div class="note" id="ma_note"></div>
-        <label>liquidation_discount (%)</label>
-        <input id="liquidation_discount_pct" type="number" step="1" value="8">
-        <div class="note">Settlement threshold. Soft-liq always on.</div>
-      </fieldset>
-
       <fieldset>
         <legend>Configs</legend>
-        <select id="cfg_list"><option value="">— saved configs —</option></select>
-        <input id="cfg_name" type="text" placeholder="name" autocomplete="off"
-               style="margin-top:6px">
+        <div class="cfg-row">
+          <select id="cfg_list"><option value="">— saved —</option></select>
+          <input id="cfg_name" type="text" placeholder="name"
+                 autocomplete="off">
+        </div>
         <div style="display:flex; gap:4px; margin-top:4px; flex-wrap:wrap">
           <button type="button" id="cfg_save" class="mini">Save</button>
           <button type="button" id="cfg_load" class="mini">Load</button>
@@ -1025,6 +1062,9 @@
 
 <!-- Implementations: engine taxonomy (which code models which on-chain
      version, mono tree design) + search over markets/pools/contracts. -->
+<div id="view_seed" style="display:none">
+  <div id="seed_root"><div class="note">loading…</div></div>
+</div>
 <div id="view_impl" style="display:none">
   <div id="impl_root"><div class="note">loading…</div></div>
 </div>
@@ -1201,6 +1241,11 @@ async function crashWindowFor(key, symbol, rank = 0) {
   note.style.display = "";
   note.textContent = `fetching minute candles for ${symbol}'s `
     + `${RANK_WORDS[rank]} crash (one-time per market, ~20 s)…`;
+  // running mid-fetch would silently replay the PREVIOUS crash — the
+  // shape only swaps in when this resolves
+  const go = document.getElementById("go");
+  go.disabled = true;
+  try {
   const r = await fetch(`/crashwindow?key=${encodeURIComponent(key)}`
     + `&rank=${rank}`);
   const j = await r.json();
@@ -1216,6 +1261,25 @@ async function crashWindowFor(key, symbol, rank = 0) {
   };
   CRASH_WINDOWS[ck] = shape;
   return shape;
+  } finally {
+    go.disabled = false;
+  }
+}
+
+// segmented LLV1/LLV2 toggle drives the hidden #mkt_version select and
+// follows it when configs or code set the value programmatically
+{
+  const sel = document.getElementById("mkt_version");
+  const seg = document.getElementById("mkt_seg");
+  const paint = () => seg.querySelectorAll("button").forEach(b =>
+    b.classList.toggle("on", b.dataset.v === sel.value));
+  seg.querySelectorAll("button").forEach(b =>
+    b.addEventListener("click", () => {
+      sel.value = b.dataset.v;
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+      paint();
+    }));
+  sel.addEventListener("change", paint);
 }
 
 // the ranked crash menu, filled from whichever window last loaded
@@ -1322,7 +1386,21 @@ const simHorizonMin   = () => simOffsetMin() + simDurationMin() + simEndOffsetMi
 // ticked, an arrow click re-runs the sim; otherwise the user still has to
 // press the primary button.
 function installArrows() {
-  const inputs = document.querySelectorAll("#f input[type=number]:not([disabled])");
+  // step/min/max become data-* on EVERY number input (arrowed or not):
+  // the browser otherwise enforces them as validity and a non-multiple
+  // value (e.g. autofilled collateral) silently blocks requestSubmit()
+  document.querySelectorAll("#f input[type=number]:not([disabled])")
+    .forEach(inp => {
+      if (inp.step && inp.step !== "any")
+        { inp.dataset.step = inp.step; inp.step = "any"; }
+      if (inp.min !== "") { inp.dataset.min = inp.min;
+        inp.removeAttribute("min"); }
+      if (inp.max !== "") { inp.dataset.max = inp.max;
+        inp.removeAttribute("max"); }
+      inp.addEventListener("change", () => clampField(inp));
+    });
+  const inputs = document.querySelectorAll(
+    "#f input[type=number]:not([disabled]):not([data-noarrow])");
   inputs.forEach(inp => {
     // step/min/max are meant to size and bound the ◀▶ arrows, but the browser
     // ALSO enforces them as validity constraints — and an invalid form makes
@@ -1330,10 +1408,6 @@ function installArrows() {
     // debt 6,240,000 vs step 100,000, and with n_bands vs min=4.) Move them all
     // to data-* so they bound the arrows without ever blocking a run; bounds are
     // enforced in bump()/clampField() instead.
-    if (inp.step && inp.step !== "any") { inp.dataset.step = inp.step; inp.step = "any"; }
-    if (inp.min !== "") { inp.dataset.min = inp.min; inp.removeAttribute("min"); }
-    if (inp.max !== "") { inp.dataset.max = inp.max; inp.removeAttribute("max"); }
-    inp.addEventListener("change", () => clampField(inp));
     const wrap = document.createElement("div");
     wrap.className = "num-wrap";
     inp.parentNode.insertBefore(wrap, inp);
@@ -2243,7 +2317,13 @@ function drawLenderChart() {
 
   const simSpan = lastGenRows[lastGenRows.length - 1].elapsed_s ?? 0;
   const dates = axisRows().slice(0, n).map(r => timeLabel(byBlock[r.blockNumber], simSpan) || r.date);
-  const axis = niceAxis(0, Math.max(debt0, 10), 5);
+  const lqVals = lq.filter(v => v !== null);
+  let vlo = Math.min(...lqVals, debt0);
+  const vhi = Math.max(...lqVals, debt0, 10);
+  // no bad debt = a flat line at debt0: give the axis real air instead
+  // of a degenerate $1 span whose ticks drown in float noise
+  const pad = Math.max((vhi - vlo) * 0.1, vhi * 0.002);
+  const axis = niceAxis(vlo - pad, vhi + pad, 5);
   const xAt = i => Ml.left + (i / (n - 1)) * plotW;
   const yAt = v => Ml.top + (1 - (v - axis.lo) / (axis.hi - axis.lo)) * plotH;
 
@@ -3315,19 +3395,18 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
       .sort((a, b) => (b.m.market_tvl_usd || 0) - (a.m.market_tvl_usd || 0));
     // Same pair can be deployed twice (an old market frozen at 50% loan
     // discount plus its live replacement); the controller tells them apart.
-    const dupes = new Set();
-    const seen = new Set();
-    for (const { m } of rows) {
-      const k = `${m.collateral.symbol}/${m.borrowed.symbol}·${m.chain}`;
-      if (seen.has(k)) dupes.add(k); else seen.add(k);
-    }
+    const nth = new Map();
     list.innerHTML = '<option value="">— pick —</option>' + rows.map(({ m, i }) => {
       const k = `${m.collateral.symbol}/${m.borrowed.symbol}·${m.chain}`;
+      // same pair deployed twice (frozen old + live): biggest stays plain,
+      // later ones get a human "(2)" instead of a controller hex
+      const n = (nth.get(k) || 0) + 1;
+      nth.set(k, n);
       const tvl = m.market_tvl_usd;
       const ltv = maxLtvOf(m);
       return `<option value="${i}">${m.collateral.symbol}/${m.borrowed.symbol}` +
         `${m.chain === "ethereum" ? "" : " · " + m.chain}` +
-        `${dupes.has(k) ? " · " + m.controller.slice(0, 8) : ""}` +
+        `${n > 1 ? " (" + n + ")" : ""}` +
         `${tvl != null ? " — " + usdShort(tvl) : ""}` +
         `${ltv != null ? " · " + (ltv * 100).toFixed(0) + "% LTV" : ""}</option>`;
     }).join("");
@@ -3363,8 +3442,8 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
     // booted the Optimism market 1,900x too small.
     const px = m.collateral_usd_price;
     if (px) {
-      set("crash_start_spot", px);
-      set("crash_end_spot", +(px * (1 - 0.081)).toPrecision(8));
+      set("crash_start_spot", +(+px).toFixed(4));
+      set("crash_end_spot", +(px * (1 - 0.081)).toFixed(4));
     }
     set("crash_duration_min", 1440);
     document.getElementById("crash_duration_min")
@@ -3517,7 +3596,16 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
   ver.addEventListener("change", refill);
   list.addEventListener("change", apply);
   fetch("/markets").then(r => r.json()).then(j => {
-    if (j && j.groups) { data = j; refill(); }
+    if (j && j.groups) {
+      data = j; refill();
+      // land on a real market instead of an empty form: LLV1 reUSD
+      const sel = document.getElementById("mkt_list");
+      if (!sel.value) {
+        const opt = [...sel.options].find(o => /reUSD/i.test(o.textContent));
+        if (opt) { sel.value = opt.value;
+          sel.dispatchEvent(new Event("change")); }
+      }
+    }
     else note.textContent = "no snapshot — run fetch_markets.py";
   }).catch(() => { note.textContent = "no snapshot — run fetch_markets.py"; });
 
@@ -3544,12 +3632,10 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
     parts.push(fr.fetched_at
       ? `data ${fmtDur(fr.now - fr.fetched_at + el)} old` : "no snapshot yet");
     if (fr.running) {
-      parts.push('<span style="color:#e3b341">refreshing now…</span>');
-      parts.push("every 30m");
+      parts.push('<span style="color:#e3b341">refreshing…</span>');
     } else {
-      parts.push("refreshed every 30m");
       const left = fr.next_at - fr.now - el;
-      parts.push(left <= 30 ? "next any moment" : `next in ${fmtDur(left)}`);
+      parts.push(left <= 30 ? "refresh due" : `next ${fmtDur(left)}`);
     }
     if (fr.last_err && !fr.running)
       parts.push(`<span style="color:#f85149" title="${String(fr.last_err)
@@ -3608,7 +3694,7 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
   // -- view switching -------------------------------------------------------
   const VIEWS = ["home", "sim", "study", "cleaning", "baddebt", "daorev",
                  "sldl", "pegkeeper", "lp", "llm",
-                 "impl", "yb", "map"];
+                 "impl", "seed", "yb", "map"];
   for (const t of document.querySelectorAll(".tab")) {
     t.addEventListener("click", () => {
       for (const o of document.querySelectorAll(".tab")) o.classList.toggle("on", o === t);
@@ -3628,6 +3714,8 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
           && !window.__ybLoaded) { window.__ybLoaded = true; loadYbTab(); }
       if (t.dataset.view === "impl" && typeof loadImplTab === "function"
           && !window.__imLoaded) { window.__imLoaded = true; loadImplTab(); }
+      if (t.dataset.view === "seed" && typeof loadSeedTab === "function"
+          && !window.__sdLoaded) { window.__sdLoaded = true; loadSeedTab(); }
       if (t.dataset.view === "lp") {
         if (typeof loadLpTab === "function" && !window.__lpLoaded) {
           window.__lpLoaded = true; loadLpTab();
@@ -3708,9 +3796,10 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
                       pegkeeper: "pegkeeper", lp: "pools",
                       llm: "lending-markets", daorev: "dao-revenue",
                       impl: "implementations",
+                      seed: "pool-sim",
                       yb: "yb", map: "map" };
   // pre-rename bookmarks (/S.L.-D.L., /yb_ …) keep working
-  const TAB_ALIASES = { "sim": "sim",
+  const TAB_ALIASES = { "sim": "sim", "seeding": "seed",
                         "spring-cleaning": "cleaning", "s.l.-d.l.": "sldl",
                         lp: "lp",
                         "high-util": "llm", util: "llm", llm: "llm",
@@ -8081,11 +8170,64 @@ window.loadHighUtilTab = async function loadHighUtilTab() {
   gap:2px 16px; margin-top:7px; }
 .impl-crow { display:flex; gap:7px; font-size:12px; align-items:baseline; }
 .impl-crole { color:var(--imut); min-width:64px; font-size:11px; }
+/* seeding tab */
+#seed_root { --sa:#58a6ff; --sfg:#c9d1d9; --smut:#8b949e; --sbd:#21262d;
+  max-width:1080px; margin:24px auto 60px; padding:0 18px;
+  color:var(--sfg); font-size:13.5px; }
+#seed_root a { color:var(--sa); text-decoration:none; }
+#seed_root a:hover { text-decoration:underline; }
+#seed_root .note { color:var(--smut); }
+.seed-intro { color:var(--smut); font-size:12.5px; line-height:1.6;
+  max-width:760px; margin:0 0 18px; }
+.seed-sec { margin:26px 0 8px; }
+.seed-sec h3 { font-size:13px; font-weight:700; letter-spacing:.04em;
+  margin:0 0 2px; }
+.seed-sec .seed-sub { color:var(--smut); font-size:11.5px;
+  margin-bottom:8px; }
+.seed-row { display:grid; font-family:ui-monospace,monospace;
+  grid-template-columns:minmax(0,1fr) 9ch 8ch 13ch minmax(0,1.1fr);
+  gap:0 14px; align-items:baseline; font-size:12.5px; line-height:1.9;
+  border-bottom:1px solid #161b22; padding:1px 2px; }
+.seed-row .sr-chain { color:var(--smut); font-size:11px; }
+.seed-row .sr-tvl, .seed-row .sr-pct { text-align:right;
+  font-variant-numeric:tabular-nums; }
+.seed-row .sr-who { color:var(--smut); font-size:11.5px; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+.seed-head { font-weight:700; border-bottom:1px solid var(--sbd);
+  color:var(--smut); font-size:10.5px; letter-spacing:.06em;
+  text-transform:uppercase; }
+.seed-search { display:block; width:100%; max-width:640px;
+  margin:0 0 6px; padding:9px 14px; font-size:14px; color:var(--sfg);
+  background:#0d1117; border:1px solid #30363d; border-radius:8px;
+  outline:none; }
+.seed-search:focus { border-color:var(--sa);
+  box-shadow:0 0 0 3px rgba(88,166,255,.15); }
 /* tree design (bare style — descriptions live in the name tooltips) */
 .impl-tree { font-family:ui-monospace,monospace; font-size:12.5px;
   line-height:1.85; white-space:pre-wrap; margin-top:14px; }
 .impl-tree .tr-note { color:var(--imut); }
 </style>
+<script>
+// ---- landing: live terminal session (counts from the real APIs) ------------
+{
+  const lab = document.getElementById("home_lab");
+  fetch("/impl_index").then(r => r.json()).then(j => {
+    const fams = {};
+    for (const p of j.pools) fams[p.impl] = (fams[p.impl] || 0) + 1;
+    const lines = [
+      ["load census", `${j.pools.length} pools · ${j.markets.length
+        } lending markets`],
+      ...Object.entries(fams).sort((a, b) => b[1] - a[1]).slice(0, 6)
+        .map(([f, n]) => ["engine " + f, n + " pools, wei-exact"]),
+      ["policies", "98,724 samples replayed · 0 mismatches"],
+      ["pegkeepers", (j.pegkeepers || []).length + " tracked"]];
+    lab.innerHTML = `<div class="lab-term">${lines.map(([a, b], i) =>
+      `<div style="animation-delay:${(i * 0.13).toFixed(2)}s"><i>ok</i>
+       ${a} <span style="color:#57606a">— ${b}</span></div>`).join("")}
+      </div>`;
+  }).catch(() => {});
+}
+</script>
 <script>
 // ---- live charged-fee preview (Bad-Debt-Sim tab) ---------------------------
 // Mirrors the pipeline's fee machinery on the schedule the form describes:
@@ -8274,6 +8416,59 @@ window.loadHighUtilTab = async function loadHighUtilTab() {
     rn, { childList: true, characterData: true, subtree: true });
   draw();
 }
+</script>
+<script>
+// ---- Pool-Sim tab ----------------------------------------------------------
+// Simulation workbench for pools. For now: pick a free-float pool (strict
+// asset test — BTC/ETH wrappers and blue-chip fiat stables only, no
+// protocol tokens). The sim itself gets built out next.
+window.loadSeedTab = async function loadSeedTab() {
+  const root = document.getElementById("seed_root");
+  const esc = s => String(s ?? "").replace(/[&<>"']/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;",
+            "'": "&#39;" }[c]));
+  const usd = v => v >= 1e6 ? "$" + (v / 1e6).toFixed(1) + "M"
+    : "$" + Math.round(v / 1e3) + "k";
+
+  let idx = null, lp = null;
+  try {
+    [idx, lp] = await Promise.all([
+      fetch("/impl_index").then(r => r.json()),
+      fetch("/lp").then(r => r.json()).catch(() => null)]);
+  } catch (e) { /* fall through */ }
+  if (!idx || !idx.pools || !idx.pools.length) {
+    root.innerHTML = `<div class="note">pool census unavailable</div>`;
+    return;
+  }
+  const SYMS = Object.assign({}, idx.tokens || {});
+  for (const p of Object.values((lp && lp.pools) || {}))
+    for (const c of (p.coins || []))
+      if (c.a && c.s) SYMS[String(c.a).toLowerCase()] = c.s;
+  const sym = a => SYMS[String(a || "").toLowerCase()] || "";
+  const FREE = new Set(["usdc", "usdt", "dai", "usds", "eth", "weth",
+    "wbtc", "cbbtc", "3crv",
+    "usdc.e", "usdt.e", "dai.e", "wbtc.e", "weth.e", "usdbc",
+    "wxdai", "xdai", "wbnb", "wmatic", "wpol", "wftm", "ws", "wavax"]);
+  const pools = idx.pools
+    .filter(p => (p.coins || []).length &&
+      p.coins.every(a => FREE.has(sym(a).toLowerCase())))
+    .sort((a, b) => (+b.tvl || 0) - (+a.tvl || 0));
+
+  root.innerHTML = `
+    <div style="max-width:560px; margin:40px auto 0">
+      <label style="display:block; font-size:11px; color:#8b949e;
+        text-transform:uppercase; letter-spacing:.08em; margin-bottom:6px">
+        free-float pools</label>
+      <select id="psim_pool" style="width:100%; font-size:14px;
+        padding:10px 28px 10px 12px; border-radius:8px">
+        <option value="">— pick a pool —</option>
+        ${pools.map(p => `<option value="${esc(p.chain)}:${esc(p.addr)}">${
+          esc(p.name)}${p.chain === "ethereum" ? "" : " · " + esc(p.chain)
+          } — ${usd(+p.tvl || 0)}</option>`).join("")}
+      </select>
+
+    </div>`;
+};
 </script>
 <script>
 // ---- Implementations tab --------------------------------------------------

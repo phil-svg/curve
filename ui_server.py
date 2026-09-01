@@ -1420,7 +1420,7 @@ class Handler(BaseHTTPRequestHandler):
     TAB_PATHS = ("home", "sim", "cleaning",
                  "bad-debt", "sldl", "util", "pegkeeper", "yb", "lp",
                  "pools", "llm", "lending-markets", "dao-revenue",
-                 "implementations", "impl",
+                 "implementations", "impl", "seeding", "pool-sim",
                  "map",
                  # legacy pre-rename paths still serve the page
                  "bad-debt-sim", "spring-cleaning", "s.l.-d.l.",
@@ -1437,7 +1437,7 @@ class Handler(BaseHTTPRequestHandler):
         # reads them. /map/* stays with the bundle handler below.
         head = seg.split("/")[0]
         wants_page = "text/html" in (self.headers.get("Accept") or "")
-        if self.path in ("/", "/index.html") or (
+        if self.path.split("?")[0] in ("/", "/index.html") or (
                 head in self.TAB_PATHS and head != "map" and wants_page):
             body = INDEX_HTML.read_bytes()
             self.send_response(200)
