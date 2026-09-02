@@ -40,3 +40,6 @@ __pycache__/
 *.pyc
 *.log
 .DS_Store
+
+# local Claude Code harness config (launch.json)
+.claude/

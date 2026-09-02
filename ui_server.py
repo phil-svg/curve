@@ -600,6 +600,12 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None) -> dict:
     return out
 
 
+# chains whose history is built by fetchers/fetch_sidechain_hist.py from
+# archive RPC state — the prices API has no data for them, so the API
+# rebuild below must never touch their files
+SIDE_HIST_CHAINS = {"fantom", "avalanche", "celo", "x-layer"}
+
+
 def pool_hist(chain: str, addr: str) -> dict:
     POOL_HIST_DIR.mkdir(parents=True, exist_ok=True)
     f = POOL_HIST_DIR / f"{chain}_{addr}.json"
@@ -609,6 +615,12 @@ def pool_hist(chain: str, addr: str) -> dict:
             cached = json.loads(f.read_text())
         except (OSError, ValueError):
             cached = None
+    if chain in SIDE_HIST_CHAINS:
+        # only the archive-built file counts; an empty API-era cache for
+        # these chains is not history
+        if cached and cached.get("sidechain") == 1:
+            return cached
+        return {"error": "history not built yet for this pool"}
     if cached and "pscale" not in cached:
         cached = None          # pre-cryptoswap-state cache: full rebuild
     if cached and time.time() - cached.get("fetched_at", 0) < POOL_HIST_TTL:
@@ -964,6 +976,16 @@ def _do_refresh():
         print(f"[ui] dao revenue refreshed in {time.time() - t5:.1f} s")
     except Exception as e:
         print(f"[ui] dao revenue refresh FAILED: {str(e)[:300]}")
+    # sidechain history: append the new day for prices-API-less chains
+    try:
+        p = subprocess.run([PY, str(HERE / "fetchers"
+                                    / "fetch_sidechain_hist.py")],
+                           capture_output=True, text=True, timeout=1200)
+        tail = ((p.stdout or "") + (p.stderr or "")).strip().splitlines()
+        print(f"[ui] sidechain hist rc={p.returncode} "
+              f"{tail[-1][:110] if tail else ''}", flush=True)
+    except Exception as e:
+        print(f"[ui] sidechain hist FAILED: {str(e)[:200]}", flush=True)
     # implementation map: re-classify pools + re-read every market's
     # monetary policy from its controller (policies can be swapped out —
     # swaps are detected and logged here) + pegkeepers + the YB stack
@@ -2223,6 +2245,9 @@ def main():
     # particular, which the market selector awaits to size the borrower, so
     # picking a market mid-run left collateral/debt/LTV stale. Heavy work is
     # still serialized by _run_lock; only the cheap reads gain concurrency.
+    # fetchers spawned by the refresh cycle reach back into this server
+    # (px fallback) — tell them which port it is
+    os.environ["CURVE_SIM_PORT"] = str(args.port)
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"[ui] serving  http://{args.host}:{args.port}/")
     print(f"[ui] scratch  {SCRATCH}")

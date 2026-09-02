@@ -53,16 +53,22 @@
     padding:9px 26px 9px 11px; border-radius:8px; }
   html[class*="simp-"] #view_sim .simd-bar { opacity:.55; }
 
-  /* ---- landing: live terminal session under the wordmark -------------- */
+  /* ---- landing ---------------------------------------------------------- */
   #home_stats, #home_formula { display:none; }
-  #home_lab { width:min(1000px, 94vw); margin:0 auto; }
   #home_lab:empty { display:none; }
-  .lab-term { margin:36px auto 0; width:max-content; max-width:92vw;
-    text-align:left; font-family:"SF Mono",Menlo,ui-monospace,monospace;
-    font-size:12px; line-height:1.85; color:#8b949e; }
-  .lab-term div { opacity:0; animation:labIn .4s forwards; }
-  .lab-term i { font-style:normal; color:#3fb950; margin-right:8px; }
-  @keyframes labIn { to { opacity:1; } }
+  /* the landing never scrolls; every other tab scrolls as usual */
+  /* landing: no scrollbar — but only while the whole page fits the
+     viewport (layoutHome sets home-fits); smaller screens keep scrolling
+     so the link groups below the fold stay reachable */
+  html.at-home.home-fits, html.at-home.home-fits body {
+    overflow:hidden; height:100%; }
+  /* pools tab: the metric selector hugs the right edge next to the
+     centered search box; below ~1000px there is no room beside it, so
+     it drops into the flow under the search box */
+  @media (max-width: 1000px) {
+    #lp_controls { flex-wrap:wrap; gap:10px; }
+    #lp_metric { position:static !important; transform:none !important; }
+  }
   /* the settled design: C2-wide card sidebar with the amber accent */
   #view_sim .layout { grid-template-columns:380px 1fr; gap:24px; }
   #view_sim .panel { background:none; border:none; padding:0; }
@@ -369,6 +375,8 @@
   // lifts this class
   if (location.pathname.replace(/^\/+|\/+$/g, "") !== "")
     document.documentElement.classList.add("deep-boot");
+  else
+    document.documentElement.classList.add("at-home");
 </script>
 <style>html.deep-boot #view_home { display:none; }</style>
 <header class="appbar">
@@ -402,7 +410,7 @@
   <div style="display:flex; flex-direction:column; align-items:center;
               padding:0 0 96px">
     <div id="home_art_block" style="display:flex; flex-direction:column;
-         align-items:center; gap:4px; margin-top:7vh">
+         align-items:center; gap:4px; margin-top:2.5vh">
       <img id="home_art_img" src="/landing_art.png?v=klein4"
            alt="A1.r — Chirikov standard-map density on a Klein bottle"
            style="width:min(340px, 70vw); border-radius:12px">
@@ -1048,14 +1056,21 @@
      wallets by fetchers/fetch_lp.py, event-driven on the refresh cycle. -->
 <div id="view_lp" style="display:none">
   <div class="note" id="lp_note" style="margin-bottom:8px">loading…</div>
-  <div id="lp_controls" style="display:flex; gap:12px; align-items:center;
-              justify-content:center; flex-wrap:wrap; margin-bottom:14px">
+  <div id="lp_controls" style="position:relative; display:flex;
+              justify-content:center; align-items:center; margin-bottom:14px">
     <input id="lp_search" type="text" spellcheck="false"
            placeholder="search — name / pool / coin / LP"
            title="matches pool names and addresses, coin symbols / names / addresses, and LP wallet addresses or labels"
-           style="flex:0 1 620px; min-width:240px; padding:7px 10px;
+           style="width:min(620px, 55vw); min-width:240px; padding:7px 10px;
                   background:#0d1117; color:#e6edf3; border:1px solid #30363d;
                   border-radius:6px; font-size:12.5px">
+    <div class="seg" id="lp_metric"
+         style="display:inline-flex; position:absolute; right:0; top:50%;
+                transform:translateY(-50%)">
+      <button type="button" data-m="tvl" class="on">TVL</button>
+      <button type="button" data-m="vol">volume</button>
+      <button type="button" data-m="rev">DAO revenue</button>
+    </div>
   </div>
   <div id="lp_body"></div>
 </div>
@@ -3700,6 +3715,8 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
       for (const o of document.querySelectorAll(".tab")) o.classList.toggle("on", o === t);
       for (const v of VIEWS)
         $("view_" + v).style.display = t.dataset.view === v ? "" : "none";
+      document.documentElement.classList.toggle("at-home",
+        t.dataset.view === "home");
       if (t.dataset.view === "cleaning" && typeof loadCleaningTab === "function"
           && !window.__clLoaded) { window.__clLoaded = true; loadCleaningTab(); }
       if (t.dataset.view === "daorev" && typeof loadDaoRevTab === "function"
@@ -3769,7 +3786,13 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
       title.style.fontSize = font + "px";
     }
     // sit close under the caption: gap = bottle height / phi^3
-    title.style.marginTop = Math.max(12, Math.round(H / (PHI ** 3))) + "px";
+    title.style.marginTop = Math.max(10,
+      Math.round(H / (PHI ** 3) * 0.8)) + "px";
+    // hide the scrollbar only when nothing would be cut off
+    const home = document.getElementById("view_home");
+    const fits = home && home.getBoundingClientRect().bottom
+      <= window.innerHeight + 2;
+    document.documentElement.classList.toggle("home-fits", !!fits);
   }
   document.getElementById("home_art_img").addEventListener("load", layoutHome);
   window.addEventListener("resize", layoutHome);
@@ -7383,13 +7406,28 @@ window.loadLpTab = async function () {
       return;
     }
     note.style.display = "none";
-    // TVL leaderboard, same structure as the lending-markets landing
+    // leaderboard over the selected metric (TVL / 24h volume / DAO
+    // revenue per day, 30d average) — same row structure throughout
+    const metric = window.__lpMetric || "tvl";
+    if (metric === "vol" && !window.__lpVols) await ensureMetric(metric);
+    if (metric === "rev" && !window.__lpRevs) await ensureMetric(metric);
+    const mval = p => metric === "vol"
+      ? (window.__lpVols || {})[`${p.chain}:${p.pool}`]
+      : metric === "rev"
+        ? (window.__lpRevs || {})[`${p.chain}:${p.pool}`]
+        : p.tvl;
     const rows = Object.values(d.pools)
       .filter(p => poolMatch(p).show)
-      .sort((a, b) => (b.tvl || 0) - (a.tvl || 0));
-    const maxT = Math.max(1, ...rows.map(p => p.tvl || 0));
+      .sort((a, b) => (mval(b) || 0) - (mval(a) || 0));
+    const maxT = Math.max(1e-9, ...rows.map(p => mval(p) || 0));
+    const grad = metric === "rev"
+      ? "linear-gradient(90deg, #9e6a0388, #e3b341)"
+      : metric === "vol"
+        ? "linear-gradient(90deg, #23863688, #7ee787)"
+        : "linear-gradient(90deg, #1f6feb88, #58a6ff)";
     let h = "";
     rows.forEach((p, i2) => {
+      const v = mval(p);
       h += `<div class="lmb-row lp-pool-open" data-k="${esc(p.chain)}:${
           esc(p.pool)}" style="display:flex; align-items:center; gap:10px;
           padding:5px 8px">
@@ -7403,19 +7441,22 @@ window.loadLpTab = async function () {
           ${esc(p.chain)}</span></span>
         <div style="flex:1; height:16px; background:#161b22;
             border-radius:4px; overflow:hidden">
-          <div style="width:${(100 * (p.tvl || 0) / maxT).toFixed(2)}%;
-            height:100%; background:linear-gradient(90deg, #1f6feb88,
-            #58a6ff)"></div></div>
+          <div style="width:${(100 * (v || 0) / maxT).toFixed(2)}%;
+            height:100%; background:${grad}"></div></div>
         <span style="width:84px; text-align:right; font-weight:600">${
-          usd(p.tvl)}</span>
+          v == null ? "—" : usd(v) + (metric === "rev" ? "/d" : "")}</span>
         <span style="width:64px; text-align:right; color:#8b949e;
           font-size:11px">${p.n_holders ?? "—"} LPs</span>
         <span class="lm-open">open ›</span></div>`;
     });
     if (rows.length)
-      h += `<div class="note" style="margin-top:6px">bar = TVL share of the
-        largest pool · click a row for charts, parameters and the LP
-        distribution</div>`;
+      h += `<div class="note" style="margin-top:6px">${metric === "vol"
+        ? "bar = share of the busiest pool's 24h volume"
+        : metric === "rev"
+          ? "bar = share of the top earner's DAO revenue " +
+            "(per day, 30-day average)"
+          : "bar = TVL share of the largest pool"} · click a row for
+        charts, parameters and the LP distribution</div>`;
     else
       h = `<div class="note">nothing matches the current search —
         pools, coins and the tracked holders of
@@ -7423,6 +7464,49 @@ window.loadLpTab = async function () {
     if (lpOpen) return;      // a pool page opened while we were fetching
     body.innerHTML = h;
   }
+  // metric buttons: volume comes live from the curve API (per chain),
+  // DAO revenue from our own /dao_revenue by_pool (30d avg per day)
+  // the maps are only kept once a fetch actually succeeded, so a click
+  // before the pool list arrived (or a failed request) is retried
+  async function ensureMetric(m) {
+    if (m === "vol" && !window.__lpVols && lpCache && !ensureMetric.busy) {
+      ensureMetric.busy = true;
+      const vols = {};
+      let ok = false;
+      const chains = [...new Set(Object.values(lpCache.pools)
+        .map(p => p.chain))];
+      await Promise.all(chains.map(async ch => {
+        try {
+          const j = await fetch("https://api.curve.finance/v1/" +
+            `getVolumes/${ch}`).then(r => r.json());
+          for (const v of (j.data && j.data.pools) || [])
+            vols[`${ch}:${v.address.toLowerCase()}`] = v.volumeUSD || 0;
+          ok = true;
+        } catch (_) { /* chain without volume data */ }
+      }));
+      ensureMetric.busy = false;
+      if (ok) window.__lpVols = vols;
+    }
+    if (m === "rev" && !window.__lpRevs && !ensureMetric.busy) {
+      ensureMetric.busy = true;
+      try {
+        const j = await fetch("/dao_revenue").then(r => r.json());
+        const bp = (j.sources && j.sources.pool_fees || {}).by_pool || {};
+        const revs = {};
+        for (const [k, v] of Object.entries(bp)) revs[k] = (v.d30 || 0) / 30;
+        window.__lpRevs = revs;
+      } catch (_) { /* keep dashes, retried on the next render */ }
+      ensureMetric.busy = false;
+    }
+  }
+  document.querySelectorAll("#lp_metric button").forEach(b =>
+    b.addEventListener("click", async () => {
+      document.querySelectorAll("#lp_metric button").forEach(o =>
+        o.classList.toggle("on", o === b));
+      window.__lpMetric = b.dataset.m;
+      await ensureMetric(b.dataset.m);
+      render(false);
+    }));
   body.addEventListener("click", async e => {
     const bj = e.target.closest(".lp-json");
     if (bj && lpCache) {
@@ -7684,8 +7768,16 @@ window.loadLpTab = async function () {
     const root = document.getElementById("lp_pool_body");
     if (!root) return;                       // user navigated away
     if (!H || H.error || !(H.t || []).length) {
-      root.innerHTML = `<div class="note">${esc((H && H.error)
-        || "no daily history for this pool")}</div>`;
+      // the history API covers a fixed chain set — say so instead of
+      // implying the pool itself is at fault
+      const COVERED = ["arbitrum", "base", "bsc", "ethereum", "fraxtal",
+        "hyperliquid", "optimism", "polygon", "sonic", "xdai"];
+      const why = (H && H.error)
+        || (H && H.chain && !COVERED.includes(H.chain)
+            ? `no daily history — the Curve history API does not cover ${
+               H.chain}`
+            : "no daily history for this pool yet");
+      root.innerHTML = `<div class="note">${esc(why)}</div>`;
       return;
     }
     const T = H.t;
@@ -8207,27 +8299,7 @@ window.loadHighUtilTab = async function loadHighUtilTab() {
   line-height:1.85; white-space:pre-wrap; margin-top:14px; }
 .impl-tree .tr-note { color:var(--imut); }
 </style>
-<script>
-// ---- landing: live terminal session (counts from the real APIs) ------------
-{
-  const lab = document.getElementById("home_lab");
-  fetch("/impl_index").then(r => r.json()).then(j => {
-    const fams = {};
-    for (const p of j.pools) fams[p.impl] = (fams[p.impl] || 0) + 1;
-    const lines = [
-      ["load census", `${j.pools.length} pools · ${j.markets.length
-        } lending markets`],
-      ...Object.entries(fams).sort((a, b) => b[1] - a[1]).slice(0, 6)
-        .map(([f, n]) => ["engine " + f, n + " pools, wei-exact"]),
-      ["policies", "98,724 samples replayed · 0 mismatches"],
-      ["pegkeepers", (j.pegkeepers || []).length + " tracked"]];
-    lab.innerHTML = `<div class="lab-term">${lines.map(([a, b], i) =>
-      `<div style="animation-delay:${(i * 0.13).toFixed(2)}s"><i>ok</i>
-       ${a} <span style="color:#57606a">— ${b}</span></div>`).join("")}
-      </div>`;
-  }).catch(() => {});
-}
-</script>
+
 <script>
 // ---- live charged-fee preview (Bad-Debt-Sim tab) ---------------------------
 // Mirrors the pipeline's fee machinery on the schedule the form describes:
