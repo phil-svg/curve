@@ -537,6 +537,40 @@ def derive(all_rows: dict[int, dict], p: dict, btc: dict, eth: dict,
     return ds
 
 
+def px_calls(p: dict) -> list[tuple[str, str]]:
+    """(tag, calldata) pairs for the pool's price_scale / price_oracle
+    reads — crypto pools have both (no-arg when 2 coins, indexed above),
+    ng stableswaps have an indexed oracle only, older families none."""
+    n = len(p["coins"])
+    out = []
+    if p["crypto"]:
+        if n == 2:
+            out += [("ps0", sel("price_scale()")),
+                    ("po0", sel("price_oracle()"))]
+        else:
+            for k in range(n - 1):
+                arg = hex(k)[2:].rjust(64, "0")
+                out += [(f"ps{k}", sel("price_scale(uint256)") + arg),
+                        (f"po{k}", sel("price_oracle(uint256)") + arg)]
+    elif p["ng"]:
+        for k in range(n - 1):
+            out.append((f"po{k}", sel("price_oracle(uint256)")
+                        + hex(k)[2:].rjust(64, "0")))
+    return out
+
+
+def px_rows_of(g: dict, p: dict) -> tuple[list | None, list | None]:
+    """per-day pscale/poracle lists (raw 1e18 ints, None-padded) from a
+    day's decoded reads; (None, None) when the pool has no such reads."""
+    n = len(p["coins"])
+    if p["crypto"]:
+        return ([g.get(f"ps{k}") for k in range(n - 1)],
+                [g.get(f"po{k}") for k in range(n - 1)])
+    if p["ng"]:
+        return None, [g.get(f"po{k}") for k in range(n - 1)]
+    return None, None
+
+
 def process_pool(ch: Chain, ch_name: str, p: dict, now_day: int,
                  btc: dict, eth: dict, lp_vp: dict[str, dict[int, float]]
                  ) -> None:
@@ -580,6 +614,7 @@ def process_pool(ch: Chain, ch_name: str, p: dict, now_day: int,
             if crypto:
                 day_calls += [("xcp", sel("xcp_profit()")),
                               ("xcpa", sel("xcp_profit_a()"))]
+            day_calls += px_calls(p)
             if lending:
                 day_calls += [(f"adm{k}", sel("admin_balances(uint256)")
                                + hex(k)[2:].rjust(64, "0"))
@@ -636,6 +671,7 @@ def process_pool(ch: Chain, ch_name: str, p: dict, now_day: int,
                 row[fld] = last_p.get(tag)
             row["xcp"] = g.get("xcp")
             row["_xcpa"] = g.get("xcpa")
+            row["pscale"], row["poracle"] = px_rows_of(g, p)
             row["_bal"] = bals
             row["_adm"] = [g.get(f"adm{k}") for k in range(n)] if lending else None
             row["_blk"], row["_ts"] = blocks[d]
@@ -644,6 +680,31 @@ def process_pool(ch: Chain, ch_name: str, p: dict, now_day: int,
     else:
         n_ok = n_skip = 0
 
+    # px backfill: days committed before the pscale/poracle reads were
+    # added get them fetched at their cached block, oldest first, capped
+    # per run so the daily cycle stays bounded
+    pcalls = px_calls(p)
+    if pcalls:
+        want = [d for d in sorted(all_rows)
+                if all_rows[d].get("poracle") is None
+                and all_rows[d].get("_blk")][:500]
+        if want:
+            res = ch.batch([("eth_call", [{"to": p["addr"], "data": data},
+                                          hex(all_rows[d]["_blk"])])
+                            for d in want for _tag, data in pcalls])
+            m = len(pcalls)
+            n_px = 0
+            for i, d in enumerate(want):
+                g = {tag: word(res[i * m + k])
+                     for k, (tag, _da) in enumerate(pcalls)}
+                ps, po = px_rows_of(g, p)
+                if po and any(v is not None for v in po):
+                    all_rows[d]["pscale"] = ps
+                    all_rows[d]["poracle"] = po
+                    n_px += 1
+            if n_px:
+                print(f"[side] {ch_name} {p['name'][:28]:28s} px backfill "
+                      f"+{n_px} days", flush=True)
     if not all_rows:
         print(f"[side] {ch_name} {p['name'][:28]:28s} no data yet", flush=True)
         return

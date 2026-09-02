@@ -444,6 +444,7 @@ _run_lock = threading.Lock()   # serialize sims so they don't fight for CPU / ca
 POOL_HIST_DIR = HERE / "data" / "pool_hist"
 POOL_HIST_TTL = 6 * 3600
 POOL_HIST_DAYS = 730
+TVLFIX_RETRY_S = 3 * 86400     # re-attempt an unhealed tvl walk this often
 _PH_DAY = 86400
 
 
@@ -523,13 +524,20 @@ _PH_PARAMS = [("a", "a"), ("gamma", "gamma"), ("fee", "fee"),
               ("dd", "donation_duration"),
               ("dpp", "donation_protection_period"),
               ("dsm", "donation_shares_max_ratio")]
+# market state, not governance state: never carried forward over days the
+# API reported null (the API dropped price_scale/price_oracle for long
+# stretches, and carrying drew a fake flat price line)
+_PH_NOCARRY = {"pscale", "poracle"}
 
 
-def _ph_build(chain: str, addr: str, cached: dict | None = None) -> dict:
+def _ph_build(chain: str, addr: str, cached: dict | None = None,
+              tvl_heal: bool = False) -> dict:
     """Build (or incrementally extend) one pool's daily history. Completed
     days never change, so with a cache we only fetch from the last cached
     day (re-fetching that one — it may have been mid-day) to now: 3 small
-    calls instead of a full 2-year crawl."""
+    calls instead of a full 2-year crawl. tvl_heal re-walks ONLY the tvl
+    feed over the full range on top of the cache — it fills tvl holes a
+    truncated earlier walk left and cannot lose anything else."""
     now = int(time.time())
     full_start = now - POOL_HIST_DAYS * _PH_DAY
     prev_t = (cached or {}).get("t") or []
@@ -544,7 +552,7 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None) -> dict:
     tvls = _ph_walk(lambda a, b: _ph_get(
         f"/snapshots/{chain}/{addr}/tvl?interval=day"
         f"&start={max(a, b - 175 * _PH_DAY)}&end={b}")
-        .get("data"), start, now)
+        .get("data"), full_start if tvl_heal else start, now)
     day = lambda ts: int(ts) // _PH_DAY * _PH_DAY
     sn, vo, tv = {}, {}, {}
     for r in snaps:
@@ -570,8 +578,9 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None) -> dict:
                 if s_.get(f) is not None:
                     lastp[k] = s_[f]
             row["bapr"] = s_.get("base_daily_apr")
-        for k, _ in _PH_PARAMS:
-            row[k] = lastp[k]
+        for k, f in _PH_PARAMS:
+            row[k] = (s_.get(f) if s_ else None) if k in _PH_NOCARRY \
+                else lastp[k]
         v_ = vo.get(d)
         if v_:
             row["vol"], row["fees"] = v_.get("volume"), v_.get("fees")
@@ -597,6 +606,18 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None) -> dict:
            "walkfix": 1}
     for k in _PH_FIELDS:
         out[k] = [rows[d][k] for d in days]
+    # tvlfix: 1 = the TVL series is as complete as snapshots/volume say it
+    # can be; a timestamp = this record still carries TVL holes. The stamp
+    # is set on a heal attempt (or when holes first appear) and CARRIED
+    # UNCHANGED through incremental builds, so its age keeps accruing and
+    # pool_hist's TVLFIX_RETRY_S retry actually fires — restamping every
+    # top-up would keep the age forever below the TTL.
+    holes = sum(1 for d in days if rows[d]["tvl"] is None
+                and (rows[d]["vol"] is not None
+                     or rows[d]["bapr"] is not None))
+    prev = (cached or {}).get("tvlfix")
+    out["tvlfix"] = 1 if holes < 14 else \
+        (now if tvl_heal or not prev or prev == 1 else prev)
     return out
 
 
@@ -642,8 +663,27 @@ def pool_hist(chain: str, addr: str) -> dict:
                 mx_run = max(mx_run, run)
             if mx_run >= 14:
                 build_seed = None
+    # tvl heal: an empty response from the range-capped tvl endpoint mid-
+    # walk truncated the TVL series (typically its whole head) while
+    # snapshots/volume kept the full range, and the incremental top-up can
+    # never reach back to fill it. When many days carry vol/bapr but no
+    # tvl, re-walk JUST the tvl feed over the full range on top of the
+    # cache (~5 extra calls; fills holes, touches nothing else) — once if
+    # it heals (tvlfix == 1), otherwise retried every TVLFIX_RETRY_S.
+    tvl_heal = False
+    fix = cached.get("tvlfix") if cached else None
+    if build_seed is not None and cached and fix != 1 and \
+            (not fix or time.time() - fix > TVLFIX_RETRY_S):
+        tvl = cached.get("tvl") or []
+        vol = cached.get("vol") or []
+        bapr = cached.get("bapr") or []
+        pad = [None] * len(tvl)
+        holes = sum(1 for i, v in enumerate(tvl) if v is None
+                    and ((vol + pad)[i] is not None
+                         or (bapr + pad)[i] is not None))
+        tvl_heal = holes >= 14
     try:
-        fresh = _ph_build(chain, addr, build_seed)
+        fresh = _ph_build(chain, addr, build_seed, tvl_heal=tvl_heal)
         tmp = f.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(fresh))
         os.replace(tmp, f)

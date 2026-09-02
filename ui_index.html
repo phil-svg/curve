@@ -7565,17 +7565,24 @@ window.loadLpTab = async function () {
   const pReg = {};
   // same chart as the lending-market pages: gradient area, month x-axis,
   // hover crosshair, optional 7d average / step mode
-  function pSpark(t, vals, { pct = false, money = false,
+  function pSpark(t, vals, { pct = false, money = false, price = false,
       color = "#58a6ff", avg7 = false, step = false,
+      extra = null, names = null,
       w = 560, h = 190 } = {}) {
-    const xs = [], ys = [];
+    const xs = [], ys = [], es = [];
     for (let i = 0; i < t.length; i++)
-      if (vals[i] != null && isFinite(vals[i])) { xs.push(t[i]); ys.push(+vals[i]); }
+      if (vals[i] != null && isFinite(vals[i])) { xs.push(t[i]); ys.push(+vals[i]);
+        es.push(extra && extra.vals[i] != null && isFinite(extra.vals[i])
+          ? +extra.vals[i] : null); }
     if (xs.length < 2) { pSpark.last = "";
       return `<div class="note">no history in this window</div>`; }
     const W = w, H = h, L = 58, R = 12, T = 16, B = 22;
-    const dataMin = Math.min(...ys);
-    let lo = dataMin, hi = Math.max(...ys);
+    const eNN = es.filter(v => v != null);
+    const dataMin = Math.min(...ys, ...(eNN.length ? eNN : [Infinity]));
+    let lo = dataMin,
+      hi = Math.max(...ys, ...(eNN.length ? eNN : [-Infinity]));
+    const priceFy = v => Math.abs(v) >= 1000 ? pNum(v)
+      : v.toFixed(Math.abs(hi) < 2 ? 4 : Math.abs(hi) < 100 ? 3 : 2);
     if (hi === lo) { hi += (Math.abs(hi) || 1) * .05; lo -= (Math.abs(lo) || 1) * .05; }
     const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
     if (dataMin >= 0 && lo < 0) lo = 0;
@@ -7583,6 +7590,8 @@ window.loadLpTab = async function () {
     const Y = y => T + (1 - (y - lo) / (hi - lo)) * (H - T - B);
     const fy = v => pct ? v.toFixed(Math.abs(hi) < 0.02 ? 4
         : Math.abs(hi) < 0.2 ? 3 : Math.abs(hi) < 10 ? 2 : 1) + "%"
+      // prices carry meaning in decimals pNum rounds away (1.0002 -> "1")
+      : price ? priceFy(v)
       : money ? (Math.abs(hi) < 1000
           ? "$" + v.toFixed(hi - lo < 0.2 ? 4 : hi - lo < 20 ? 2 : 0)
           : usd(v))
@@ -7637,9 +7646,40 @@ window.loadLpTab = async function () {
     }
     pSpark.last = label;
     pReg[gid] = { xs, ys, lo, hi, W, H, L, R, T, B, fy,
+      es: extra ? es : null, names,
       fx: i => { const dd = new Date(xs[i] * 1000);
         return `${pMON[dd.getUTCMonth()]} ${dd.getUTCDate()} '${
           String(dd.getUTCFullYear()).slice(2)}`; } };
+    // gap-aware polylines: null values and >7-day holes split segments
+    // instead of drawing a bridge across missing data
+    const mkSegs = vals2 => {
+      const out2 = [];
+      let seg = [], lastX = null;
+      for (let i = 0; i < xs.length; i++) {
+        const v = vals2[i];
+        if (v == null) { if (seg.length) out2.push(seg); seg = [];
+          lastX = null; continue; }
+        if (lastX != null && xs[i] - lastX > 7 * 86400) {
+          if (seg.length) out2.push(seg); seg = []; }
+        seg.push(pt(xs[i], v));
+        lastX = xs[i];
+      }
+      if (seg.length) out2.push(seg);
+      return out2;
+    };
+    const segLines = (vals2, col, wdt) => mkSegs(vals2).map(sg =>
+      sg.length > 1
+        ? `<polyline fill="none" stroke="${col}" stroke-width="${wdt}"
+             stroke-linejoin="round" points="${sg.join(" ")}"/>`
+        : `<circle cx="${sg[0].split(",")[0]}" cy="${sg[0].split(",")[1]}"
+             r="1.6" fill="${col}"/>`).join("");
+    const eLine = extra
+      ? segLines(es, extra.color || "#8b949e", 1.6) : "";
+    const mainLine = price
+      ? segLines(ys, color, avg7 ? 1.1 : 1.8)
+      : `<polyline fill="none" stroke="${color}"
+          stroke-width="${avg7 ? 1.1 : 1.8}"${avg7 ? ' opacity="0.5"' : ""}
+          stroke-linejoin="round" points="${pts}"/>`;
     return `<svg viewBox="0 0 ${W} ${H}" data-pspark="${gid}"
         style="width:100%; display:block">
       <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
@@ -7647,11 +7687,10 @@ window.loadLpTab = async function () {
         <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
       </linearGradient></defs>
       ${g}
-      <polygon fill="url(#${gid})"
-        points="${X(xs[0]).toFixed(1)},${base} ${pts} ${xEnd},${base}"/>
-      <polyline fill="none" stroke="${color}"
-        stroke-width="${avg7 ? 1.1 : 1.8}"${avg7 ? ' opacity="0.5"' : ""}
-        stroke-linejoin="round" points="${pts}"/>
+      ${extra || price ? "" : `<polygon fill="url(#${gid})"
+        points="${X(xs[0]).toFixed(1)},${base} ${pts} ${xEnd},${base}"/>`}
+      ${eLine}
+      ${mainLine}
       ${avg}
       <circle cx="${xEnd}" cy="${Y(last).toFixed(1)}" r="5.5"
         fill="${color}" opacity="0.22"/>
@@ -7690,7 +7729,11 @@ window.loadLpTab = async function () {
       l.setAttribute("x1", x); l.setAttribute("x2", x);
       const c = g.querySelector("[data-hvc]");
       c.setAttribute("cx", x); c.setAttribute("cy", y);
-      const label = `${dd.fx(i)} · ${dd.fy(dd.ys[i])}`;
+      const label = dd.es
+        ? `${dd.fx(i)} · ${(dd.names || [])[0] || ""} ${dd.fy(dd.ys[i])} · ${
+            (dd.names || [])[1] || ""} ${dd.es[i] != null
+              ? dd.fy(dd.es[i]) : "—"}`
+        : `${dd.fx(i)} · ${dd.fy(dd.ys[i])}`;
       const tw = label.length * 6.3 + 12;
       const tx = Math.max(dd.L + tw / 2,
         Math.min(dd.W - dd.R - tw / 2 - 70, x));
@@ -7826,6 +7869,41 @@ window.loadLpTab = async function () {
       maht: H.maht || [],
       maet: H.maet || [], dmat: H.dmat || [],
     };
+    // price_scale / price_oracle — per-coin arrays (coin k+1 priced in
+    // coin 0), 1e18-scaled; ng stableswaps carry the oracle only.
+    // Older caches baked the server's param carry-forward into stretches
+    // where the API reported null — a live oracle never repeats byte-
+    // identically across daily snapshots, so exact consecutive duplicates
+    // (oracle AND scale together) are carried data: keep the first, drop
+    // the rest and let the chart show the gap.
+    (() => {
+      let prev = null;
+      for (let i = 0; i < T.length; i++) {
+        const po = H.poracle && H.poracle[i];
+        if (po == null) { prev = null; continue; }
+        const key = JSON.stringify([po, H.pscale && H.pscale[i]]);
+        if (key === prev) {
+          H.poracle[i] = null;
+          if (H.pscale) H.pscale[i] = null;
+        } else prev = key;
+      }
+    })();
+    const pxArr = (rows, k) => T.map((_, i) => {
+      let v = rows && rows[i];
+      if (v == null) return null;
+      if (!Array.isArray(v)) v = [v];
+      return v[k] != null ? v[k] / 1e18 : null;
+    });
+    let nPx = 0;
+    for (const rows of [H.poracle, H.pscale])
+      for (const v of rows || [])
+        if (v != null) {
+          nPx = Math.max(nPx, Array.isArray(v) ? v.length : 1);
+          break;
+        }
+    const coinSym = k => (p && p.coins && p.coins[k] && p.coins[k].s)
+      || (H.syms && H.syms[k]) || `coin ${k}`;
+    let priceCoin = 0, curRange = "all";
 
     // -- parameter boxes: what the DAO can and cannot change ------------
     const pRow = (k, v) => v == null ? "" : `
@@ -7915,10 +7993,11 @@ window.loadLpTab = async function () {
           pSpark.last}</span></div>${svg}</div>`;
     const CUT = { all: 730, y: 365, m: 30, w: 7 };
     const drawCharts = range => {
+      curRange = range;
       const n = Math.min(T.length, CUT[range] || 1e9);
       const t = T.slice(-n);
       const cutS = a => a.slice(-n);
-      const perf =
+      let perf =
         panel("base APR (LPs + DAO)", pSpark(t, cutS(series.apr),
           { pct: true, avg7: true, color: "#58a6ff" }))
         + panel("TVL", pSpark(t, cutS(series.tvl),
@@ -7927,6 +8006,42 @@ window.loadLpTab = async function () {
           { money: true, avg7: true, color: "#e3b341" }))
         + panel("volume", pSpark(t, cutS(series.vol),
           { money: true, avg7: true, color: "#A78BFA" }));
+      if (nPx > 0) {
+        const ps2 = cutS(pxArr(H.pscale, priceCoin));
+        const po2 = cutS(pxArr(H.poracle, priceCoin));
+        const hasPs = ps2.some(v => v != null);
+        const hasPo = po2.some(v => v != null);
+        if (hasPs || hasPo) {
+          // scale is the drawn main line; oracle overlays it (or stands
+          // alone on ng pools, which have no price_scale)
+          const svg = pSpark(t, hasPs ? ps2 : po2, {
+            price: true, color: hasPs ? "#4DB6AC" : "#F778BA",
+            extra: hasPs && hasPo ? { vals: po2, color: "#F778BA" } : null,
+            names: hasPs && hasPo ? ["scale", "oracle"] : null });
+          const legend = hasPs && hasPo
+            ? `<span style="color:#4DB6AC">scale</span><span
+                style="color:#57606a"> / </span><span
+                style="color:#F778BA">oracle</span>`
+            : hasPs ? `<span style="color:#4DB6AC">scale</span>`
+                    : `<span style="color:#F778BA">oracle</span>`;
+          const btns = nPx > 1
+            ? `<span class="seg" id="lp_px_coins" style="flex:none">`
+              + Array.from({ length: nPx }, (_, k) =>
+                `<button type="button" data-k="${k}"${
+                  k === priceCoin ? ' class="on"' : ""}>${
+                  esc(coinSym(k + 1))}</button>`).join("") + `</span>`
+            : "";
+          perf += `<div style="border:1px solid #21262d; border-radius:6px;
+              background:#0d1117; padding:8px 10px 4px">
+            <div style="display:flex; align-items:center; gap:8px;
+                margin:0 4px 2px">
+              <span style="font-size:12px; color:#e6edf3">price — ${
+                esc(coinSym(priceCoin + 1))} in ${esc(coinSym(0))}
+                (${legend})</span>
+              <span style="margin-left:auto; font-size:12px;
+                color:#8b949e">${pSpark.last}</span>${btns}</div>${svg}</div>`;
+        }
+      }
       let params = "";
       // one colour per parameter, like the lending-market param charts
       const step = (title, arr, color, opts) => {
@@ -7998,6 +8113,14 @@ window.loadLpTab = async function () {
           o.classList.toggle("on", o === b2);
         drawCharts(b2.dataset.r);
       });
+    // coin toggle on the price chart — the buttons are re-rendered by
+    // every drawCharts, so the handler is delegated
+    root.addEventListener("click", ev => {
+      const b2 = ev.target.closest("#lp_px_coins button");
+      if (!b2) return;
+      priceCoin = +b2.dataset.k;
+      drawCharts(curRange);
+    });
     pWireHover(root);
   }
   window.__lpShowPool = showPool;
@@ -8520,6 +8643,9 @@ window.loadSeedTab = async function loadSeedTab() {
   const FREE = new Set(["usdc", "usdt", "dai", "usds", "eth", "weth",
     "wbtc", "cbbtc", "3crv",
     "usdc.e", "usdt.e", "dai.e", "wbtc.e", "weth.e", "usdbc",
+    // fiat-backed bridged/issuer variants (Tether omnichain, celo Tether,
+    // fantom-bridged USDT, Paxos Global Dollar)
+    "usdt0", "usd₮0", "usd₮", "fusdt", "usdg",
     "wxdai", "xdai", "wbnb", "wmatic", "wpol", "wftm", "ws", "wavax"]);
   const pools = idx.pools
     .filter(p => (p.coins || []).length &&
@@ -8535,8 +8661,8 @@ window.loadSeedTab = async function loadSeedTab() {
         padding:10px 28px 10px 12px; border-radius:8px">
         <option value="">— pick a pool —</option>
         ${pools.map(p => `<option value="${esc(p.chain)}:${esc(p.addr)}">${
-          esc(p.name)}${p.chain === "ethereum" ? "" : " · " + esc(p.chain)
-          } — ${usd(+p.tvl || 0)}</option>`).join("")}
+          esc(p.name)} · ${esc(p.chain)} — ${usd(+p.tvl || 0)}</option>`
+          ).join("")}
       </select>
 
     </div>`;
