@@ -483,6 +483,12 @@ int main(int argc, char** argv) {
     const double off_s = D_("--crash-start-offset-s", 0);
     const double dur_s = D_("--crash-duration-s", 1);
     const std::string path_file = S_("--price-path", "");
+    // --oracle-path f.json: EXTERNAL oracle series [[t_s_from_start, p],...]
+    // (e.g. a NAV / convertToAssets feed). When given, the AMM's external
+    // price follows this path instead of the venue-EMA; everything
+    // downstream (band math, health, hard-liq trigger, oracle-out dump)
+    // reads the same value. Absent -> behaviour unchanged.
+    const std::string opath_file = S_("--oracle-path", "");
     const double ma_time = D_("--ma-time-s");
     const double oracle_seed = D_("--oracle-seed", cs);
     // Gas is a FLAT DOLLAR COST per transaction (user decision) — the old
@@ -561,6 +567,22 @@ int main(int argc, char** argv) {
         for (auto& e : pj) path.push_back({e[0].get<double>(), e[1].get<double>()});
         std::sort(path.begin(), path.end());
     }
+    std::vector<std::pair<double, double>> opath;
+    if (!opath_file.empty()) {
+        std::ifstream f(opath_file); json pj; f >> pj;
+        for (auto& e : pj) opath.push_back({e[0].get<double>(), e[1].get<double>()});
+        std::sort(opath.begin(), opath.end());
+    }
+    auto path_at = [](const std::vector<std::pair<double, double>>& pp,
+                     double elapsed) -> double {
+        if (elapsed <= pp.front().first) return pp.front().second;
+        if (elapsed >= pp.back().first) return pp.back().second;
+        size_t a = 0, b = pp.size() - 1;
+        while (b - a > 1) { size_t m = (a + b) / 2;
+            if (pp[m].first >= elapsed) b = m; else a = m; }
+        auto [tA, pA] = pp[a]; auto [tB, pB] = pp[a + 1];
+        return (tB == tA) ? pA : pA + (pB - pA) * (elapsed - tA) / (tB - tA);
+    };
     // --price-paths: MANY price paths in one invocation (JSON array of
     // [[t,p],...] arrays). The snapshot and venue state are parsed once;
     // every piece of mutable sim state is rebuilt from scratch per path, so
@@ -755,6 +777,7 @@ int main(int argc, char** argv) {
         }
         have_prev_ts = true;
         prev_ts = ts;
+        if (!opath.empty()) ema = path_at(opath, elapsed);
 
         book.block_timestamp = u256(ts);
         book.external_price = to_u(cpp_from_double(ema * 1e18));
