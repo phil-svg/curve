@@ -1081,9 +1081,9 @@
     <div class="seg" id="lp_metric"
          style="display:inline-flex; position:absolute; right:0; top:50%;
                 transform:translateY(-50%)">
-      <button type="button" data-m="tvl" class="on">TVL</button>
+      <button type="button" data-m="rev" class="on">DAO revenue</button>
+      <button type="button" data-m="tvl">TVL</button>
       <button type="button" data-m="vol">volume</button>
-      <button type="button" data-m="rev">DAO revenue</button>
     </div>
   </div>
   <div id="lp_body"></div>
@@ -3746,14 +3746,18 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
         if (typeof loadLpTab === "function" && !window.__lpLoaded) {
           window.__lpLoaded = true; loadLpTab();
         } else if (!t.__fromUrl && window.__lpShowList) {
-          window.__lpShowList();   // tab click = back to the pool grid
+          // tab click = back to the pool grid, search cleared
+          document.getElementById("lp_search").value = "";
+          window.__lpShowList();
         }
       }
       if (t.dataset.view === "llm") {
         if (typeof loadLlmTab === "function" && !window.__lmLoaded) {
           window.__lmLoaded = true; loadLlmTab();
         } else if (!t.__fromUrl && window.__lmShowList) {
-          window.__lmShowList();   // tab click = back to the full list
+          // tab click = back to the full list, search cleared
+          document.getElementById("lm_search").value = "";
+          window.__lmShowList();
         }
       }
       if (t.dataset.view === "map") {
@@ -7453,13 +7457,18 @@ window.loadLpTab = async function () {
   function poolMatch(p) {
     const q = lpQuery();
     if (!q) return { show: true, hl: null };
+    // free text matches at word starts only (holder labels, coin names):
+    // a substring match let "tri" list every pool whose LP is the
+    // "fee distributor"; pool names and coin symbols still match anywhere
+    const wordHit = t => String(t || "").toLowerCase()
+      .split(/[^a-z0-9]+/).some(w => w && w.startsWith(q));
     const hit = p.top.find(r => r.addr.startsWith(q)
-      || (r.label || r.tag || "").toLowerCase().includes(q));
+      || wordHit(r.label || r.tag));
     const meta = p.label.toLowerCase().includes(q)
       || (p.pool || "").startsWith(q)
       || (p.coins || []).some(c => (c.a || "").startsWith(q)
           || (c.s || "").toLowerCase().includes(q)
-          || (c.n || "").toLowerCase().includes(q));
+          || wordHit(c.n));
     return { show: !!(hit || meta), hl: hit ? hit.addr : null };
   }
 
@@ -7543,7 +7552,7 @@ window.loadLpTab = async function () {
     note.style.display = "none";
     // leaderboard over the selected metric (TVL / 24h volume / DAO
     // revenue per day, 30d average) — same row structure throughout
-    const metric = window.__lpMetric || "tvl";
+    const metric = window.__lpMetric || "rev";
     if (metric === "vol" && !window.__lpVols) await ensureMetric(metric);
     if (metric === "rev" && !window.__lpRevs) await ensureMetric(metric);
     const mval = p => metric === "vol"
