@@ -14,11 +14,15 @@ and get cleaned up after the response is sent.
 """
 from __future__ import annotations
 import argparse
+import bisect
+import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import struct
 import threading
 import time
 import uuid
@@ -443,7 +447,10 @@ _run_lock = threading.Lock()   # serialize sims so they don't fight for CPU / ca
 # columns, and cache to data/pool_hist/ for POOL_HIST_TTL.
 POOL_HIST_DIR = HERE / "data" / "pool_hist"
 POOL_HIST_TTL = 6 * 3600
-POOL_HIST_DAYS = 730
+POOL_HIST_DAYS = 1095
+# the daily history is anchored at 2023-05-15 (not at "today"): keep it
+# reaching back at least to that date, whatever the day is
+POOL_HIST_FLOOR = 1684108800   # 2023-05-15 00:00 UTC
 TVLFIX_RETRY_S = 3 * 86400     # re-attempt an unhealed tvl walk this often
 _PH_DAY = 86400
 
@@ -539,7 +546,7 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None,
     feed over the full range on top of the cache — it fills tvl holes a
     truncated earlier walk left and cannot lose anything else."""
     now = int(time.time())
-    full_start = now - POOL_HIST_DAYS * _PH_DAY
+    full_start = min(now - POOL_HIST_DAYS * _PH_DAY, POOL_HIST_FLOOR)
     prev_t = (cached or {}).get("t") or []
     start = max(full_start, prev_t[-1] - _PH_DAY) if prev_t else full_start
     snaps = _ph_walk(lambda a, b: _ph_get(
@@ -553,6 +560,26 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None,
         f"/snapshots/{chain}/{addr}/tvl?interval=day"
         f"&start={max(a, b - 175 * _PH_DAY)}&end={b}")
         .get("data"), full_start if tvl_heal else start, now)
+    # head backfill: incremental builds only ever APPEND, so when the
+    # horizon is extended (2y -> 3y) the newly uncovered head range sits
+    # BEFORE every cache and must be walked once. Stamped so pools that
+    # simply don't reach that far back (deployed later) aren't re-walked
+    # every build.
+    headfill = (cached or {}).get("headfill")
+    if prev_t and prev_t[0] - full_start > 2 * _PH_DAY             and (headfill is None
+                 or headfill > full_start + 30 * _PH_DAY):
+        head_to = prev_t[0]
+        snaps += _ph_walk(lambda a, b: _ph_get(
+            f"/snapshots/{chain}/{addr}?interval=day&start={a}&end={b}")
+            .get("data"), full_start, head_to)
+        vols += _ph_walk(lambda a, b: _ph_get(
+            f"/volume/usd/{chain}/{addr}?interval=day&start={a}&end={b}")
+            .get("data"), full_start, head_to)
+        tvls += _ph_walk(lambda a, b: _ph_get(
+            f"/snapshots/{chain}/{addr}/tvl?interval=day"
+            f"&start={max(a, b - 175 * _PH_DAY)}&end={b}")
+            .get("data"), full_start, head_to)
+        headfill = full_start
     day = lambda ts: int(ts) // _PH_DAY * _PH_DAY
     sn, vo, tv = {}, {}, {}
     for r in snaps:
@@ -604,6 +631,8 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None,
     # caches without it get one full heal rebuild if they carry holes
     out = {"fetched_at": now, "chain": chain, "address": addr, "t": days,
            "walkfix": 1}
+    if headfill is not None:
+        out["headfill"] = headfill
     for k in _PH_FIELDS:
         out[k] = [rows[d][k] for d in days]
     # tvlfix: 1 = the TVL series is as complete as snapshots/volume say it
@@ -627,6 +656,346 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None,
 SIDE_HIST_CHAINS = {"fantom", "avalanche", "celo", "x-layer"}
 
 
+# -- request-path policy ------------------------------------------------
+# A page visit NEVER waits on upstream when any cache exists: stale files
+# are served as-is and refreshed by a single-flight background rebuild;
+# only a first-ever visit (no file at all) builds synchronously. The warm
+# sweep keys on the record's own fetched_at (mtime lies — backfill passes
+# rewrite files without re-fetching), so in steady state every pool the
+# site lists is fresh before anyone asks.
+_PH_LOCKS: dict[str, threading.Lock] = {}
+_PH_LOCKS_G = threading.Lock()
+_PH_BG: set[str] = set()
+_PH_BG_SEM = threading.Semaphore(4)    # request-kicked rebuilds, bounded
+
+
+def _ph_lock(key: str) -> threading.Lock:
+    with _PH_LOCKS_G:
+        return _PH_LOCKS.setdefault(key, threading.Lock())
+
+
+def _ph_bg(chain: str, addr: str) -> None:
+    key = f"{chain}_{addr}"
+    with _PH_LOCKS_G:
+        if key in _PH_BG:
+            return
+        _PH_BG.add(key)
+
+    def run():
+        try:
+            with _PH_BG_SEM:
+                _ph_refresh(chain, addr)
+        except Exception as e:
+            print(f"[ui] pool hist bg {key}: {str(e)[:120]}", flush=True)
+        finally:
+            with _PH_LOCKS_G:
+                _PH_BG.discard(key)
+    threading.Thread(target=run, daemon=True).start()
+
+
+# -- gap triple-check ---------------------------------------------------
+# Three independent passes over every freshly built history; the verdict
+# is stored on the record as "gapcheck" and served with /poolhist:
+#   1 axis:   the day axis must be gapless from first to last day
+#   2 series: inside each series' own active span, no null holes (tvl /
+#             vol / fees / bapr always; pscale / poracle where the pool
+#             ever reported them)
+#   3 upstream: every hole found is re-fetched from upstream in targeted
+#             ranges; what comes back is merged into the record (real
+#             repair), what does not is CONFIRMED absent upstream and the
+#             pool stays FLAGGED.
+# A confirmed verdict is remembered by hole signature — the upstream pass
+# re-runs only when the hole pattern changes, so a pool with permanent
+# upstream gaps costs nothing extra per rebuild. This replaces the old
+# every-3-days tvl-heal retry loop.
+_GC_SERIES = ("tvl", "vol", "fees", "bapr", "pscale", "poracle")
+_GC_MAX_RANGES = 12
+
+
+def _gc_holes(h: dict) -> dict:
+    """{series: [day_ts, ...]} — null days inside each series' own active
+    span (fees rides volume's span: a fees hole only counts where the
+    volume feed was alive)."""
+    t = h.get("t") or []
+    spans = {}
+    for k in _GC_SERIES:
+        s = h.get(k) or []
+        idx = [i for i, v in enumerate(s) if v is not None]
+        spans[k] = (idx[0], idx[-1]) if idx else None
+    spans["fees"] = spans.get("vol")
+    out = {}
+    for k in _GC_SERIES:
+        sp = spans.get(k)
+        if not sp:
+            continue
+        s = h.get(k) or []
+        hole = [t[i] for i in range(sp[0], sp[1] + 1)
+                if i < len(t) and (i >= len(s) or s[i] is None)]
+        if hole:
+            out[k] = hole
+    return out
+
+
+def _gc_axis(h: dict) -> list:
+    t = h.get("t") or []
+    miss = []
+    for i in range(len(t) - 1):
+        d = t[i] + _PH_DAY
+        while d < t[i + 1]:
+            miss.append(d)
+            d += _PH_DAY
+    return miss
+
+
+def _gc_sig(axis: list, holes: dict) -> str:
+    src = json.dumps({"axis": axis,
+                      **{k: holes[k] for k in sorted(holes)}})
+    return hashlib.sha1(src.encode()).hexdigest()[:16]
+
+
+def _gc_refetch(chain: str, addr: str, ranges: list) -> dict:
+    """Targeted upstream re-pull over the given [lo, hi] day ranges (all
+    three feeds; tvl windowed under its 6-month range cap). Returns a
+    sparse {day: {field: value}} patch."""
+    patch: dict[int, dict] = {}
+    day = lambda ts: int(ts) // _PH_DAY * _PH_DAY
+    for lo, hi in ranges:
+        a, b = lo - _PH_DAY, hi + 2 * _PH_DAY
+        try:
+            for r in _ph_walk(lambda x, y: _ph_get(
+                    f"/snapshots/{chain}/{addr}?interval=day"
+                    f"&start={x}&end={y}").get("data"), a, b, max_calls=4):
+                row = patch.setdefault(day(r["timestamp"]), {})
+                if r.get("base_daily_apr") is not None:
+                    row["bapr"] = r["base_daily_apr"]
+                for k, fld in _PH_PARAMS:
+                    if r.get(fld) is not None:
+                        row[k] = r[fld]
+            for r in _ph_walk(lambda x, y: _ph_get(
+                    f"/volume/usd/{chain}/{addr}?interval=day"
+                    f"&start={x}&end={y}").get("data"), a, b, max_calls=4):
+                row = patch.setdefault(day(r["timestamp"]), {})
+                if r.get("volume") is not None:
+                    row["vol"] = r["volume"]
+                if r.get("fees") is not None:
+                    row["fees"] = r["fees"]
+            w = a
+            while w < b:                    # tvl: 6-month range cap
+                we = min(b, w + 170 * _PH_DAY)
+                for r in _ph_walk(lambda x, y: _ph_get(
+                        f"/snapshots/{chain}/{addr}/tvl?interval=day"
+                        f"&start={x}&end={y}").get("data"), w, we,
+                        max_calls=4):
+                    row = patch.setdefault(day(r["timestamp"]), {})
+                    if r.get("tvl_usd") is not None:
+                        row["tvl"] = r["tvl_usd"]
+                w = we
+        except Exception:
+            pass        # partial patches are fine — unconfirmed holes retry
+    return patch
+
+
+def _gc_apply(h: dict, patch: dict) -> int:
+    """Merge a patch into the record: missing days are inserted into the
+    axis, null cells are filled. Existing non-null values are NEVER
+    overwritten. Returns cells filled."""
+    t = h.get("t") or []
+    filled = 0
+    for d in sorted(k for k in patch if k not in set(t)):
+        j = bisect.bisect_left(t, d)
+        t.insert(j, d)
+        for k in _PH_FIELDS:
+            s = h.get(k)
+            if isinstance(s, list):
+                while len(s) < len(t) - 1:
+                    s.append(None)
+                s.insert(j, None)
+    pos = {d: i for i, d in enumerate(t)}
+    for d, row in patch.items():
+        i = pos.get(d)
+        if i is None:
+            continue
+        for k, v in row.items():
+            s = h.get(k)
+            if isinstance(s, list) and v is not None:
+                while len(s) < len(t):
+                    s.append(None)
+                if s[i] is None:
+                    s[i] = v
+                    filled += 1
+    return filled
+
+
+
+def _gc_pct(h: dict, axis: list, holes: dict) -> float:
+    """Distinct missing days (axis + any-series holes) as % of the pool's
+    day span — the UI only FLAGS above a threshold; the record keeps the
+    full detail regardless."""
+    t = h.get("t") or []
+    days = set(axis)
+    for v in holes.values():
+        days.update(v)
+    span = len(t) + len(axis)
+    return round(100.0 * len(days) / span, 2) if span else 0.0
+
+def _gap_check(chain: str, addr: str, h: dict,
+               prev_gc: dict | None) -> dict:
+    axis, holes = _gc_axis(h), _gc_holes(h)
+    sig = _gc_sig(axis, holes)
+    if not axis and not holes:
+        return {"ok": True, "at": int(time.time()), "sig": sig}
+    if prev_gc and prev_gc.get("sig") == sig and prev_gc.get("confirmed"):
+        # identical hole pattern, already confirmed absent upstream — no
+        # refetch. Still apply the zero-trade-day rule locally (verdicts
+        # confirmed before zerofill existed carried vol/fees holes that
+        # are really quiet days): every confirmed hole was already asked.
+        t_ = h.get("t") or []
+        pos = {d: i for i, d in enumerate(t_)}
+        tvl_, bapr_ = h.get("tvl") or [], h.get("bapr") or []
+        zf = 0
+        for k in ("vol", "fees"):
+            s = h.get(k)
+            if not isinstance(s, list):
+                continue
+            for d in holes.get(k, []):
+                i = pos.get(d)
+                if i is None or i >= len(s) or s[i] is not None:
+                    continue
+                if (i < len(tvl_) and tvl_[i] is not None) \
+                        or (i < len(bapr_) and bapr_[i] is not None):
+                    s[i] = 0
+                    zf += 1
+        if not zf:
+            return {**prev_gc, "at": int(time.time())}
+        axis2, holes2 = _gc_axis(h), _gc_holes(h)
+        iso = lambda ts: time.strftime("%Y-%m-%d", time.gmtime(ts))
+        all2 = [d for v in holes2.values() for d in v] + axis2
+        return {"ok": not axis2 and not holes2, "at": int(time.time()),
+                "axis_missing": len(axis2),
+                "holes": {k: len(v) for k, v in holes2.items()},
+                "first": iso(min(all2)) if all2 else None,
+                "last": iso(max(all2)) if all2 else None,
+                "filled": 0, "zerofilled": zf, "confirmed": True,
+                "cursor": 0, "pct": _gc_pct(h, axis2, holes2),
+                "pct": _gc_pct(h, axis2, holes2),
+            "sig": _gc_sig(axis2, holes2)}
+    days = sorted({d for v in holes.values() for d in v} | set(axis))
+    ranges: list[list[int]] = []
+    for d in days:
+        if ranges and d - ranges[-1][1] <= 3 * _PH_DAY:
+            ranges[-1][1] = d
+        else:
+            ranges.append([d, d])
+    # more ranges than one pass covers: a cursor walks them across
+    # successive builds (the sig only stays equal while nothing fills, so
+    # a clean full walk == every hole re-asked upstream with no answer)
+    start = 0
+    if prev_gc and prev_gc.get("sig") == sig:
+        start = int(prev_gc.get("cursor") or 0)
+        if start >= len(ranges):
+            start = 0
+    part = ranges[start:start + _GC_MAX_RANGES]
+    done_all = start + len(part) >= len(ranges)
+    filled = _gc_apply(h, _gc_refetch(chain, addr, part))
+    # zero-fill: a volume-feed day confirmed absent upstream while the
+    # snapshot feeds prove the pool was alive that day is a zero-trade
+    # day, not missing data — write the honest 0 (counted, never hidden).
+    # State series (tvl / bapr / pscale / poracle) can never be "zero
+    # because quiet": their holes stay real gaps and keep the flag.
+    asked: set[int] = set()
+    for lo, hi in ranges[:start] + part:     # walked so far under this sig
+        d = lo
+        while d <= hi:
+            asked.add(d)
+            d += _PH_DAY
+    pos = {d: i for i, d in enumerate(h.get("t") or [])}
+    tvl_, bapr_ = h.get("tvl") or [], h.get("bapr") or []
+    zerofilled = 0
+    for k in ("vol", "fees"):
+        s = h.get(k)
+        if not isinstance(s, list):
+            continue
+        for d in holes.get(k, []):
+            i = pos.get(d)
+            if i is None or d not in asked or i >= len(s) \
+                    or s[i] is not None:
+                continue
+            if (i < len(tvl_) and tvl_[i] is not None) \
+                    or (i < len(bapr_) and bapr_[i] is not None):
+                s[i] = 0
+                zerofilled += 1
+    axis2, holes2 = _gc_axis(h), _gc_holes(h)
+    ok = not axis2 and not holes2
+    iso = lambda ts: time.strftime("%Y-%m-%d", time.gmtime(ts))
+    all2 = [d for v in holes2.values() for d in v] + axis2
+    return {"ok": ok, "at": int(time.time()),
+            "axis_missing": len(axis2),
+            "holes": {k: len(v) for k, v in holes2.items()},
+            "first": iso(min(all2)) if all2 else None,
+            "last": iso(max(all2)) if all2 else None,
+            "filled": filled, "zerofilled": zerofilled,
+            "confirmed": done_all and filled == 0,
+            "cursor": 0 if done_all else start + len(part),
+            "pct": _gc_pct(h, axis2, holes2),
+            "sig": _gc_sig(axis2, holes2)}
+
+
+def _ph_refresh(chain: str, addr: str) -> dict:
+    """The build path (TTL top-up or full crawl + gap triple-check),
+    single-flight per pool. Called by the background kick, the warm sweep
+    and first-ever visits."""
+    key = f"{chain}_{addr}"
+    f = POOL_HIST_DIR / f"{key}.json"
+    with _ph_lock(key):
+        cached = None
+        if f.is_file():
+            try:
+                cached = json.loads(f.read_text())
+            except (OSError, ValueError):
+                cached = None
+        if cached and "pscale" not in cached:
+            cached = None      # pre-cryptoswap-state cache: full rebuild
+        if cached and time.time() - cached.get("fetched_at", 0) \
+                < POOL_HIST_TTL and (cached.get("gapcheck") or {}).get("at"):
+            return cached      # another thread finished it just now
+        # pre-"walkfix" cache with a long null volume run: ONE full
+        # rebuild (the truncated-walk vintage can't be trusted as a seed)
+        build_seed = cached
+        if cached and cached.get("walkfix") != 1:
+            vol = cached.get("vol") or []
+            nz = [i for i, v in enumerate(vol) if v is not None]
+            if nz:
+                run = mx_run = 0
+                for v in vol[nz[0]:]:
+                    run = run + 1 if v is None else 0
+                    mx_run = max(mx_run, run)
+                if mx_run >= 14:
+                    build_seed = None
+        try:
+            fresh = _ph_build(chain, addr, build_seed)
+            # gap triple-check owns hole repair now: it re-fetches exactly
+            # the hole days (any series, not just tvl) and confirms what
+            # upstream permanently lacks — so the old full-range tvl-heal
+            # retry is retired, and tvlfix is pinned to keep it retired.
+            try:
+                fresh["gapcheck"] = _gap_check(
+                    chain, addr, fresh, (cached or {}).get("gapcheck"))
+                if fresh["gapcheck"].get("ok") \
+                        or fresh["gapcheck"].get("confirmed"):
+                    fresh["tvlfix"] = 1
+            except Exception as e:
+                fresh["gapcheck"] = {"ok": False, "at": int(time.time()),
+                                     "err": str(e)[:120]}
+            tmp = f.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(fresh))
+            os.replace(tmp, f)
+            return fresh
+        except Exception as e:
+            if cached:            # stale beats broken
+                return cached
+            return {"error": f"upstream fetch failed: {str(e)[:120]}"}
+
+
 def pool_hist(chain: str, addr: str) -> dict:
     POOL_HIST_DIR.mkdir(parents=True, exist_ok=True)
     f = POOL_HIST_DIR / f"{chain}_{addr}.json"
@@ -644,54 +1013,120 @@ def pool_hist(chain: str, addr: str) -> dict:
         return {"error": "history not built yet for this pool"}
     if cached and "pscale" not in cached:
         cached = None          # pre-cryptoswap-state cache: full rebuild
-    if cached and time.time() - cached.get("fetched_at", 0) < POOL_HIST_TTL:
-        return cached
-    # heal check: the truncated volume walk (pre-"walkfix") cached long
-    # holes in vol/fees, and the incremental top-up (which only extends
-    # the tail) could never fill them. A pre-fix cache with a long null
-    # run (interior or tail) gets ONE full rebuild; the walkfix marker on
-    # everything built since keeps legitimately sparse pools from being
-    # re-crawled every TTL.
-    build_seed = cached
-    if cached and cached.get("walkfix") != 1:
-        vol = cached.get("vol") or []
-        nz = [i for i, v in enumerate(vol) if v is not None]
-        if nz:
-            run = mx_run = 0
-            for v in vol[nz[0]:]:
-                run = run + 1 if v is None else 0
-                mx_run = max(mx_run, run)
-            if mx_run >= 14:
-                build_seed = None
-    # tvl heal: an empty response from the range-capped tvl endpoint mid-
-    # walk truncated the TVL series (typically its whole head) while
-    # snapshots/volume kept the full range, and the incremental top-up can
-    # never reach back to fill it. When many days carry vol/bapr but no
-    # tvl, re-walk JUST the tvl feed over the full range on top of the
-    # cache (~5 extra calls; fills holes, touches nothing else) — once if
-    # it heals (tvlfix == 1), otherwise retried every TVLFIX_RETRY_S.
-    tvl_heal = False
-    fix = cached.get("tvlfix") if cached else None
-    if build_seed is not None and cached and fix != 1 and \
-            (not fix or time.time() - fix > TVLFIX_RETRY_S):
-        tvl = cached.get("tvl") or []
-        vol = cached.get("vol") or []
-        bapr = cached.get("bapr") or []
-        pad = [None] * len(tvl)
-        holes = sum(1 for i, v in enumerate(tvl) if v is None
-                    and ((vol + pad)[i] is not None
-                         or (bapr + pad)[i] is not None))
-        tvl_heal = holes >= 14
+    if cached:
+        if time.time() - cached.get("fetched_at", 0) >= POOL_HIST_TTL \
+                or not (cached.get("gapcheck") or {}).get("at"):
+            _ph_bg(chain, addr)     # refresh behind the response
+        return cached               # a visit never waits on upstream
+    return _ph_refresh(chain, addr)      # first-ever visit of a pool
+
+
+def _ph_universe() -> list[tuple[str, str]]:
+    """Every pool the site can show: census ∪ the pools-tab lp dataset ∪
+    everything already cached (sidechain-archive chains excluded — their
+    fetcher owns those files)."""
+    seen: dict[tuple[str, str], int] = {}
     try:
-        fresh = _ph_build(chain, addr, build_seed, tvl_heal=tvl_heal)
-        tmp = f.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(fresh))
-        os.replace(tmp, f)
-        return fresh
+        cen = json.loads((HERE / "data" / "census.json").read_text())["pools"]
+        for ch, rows in cen.items():
+            for r in rows:
+                if isinstance(r, list) and r:
+                    seen[(ch, str(r[0]).lower())] = 1
+    except Exception:
+        pass
+    try:
+        lp = json.loads((HERE / "data" / "lp.json").read_text())["pools"]
+        for p in lp.values():
+            seen[(p["chain"], p["pool"].lower())] = 1
+    except Exception:
+        pass
+    for f in POOL_HIST_DIR.glob("*.json"):
+        ch, _, a = f.stem.partition("_")
+        if a.startswith("0x"):
+            seen[(ch, a)] = 1
+    return [k for k in seen if k[0] not in SIDE_HIST_CHAINS]
+
+
+def _ph_warm_sweep() -> tuple[int, int]:
+    """Rebuild every universe pool whose record is stale (by fetched_at,
+    never mtime) or not yet gap-checked. 6-way, single-flight-safe."""
+    POOL_HIST_DIR.mkdir(parents=True, exist_ok=True)
+    targets = _ph_universe()
+    cutoff = time.time() - POOL_HIST_TTL
+    stale = []
+    for ch, a in targets:
+        f = POOL_HIST_DIR / f"{ch}_{a}.json"
+        try:
+            c = json.loads(f.read_text())
+            if c.get("fetched_at", 0) >= cutoff \
+                    and (c.get("gapcheck") or {}).get("at"):
+                continue
+        except (OSError, ValueError):
+            pass
+        stale.append((ch, a))
+    if stale:
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        with _TPE(6) as ex:
+            list(ex.map(lambda t: _ph_refresh(*t), stale))
+    _PG_MEMO["at"] = 0.0          # re-summarize + pre-warm the memo
+    pool_gaps()
+    return len(stale), len(targets)
+
+
+def _ph_startup_sweep() -> None:
+    time.sleep(5)               # let the server come up first
+    t0 = time.time()
+    try:
+        n, tot = _ph_warm_sweep()
+        print(f"[ui] pool hist startup sweep: warmed {n} of {tot} pools "
+              f"in {time.time() - t0:.0f} s", flush=True)
     except Exception as e:
-        if cached:            # stale beats broken
-            return cached
-        return {"error": f"upstream fetch failed: {str(e)[:120]}"}
+        print(f"[ui] pool hist startup sweep FAILED: {str(e)[:200]}",
+              flush=True)
+
+
+# flagged-pools summary for the pools tab and monitoring (5-min memo).
+# Sidechain-archive files carry no upstream gapcheck; they get the two
+# local passes read-only (axis + series holes), marked local_only.
+_PG_MEMO: dict = {"at": 0.0, "data": None}
+
+
+def pool_gaps() -> dict:
+    if time.time() - _PG_MEMO["at"] < 300 and _PG_MEMO["data"]:
+        return _PG_MEMO["data"]
+    flagged, checked = [], 0
+    for f in sorted(POOL_HIST_DIR.glob("*.json")):
+        ch, _, a = f.stem.partition("_")
+        if not a.startswith("0x"):
+            continue
+        try:
+            c = json.loads(f.read_text())
+        except (OSError, ValueError):
+            flagged.append({"chain": ch, "addr": a, "err": "unreadable"})
+            continue
+        gc = c.get("gapcheck")
+        if gc is None:
+            axis, holes = _gc_axis(c), _gc_holes(c)
+            gc = {"ok": not axis and not holes,
+                  "axis_missing": len(axis),
+                  "holes": {k: len(v) for k, v in holes.items()},
+                  "pct": _gc_pct(c, axis, holes),
+                  "confirmed": False, "local_only": True}
+        checked += 1
+        if not gc.get("ok"):
+            flagged.append({
+                "chain": ch, "addr": a,
+                "axis_missing": gc.get("axis_missing", 0),
+                "holes": gc.get("holes", {}),
+                "pct": gc.get("pct", 0),
+                "first": gc.get("first"), "last": gc.get("last"),
+                "confirmed": bool(gc.get("confirmed")),
+                "local_only": bool(gc.get("local_only"))})
+    out = {"at": int(time.time()), "checked": checked,
+           "n_flagged": len(flagged), "flagged": flagged}
+    _PG_MEMO.update(at=time.time(), data=out)
+    return out
+
 
 
 PX_HIST_DIR = HERE / "data" / "px_hist"
@@ -1040,29 +1475,15 @@ def _do_refresh():
                 print(f"[ui] {ln}", flush=True)
     except Exception as e:
         print(f"[ui] impl map FAILED: {str(e)[:200]}", flush=True)
-    # pool-history warmer: keep every census pool's 2y daily history fresh
-    # on disk so /poolhist never fetches upstream during a page visit.
-    # Incremental after the first sweep (last-day top-up, ~3 calls/pool).
+    # pool-history warm sweep: keep every pool the site can show fresh on
+    # disk so /poolhist never fetches upstream during a page visit.
+    # Universe = census ∪ lp dataset ∪ cached; staleness judged by each
+    # record's own fetched_at (mtime lies after backfill passes) and every
+    # rebuild runs the gap triple-check.
     t6 = time.time()
     try:
-        cen = json.loads((HERE / "data" / "census.json").read_text())["pools"]
-        targets = [(ch, r[0].lower()) for ch, rows in cen.items()
-                   for r in rows if isinstance(r, list) and r]
-        cutoff = time.time() - POOL_HIST_TTL
-        stale = []
-        for ch, a in targets:
-            f = POOL_HIST_DIR / f"{ch}_{a}.json"
-            try:
-                if f.stat().st_mtime >= cutoff:
-                    continue
-            except OSError:
-                pass
-            stale.append((ch, a))
-        if stale:
-            from concurrent.futures import ThreadPoolExecutor as _TPE
-            with _TPE(6) as ex:
-                list(ex.map(lambda t7: pool_hist(*t7), stale))
-        print(f"[ui] pool hist: warmed {len(stale)} of {len(targets)} "
+        n_stale, n_tot = _ph_warm_sweep()
+        print(f"[ui] pool hist: warmed {n_stale} of {n_tot} "
               f"pools in {time.time() - t6:.0f} s")
     except Exception as e:
         print(f"[ui] pool hist warm FAILED: {str(e)[:300]}")
@@ -1189,6 +1610,17 @@ def run_pipeline(params: dict) -> dict:
     # Replay of a real price history instead of the linear start->end ramp:
     # [[t_seconds_from_sim_start, spot], ...]. Routed engine only.
     price_path     = params.get("price_path", None)
+    # External oracle series [[t_seconds_from_sim_start, price], ...]
+    # replacing the venue-EMA (C++ routed engine only). Generic
+    # passthrough like price_path; research drivers build the series.
+    oracle_path    = params.get("oracle_path", None)
+    if oracle_path is not None:
+        try:
+            oracle_path = [[float(t), float(v)] for t, v in oracle_path]
+            if len(oracle_path) < 1:
+                raise ValueError("empty")
+        except Exception as e:
+            return {"error": f"bad oracle_path: {e}"}
     if pool_type not in ("cryptoswap", "stableswap", "stableswap-ng"):
         return {"error": f"unknown pool_type {pool_type!r}"}
     if price_path is not None:
@@ -1214,6 +1646,9 @@ def run_pipeline(params: dict) -> dict:
     legacy = bool(params.get("legacy", False))
     if legacy and params.get("price_path"):
         return {"error": "price_path replay needs the routed engine (legacy=false)"}
+    if oracle_path is not None and (legacy
+                                    or str(params.get("engine", "")) == "python"):
+        return {"error": "oracle_path needs the C++ routed engine"}
     ext_cap = params.get("ext_arb_cap_usd", None)   # None/absent = unlimited
     arb_gas = params.get("arb_gas", None)           # None = routed default
 
@@ -1348,6 +1783,13 @@ def run_pipeline(params: dict) -> dict:
             pp = SCRATCH / f"path_{tag}.json"      # via file: paths blow up argv
             pp.write_text(json.dumps(price_path))
             routed_cmd += ["--price-path", str(pp)]
+        if oracle_path is not None:
+            op = SCRATCH / f"oraclepath_{tag}.json"
+            op.write_text(json.dumps(oracle_path))
+            routed_cmd += ["--oracle-path", str(op)]
+            venue_note = (venue_note or "") + \
+                f" · external oracle path ({oracle_path[0][1]:.6f} -> " \
+                f"{oracle_path[-1][1]:.6f})"
         r = subprocess.run(routed_cmd, capture_output=True, text=True)
         try:
             PROGRESS_FILE.unlink()
@@ -1482,7 +1924,7 @@ class Handler(BaseHTTPRequestHandler):
     TAB_PATHS = ("home", "sim", "cleaning",
                  "bad-debt", "sldl", "util", "pegkeeper", "yb", "lp",
                  "pools", "llm", "lending-markets", "dao-revenue",
-                 "implementations", "impl", "seeding", "pool-sim",
+                 "implementations", "impl",
                  "map",
                  # legacy pre-rename paths still serve the page
                  "bad-debt-sim", "spring-cleaning", "s.l.-d.l.",
@@ -1646,6 +2088,11 @@ class Handler(BaseHTTPRequestHandler):
                 _http_json(self, 404, {"error": "run fetchers/fetch_oracles.py first"})
                 return
             _http_json(self, 200, json.loads(f.read_text()))
+            return
+        if self.path.startswith("/poolgaps"):
+            # gap triple-check summary: every cached pool's verdict,
+            # flagged entries listed (5-min memo)
+            _http_json(self, 200, pool_gaps())
             return
         if self.path in ("/cleanup", "/baddebt", "/lenders", "/lp", "/llm",
                          "/dao_revenue", "/impl"):
@@ -2294,6 +2741,9 @@ def main():
     threading.Thread(target=_refresher, daemon=True).start()
     threading.Thread(target=_pk_warm, daemon=True).start()
     threading.Thread(target=_kl_daily, daemon=True).start()
+    # one warm+gapcheck sweep right after boot, so a fresh deploy (or a
+    # long-stopped server) is page-visit-instant without waiting a cycle
+    threading.Thread(target=_ph_startup_sweep, daemon=True).start()
 
     # pre-warm the yb_ tab's default window so the first click is instant
     def _yb_warm():

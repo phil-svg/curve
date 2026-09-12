@@ -5,7 +5,8 @@ Everything comes from the Curve prices API (prices.curve.finance) — zero
 RPC. Per market (the LLV1/LLV2 set already in data/markets.json):
 
   - market row from /v1/lending/markets/{chain}: vault, gauge, monetary
-    policy, oracle + oracle_pools, created_at, current rates
+    policy, oracle + oracle_pools, created_at, current rates (entry.rates:
+    borrow_apr / lend_apr in percent, as the API reports them)
   - daily history from .../{controller}/snapshots?agg=day — backfilled to
     inception once (budgeted across runs), then topped up incrementally
   - borrowers from /v1/lending/users/{chain}/{controller}/users, filtered
@@ -491,6 +492,10 @@ def main() -> None:
                 "hist_days": len(ts_sorted),
                 "hist_complete": cst.get("done_to") == "done",
                 "timeline": timeline_from_days(days),
+                # live rates straight from the API row (percent) — the
+                # landing tiles show them; the market page has the history
+                "rates": {"borrow_apr": row.get("borrow_apr"),
+                          "lend_apr": row.get("lend_apr")},
             }
             entry["exit_pools"] = expools.get(key) or []
             entry["fee_tl"] = fee_tl.get(key)
