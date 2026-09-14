@@ -8081,6 +8081,21 @@ window.loadLpTab = async function () {
     const coinSym = k => (p && p.coins && p.coins[k] && p.coins[k].s)
       || (H.syms && H.syms[k]) || `coin ${k}`;
     let priceCoin = 0, curRange = "all";
+    // coin balances in token units (never USD): the tvl feed's per-coin
+    // balances on API chains; sidechain-archive files carry the raw
+    // integers plus decimals
+    const balOf = k => T.map((_, i) => {
+      const b = H.bal && H.bal[i];
+      if (b) return b[k] != null ? +b[k] : null;
+      const r = H._bal && H._bal[i];
+      if (r && H.decs && r[k] != null) return r[k] / 10 ** H.decs[k];
+      return null;
+    });
+    let nBal = 0;
+    for (const rows of [H.bal, H._bal])
+      for (const v of rows || [])
+        if (v != null) { nBal = Math.max(nBal, v.length); break; }
+    let balCoin = 0;
 
     // -- parameter boxes: what the DAO can and cannot change ------------
     const pRow = (k, v) => v == null ? "" : `
@@ -8238,6 +8253,27 @@ window.loadLpTab = async function () {
             snapshot — busy pools spend it as fast as it accrues and read
             as ~$0.">rebalancing budget</span>`,
           pSpark(t, cutS(series.budget), { money: true, color: "#ED7D31" }));
+      if (nBal > 0) {
+        const bal = cutS(balOf(balCoin));
+        if (bal.some(v => v != null)) {
+          const btns = nBal > 1
+            ? `<span class="seg" id="lp_bal_coins" style="flex:none">`
+              + Array.from({ length: nBal }, (_, k) =>
+                `<button type="button" data-k="${k}"${
+                  k === balCoin ? ' class="on"' : ""}>${
+                  esc(coinSym(k))}</button>`).join("") + `</span>`
+            : "";
+          const svg = pSpark(t, bal, { price: true, color: "#58a6ff" });
+          perf += `<div style="border:1px solid #21262d; border-radius:6px;
+              background:#0d1117; padding:8px 10px 4px">
+            <div style="display:flex; align-items:center; gap:8px;
+                margin:0 4px 2px">
+              <span style="font-size:12px; color:#e6edf3">balance — ${
+                esc(coinSym(balCoin))} in pool</span>
+              <span style="margin-left:auto; font-size:12px;
+                color:#8b949e">${pSpark.last}</span>${btns}</div>${svg}</div>`;
+        }
+      }
       let params = "";
       // one colour per parameter, like the lending-market param charts
       const step = (title, arr, color, opts) => {
@@ -8334,8 +8370,10 @@ window.loadLpTab = async function () {
     // every drawCharts, so the handler is delegated
     root.addEventListener("click", ev => {
       const b2 = ev.target.closest("#lp_px_coins button");
-      if (!b2) return;
-      priceCoin = +b2.dataset.k;
+      const b3 = ev.target.closest("#lp_bal_coins button");
+      if (b2) priceCoin = +b2.dataset.k;
+      else if (b3) balCoin = +b3.dataset.k;
+      else return;
       drawCharts(curRange);
     });
     pWireHover(root);

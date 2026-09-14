@@ -520,7 +520,10 @@ _PH_FIELDS = ["bapr", "vol", "fees", "tvl", "a", "gamma", "fee", "admin",
               # ng EMA times: on-chain only (no API field) — each build
               # stamps the impl-map probe onto its newest day, so a daily
               # change history accrues going forward
-              "maet", "dmat"]
+              "maet", "dmat",
+              # per-coin balances in token units (the tvl feed carries
+              # them next to tvl_usd); market state, never carried
+              "bal"]
 _PH_PARAMS = [("a", "a"), ("gamma", "gamma"), ("fee", "fee"),
               ("admin", "admin_fee"), ("offpeg", "offpeg_fee_multiplier"),
               ("mid", "mid_fee"), ("out", "out_fee"), ("fg", "fee_gamma"),
@@ -535,6 +538,19 @@ _PH_PARAMS = [("a", "a"), ("gamma", "gamma"), ("fee", "fee"),
 # API reported null (the API dropped price_scale/price_oracle for long
 # stretches, and carrying drew a fake flat price line)
 _PH_NOCARRY = {"pscale", "poracle"}
+
+
+def _ph_bal(v):
+    """tvl-feed balances: a JSON-encoded list of token-unit floats (or a
+    list already) -> list of floats, None when absent/unparseable."""
+    if v is None:
+        return None
+    try:
+        if isinstance(v, str):
+            v = json.loads(v)
+        return [None if x is None else float(x) for x in v]
+    except (ValueError, TypeError):
+        return None
 
 
 def _ph_build(chain: str, addr: str, cached: dict | None = None,
@@ -614,6 +630,7 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None,
         t_ = tv.get(d)
         if t_:
             row["tvl"] = t_.get("tvl_usd")
+            row["bal"] = _ph_bal(t_.get("balances"))
     days = sorted(d for d in rows if d >= full_start)
     if days:
         try:
