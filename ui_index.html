@@ -8027,6 +8027,24 @@ window.loadLpTab = async function () {
       astep: (H.astep || []).map(v => v == null ? null : v / 1e18),
       maht: H.maht || [],
       maet: H.maet || [], dmat: H.dmat || [],
+      // rebalancing budget (cryptoswap only): the pool moves price_scale
+      // only while  virtual_price − 1 > (xcp_profit − 1)/2 +
+      // allowed_extra_profit, and a repeg may not push LP value below
+      // that half-profit floor — so the gap between the two is exactly
+      // what the pool may still spend on repegs. × TVL puts it in USD.
+      // vp / xcp / aep are 1e18-scaled; aep is absent on old snapshots
+      // (it is ~1e-12..1e-6, so 0 is a fair stand-in there).
+      budget: T.map((_, i) => {
+        const vp = H.vp && H.vp[i], xp = H.xcp && H.xcp[i];
+        if (!isCrypto || vp == null || xp == null || H.tvl[i] == null)
+          return null;
+        const aep = (H.aep && H.aep[i]) || 0;
+        // a repeg may spend down to exactly −allowed_extra_profit (the
+        // start gate includes it, the commit check does not), so a hair
+        // below zero means "empty", not debt — draw it as empty
+        return Math.max(0,
+          ((vp - 1e18) - (xp - 1e18) / 2 - aep) / 1e18 * H.tvl[i]);
+      }),
     };
     // price_scale / price_oracle — per-coin arrays (coin k+1 priced in
     // coin 0), 1e18-scaled; ng stableswaps carry the oracle only.
@@ -8208,6 +8226,18 @@ window.loadLpTab = async function () {
                 color:#8b949e">${pSpark.last}</span>${btns}</div>${svg}</div>`;
         }
       }
+      // the repeg budget: half of accrued fee profit, spendable only on
+      // moving price_scale (inside swaps / one-sided deposits and
+      // withdrawals); it lives in the pool's own accounting, no wallet
+      if (series.budget.some(v => v != null))
+        perf += panel(`<span style="cursor:help" title="what the pool may
+            still spend on moving price_scale, in USD: (virtual_price − 1
+            − (xcp_profit − 1)/2 − allowed_extra_profit) × TVL. Refilled
+            by half of every fee; spent inside a swap or one-sided
+            deposit/withdrawal whenever the oracle has drifted. A daily
+            snapshot — busy pools spend it as fast as it accrues and read
+            as ~$0.">rebalancing budget</span>`,
+          pSpark(t, cutS(series.budget), { money: true, color: "#ED7D31" }));
       let params = "";
       // one colour per parameter, like the lending-market param charts
       const step = (title, arr, color, opts) => {
