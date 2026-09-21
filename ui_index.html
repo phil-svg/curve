@@ -7400,7 +7400,8 @@ window.loadLpTab = async function () {
   const LP_EXPLORER = { ethereum: "https://etherscan.io",
     base: "https://basescan.org", arbitrum: "https://arbiscan.io",
     optimism: "https://optimistic.etherscan.io",
-    fraxtal: "https://fraxscan.com", sonic: "https://sonicscan.org" };
+    fraxtal: "https://fraxscan.com", sonic: "https://sonicscan.org",
+    robinhood: "https://robin.etherscan.io" };
   const link = (a, ch, txt) => {
     const b = LP_EXPLORER[ch] || "https://etherscan.io";
     const t = txt || a;
@@ -7723,6 +7724,17 @@ window.loadLpTab = async function () {
   // DAO revenue from our own /dao_revenue by_pool (30d avg per day)
   // the maps are only kept once a fetch actually succeeded, so a click
   // before the pool list arrived (or a failed request) is retried
+  // pools on chains no Curve API covers: their list metrics come from the
+  // history the server reads from the chain (/sidemetrics), never over an
+  // API value
+  async function sideInto(map, key) {
+    try {
+      window.__lpSide = window.__lpSide
+        || await fetch("/sidemetrics").then(r => r.json());
+      for (const [k, v] of Object.entries(window.__lpSide))
+        if (map[k] == null && v[key] != null) map[k] = v[key];
+    } catch (_) { /* those rows keep their dash */ }
+  }
   async function ensureMetric(m) {
     if (m === "vol" && !window.__lpVols && lpCache && !ensureMetric.busy) {
       ensureMetric.busy = true;
@@ -7739,6 +7751,7 @@ window.loadLpTab = async function () {
           ok = true;
         } catch (_) { /* chain without volume data */ }
       }));
+      await sideInto(vols, "vol");
       ensureMetric.busy = false;
       if (ok) window.__lpVols = vols;
     }
@@ -7749,6 +7762,7 @@ window.loadLpTab = async function () {
         const bp = (j.sources && j.sources.pool_fees || {}).by_pool || {};
         const revs = {};
         for (const [k, v] of Object.entries(bp)) revs[k] = (v.d30 || 0) / 30;
+        await sideInto(revs, "rev");
         window.__lpRevs = revs;
       } catch (_) { /* keep dashes, retried on the next render */ }
       ensureMetric.busy = false;
@@ -7809,7 +7823,8 @@ window.loadLpTab = async function () {
     base: "https://basescan.org", polygon: "https://polygonscan.com",
     fraxtal: "https://fraxscan.com", sonic: "https://sonicscan.org",
     bsc: "https://bscscan.com", avalanche: "https://snowscan.xyz",
-    xdai: "https://gnosisscan.io", fantom: "https://ftmscan.com" };
+    xdai: "https://gnosisscan.io", fantom: "https://ftmscan.com",
+    robinhood: "https://robin.etherscan.io" };
   const pMON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
                 "Sep", "Oct", "Nov", "Dec"];
   const pNum = v => v == null ? "—"
@@ -7829,6 +7844,16 @@ window.loadLpTab = async function () {
       if (vals[i] != null && isFinite(vals[i])) { xs.push(t[i]); ys.push(+vals[i]);
         es.push(extra && extra.vals[i] != null && isFinite(extra.vals[i])
           ? +extra.vals[i] : null); }
+    if (xs.length === 1) {
+      // a pool's first day: one value cannot make a line, so it is said
+      const v = ys[0], dd = new Date(xs[0] * 1000);
+      const txt = pct ? v.toFixed(Math.abs(v) < 10 ? 2 : 1) + "%"
+        : money ? (Math.abs(v) < 1000 ? "$" + v.toFixed(2) : usd(v))
+        : pNum(v);
+      pSpark.last = "";
+      return `<div class="note">one day so far (${pMON[dd.getUTCMonth()]} ${
+        dd.getUTCDate()}): <b style="color:#e6edf3">${txt}</b></div>`;
+    }
     if (xs.length < 2) { pSpark.last = "";
       return `<div class="note">no history in this window</div>`; }
     const W = w, H = h, L = 58, R = 12, T = 16, B = 22;
@@ -8222,11 +8247,12 @@ window.loadLpTab = async function () {
     };
     const e18 = v => v == null || !+v ? null : plainDec(v / 1e18);
     if (isCrypto) {
-      // ng-generation cryptos report ma_time (= half-life / ln 2, on
-      // chain only); the older ones report ma_half_time via the API
+      // both generations report a HALF-LIFE: the ng getter ma_time()
+      // returns the stored EMA time x 694/1000 (865 s stored -> 600),
+      // the older ones expose ma_half_time. The EMA time is shown with it.
       const maRow = oc.ma_time != null
-        ? pRow("ma_time", secs(oc.ma_time) + " (" +
-            secs(oc.ma_time * Math.LN2) + " half-life)")
+        ? pRow("ma half time", secs(oc.ma_time) + " (EMA time " +
+            secs(Math.round(oc.ma_time / 0.694)) + ")")
         : pRow("ma half time", secs(last.maht));
       dao = pRow("A (ramp)", pNum(last.a))
         + pRow("gamma (ramp)", e18(last.gamma))
@@ -8394,8 +8420,7 @@ window.loadLpTab = async function () {
           + step("fee gamma", series.fg, "#A78BFA")
           + step("allowed extra profit", series.aep, "#e3b341")
           + step("adjustment step", series.astep, "#DB61A2")
-          + step(oc.ma_time != null ? "ma time (s)" : "ma half time (s)",
-                 series.maht, "#3FB950");
+          + step("ma half time (s)", series.maht, "#3FB950");
       } else {
         params = step("A", series.A, "#58a6ff")
           + step("fee %", series.fee, "#ED7D31", { pct: true })
@@ -8958,7 +8983,8 @@ window.loadImplTab = async function loadImplTab() {
     base: "https://basescan.org", fraxtal: "https://fraxscan.com",
     sonic: "https://sonicscan.org", bsc: "https://bscscan.com",
     polygon: "https://polygonscan.com", gnosis: "https://gnosisscan.io",
-    fantom: "https://ftmscan.com", xdai: "https://gnosisscan.io" };
+    fantom: "https://ftmscan.com", xdai: "https://gnosisscan.io",
+    robinhood: "https://robin.etherscan.io" };
   const scan = (ch, a) => (SCAN[ch] || SCAN.ethereum) + "/address/" + a;
   const short = a => a ? a.slice(0, 8) + "…" + a.slice(-4) : "—";
 

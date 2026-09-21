@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Daily pool history for chains the prices API does not cover
-(fantom, avalanche, celo, x-layer — kava deliberately skipped).
+(fantom, avalanche, celo, x-layer, robinhood — kava deliberately skipped).
 
 Everything is derived from one archive read per pool per day, JSON-RPC
 batched. The RAW state is what gets stored (balances, virtual_price,
@@ -10,7 +10,9 @@ a price-table or formula fix heals the whole history instead of only the
 days appended afterwards:
   - TVL        balances x coin USD price (stables at $1; BTC/ETH legs
                priced from our own 2y daily closes; LP-token legs at the
-               tracked base pool's own virtual_price)
+               tracked base pool's own virtual_price; any other leg of a
+               crypto pool whose coin 0 is priced, at the pool's own
+               price_oracle against coin 0 — tokenized stocks, say)
   - fees/day   from cumulative accumulators, credited to the day the
                activity happened (delta between that day's 00:00 UTC
                block and the next):
@@ -21,6 +23,17 @@ days appended afterwards:
                lending pools (aave/geist): d(admin_balances) / admin_share
                (their vp also carries lending interest, so vp is unusable)
   - volume     fees / fee_rate (estimate — no cumulative counter on-chain)
+  - on LOG_CHAINS (providers that answer wide getLogs cheaply) nothing is
+               implied: volume is the sum of the pool's own TokenExchange
+               events, a crypto-ng pool's fees are the `fee` field of those
+               events, a stableswap-ng pool's fees are the growth of its
+               admin_balances / admin share, plus what it paid out to the
+               fee receiver that day (ng pools pay out on every liquidity
+               removal, which resets the counter; its virtual_price is not
+               used, it also carries the rate growth of a wrapped leg),
+               and a stableswap-ng leg without a price of its own is priced
+               through the pool: stored_rates x price_oracle against a
+               priced leg. Raw token sums are stored, like everything else.
   - params     A/fee/admin/offpeg + crypto knobs, sampled weekly in the
                backfill and daily going forward (governance-set, slow)
 
@@ -51,14 +64,14 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE / "pylib"))
 sys.path.insert(0, str(HERE / "fetchers"))
-from common import sel  # noqa: E402
+from common import sel, keccak256  # noqa: E402
 from fetch_markets import Rpc  # noqa: E402
 
 OUT_DIR = HERE / "data" / "pool_hist"
 DAY = 86400
 BACK_DAYS = 730
 CHAINS = tuple(c for c in os.environ.get(
-    "SIDE_CHAINS", "fantom,avalanche,celo,x-layer").split(",") if c)
+    "SIDE_CHAINS", "fantom,avalanche,celo,x-layer,robinhood").split(",") if c)
 # the ui_server this script runs beside (px fallback); the server exports
 # its port so a non-default --port still works
 SERVER = f"http://127.0.0.1:{os.environ.get('CURVE_SIM_PORT', '8765')}"
@@ -87,6 +100,28 @@ ETH_SYMS = {"weth", "eth", "weth.e", "aveth", "avweth", "geth", "gweth"}
 # legs that are worthless for the whole tracked window (post-depeg UST):
 # priced at zero rather than leaving the pool's TVL unknown
 DEAD_SYMS = {"ust": 0.0}
+# cryptoswap families. The ng builds name two getters differently: the admin
+# fee is the constant ADMIN_FEE(), the oracle's MA half time is ma_time().
+CRYPTO_OLD = ("tricrypto2", "crypto2")
+CRYPTO_NG = ("tricrypto_ng", "twocrypto")
+# chains whose providers answer a wide getLogs cheaply: volume and swap fees
+# are summed from the pools' own swap events there
+LOG_CHAINS = {"robinhood"}
+T_SWAP_NG = "0x" + keccak256(
+    b"TokenExchange(address,int128,uint256,int128,uint256)").hex()
+T_SWAP_CRYPTO_NG = "0x" + keccak256(
+    b"TokenExchange(address,uint256,uint256,uint256,uint256,uint256,uint256)"
+).hex()
+T_TRANSFER = "0x" + keccak256(b"Transfer(address,address,uint256)").hex()
+LOG_QUERY_BUDGET = 48   # getLogs requests one pool may cost per run
+# stableswap-ng factory per LOG chain: its fee_receiver() is where a pool's
+# admin fees are paid out to
+NG_FACTORY = {"robinhood": "0x8271e06E5887FE5ba05234f5315c19f3Ec90E8aD"}
+# raw per-day state kept in the file next to the served columns
+RAW_KEYS = ("_bal", "_adm", "_xcpa", "_blk", "_ts",
+            "_rates", "_swn", "_swsold", "_swfee", "_admout")
+# providers that cap a JSON-RPC batch (host fragment -> calls per batch)
+BATCH_CAP = {"drpc.org": 3}
 # LP tokens priced at their pool's virtual price (token addr -> pool addr)
 LP_TOKENS = {
     "0x1337bedc9d22ecbe766df105c9623922a27963ec":      # av3CRV
@@ -165,7 +200,17 @@ class Chain:
             shrink = False
             for url in self.urls:
                 try:
-                    res = http_json(url, payload)
+                    cap = next((n for host, n in BATCH_CAP.items()
+                                if host in url), 0)
+                    if cap and len(payload) > cap:
+                        res = []
+                        for j in range(0, len(payload), cap):
+                            part = http_json(url, payload[j:j + cap])
+                            if not isinstance(part, list):
+                                raise RuntimeError("batch slice rejected")
+                            res += part
+                    else:
+                        res = http_json(url, payload)
                 except Exception:  # noqa: BLE001
                     self.bad.add(url)
                     continue
@@ -184,6 +229,11 @@ class Chain:
                 if len(vals) > len(best):
                     best = vals
                 if len(best) == len(chunk):
+                    # it has the state the others lacked: ask it first from
+                    # here on (a chain's own endpoint is often not archive)
+                    if url != self.rpc.urls[0]:
+                        self.rpc.urls = [url] + [u for u in self.rpc.urls
+                                                 if u != url]
                     break
             if shrink and not best and self.chunk > 5:
                 self.chunk = max(5, self.chunk // 2)
@@ -422,6 +472,37 @@ def price_of(sym: str, day: int, coin_addr: str, btc: dict, eth: dict,
     return None
 
 
+def coin_prices(r: dict, p: dict, d: int, btc: dict, eth: dict,
+                lp_vp: dict[str, dict[int, float]]) -> list:
+    """USD price per coin on day d (None where unknown). A leg without a
+    price of its own is priced through the pool against a priced leg: a
+    crypto pool by its price_oracle against coin 0; on LOG_CHAINS a
+    stableswap-ng pool by stored_rates x price_oracle (its oracle is in
+    rate-scaled units, so a wrapped leg needs its rate)."""
+    n = len(p["coins"])
+    px = [price_of(p["sym"][k], d, p["coins"][k].lower(), btc, eth, lp_vp)
+          for k in range(n)]
+    if all(x is not None for x in px):
+        return px
+    if p["crypto"]:
+        own = r.get("poracle") or r.get("pscale") or []
+        if px[0] is not None:
+            for k in range(1, n):
+                if px[k] is None and len(own) >= k and own[k - 1]:
+                    px[k] = px[0] * own[k - 1] / 1e18
+    elif p["ng"] and p.get("logs"):
+        rates, po = r.get("_rates") or [], r.get("poracle") or []
+        if len(rates) == n and all(rates) and len(po) == n - 1 and all(po):
+            # one whole token in the pool's scaled units, and its value in coin-0 units
+            worth = [rates[k] * 10 ** p["dec"][k] / 1e36 * s
+                     for k, s in enumerate([1e18] + list(po))]
+            a = next((k for k in range(n) if px[k] is not None), None)
+            if a is not None and worth[a] > 0:
+                px = [px[k] if px[k] is not None
+                      else px[a] * worth[k] / worth[a] for k in range(n)]
+    return px
+
+
 def decode_symbol(sres) -> str:
     if not isinstance(sres, str) or sres == "0x":
         return ""
@@ -449,8 +530,7 @@ def load_cached(f: Path) -> dict | None:
 
 def rows_from_cache(c: dict) -> dict[int, dict]:
     n = len(c["t"])
-    extra = {k: c.get(k) or [None] * n
-             for k in ("_bal", "_adm", "_xcpa", "_blk", "_ts")}
+    extra = {k: c.get(k) or [None] * n for k in RAW_KEYS}
     rows = {}
     for i, d in enumerate(c["t"]):
         r = {k: (c.get(k) or [None] * n)[i] for k in PH_FIELDS}
@@ -473,15 +553,9 @@ def derive(all_rows: dict[int, dict], p: dict, btc: dict, eth: dict,
         bals = r.get("_bal")
         if not bals or len(bals) != n or any(b is None for b in bals):
             continue
-        tvl = 0.0
-        for k in range(n):
-            px = price_of(p["sym"][k], d, p["coins"][k].lower(), btc, eth,
-                          lp_vp)
-            if px is None:
-                tvl = None
-                break
-            tvl += bals[k] / 10 ** p["dec"][k] * px
-        r["tvl"] = tvl
+        px = r["_px"] = coin_prices(r, p, d, btc, eth, lp_vp)
+        r["tvl"] = None if any(x is None for x in px) else sum(
+            bals[k] / 10 ** p["dec"][k] * px[k] for k in range(n))
     # value share of LP-token legs (metapool correction)
     lp_legs = [(k, LP_TOKENS.get(p["coins"][k].lower(), p["coins"][k].lower()))
                for k in range(n)
@@ -496,7 +570,10 @@ def derive(all_rows: dict[int, dict], p: dict, btc: dict, eth: dict,
         tvl = r0.get("tvl")
         adm_share = (r0.get("admin") or 5e9) / 1e10
         fees = None
-        if lending:
+        ng_fees = ng_day_fees(r0, r1.get("_adm"), p, adm_share)
+        if ng_fees is not None:
+            fees = ng_fees * span           # per-day below, like the rest
+        elif lending:
             a0, a1 = r0.get("_adm"), r1.get("_adm")
             if a0 and a1 and all(x is not None for x in a0 + a1):
                 dadm = sum(max(0, x1 - x0) / 10 ** dec for x0, x1,
@@ -534,7 +611,109 @@ def derive(all_rows: dict[int, dict], p: dict, btc: dict, eth: dict,
         r0["fees"] = fees
         fr = (r0.get("fee") or 0) / 1e10
         r0["vol"] = fees / fr if fees and fr else None
+    if p.get("logs"):
+        # the open day of a stableswap-ng pool closes against the head
+        if ds and p.get("_adm_head"):
+            r = all_rows[ds[-1]]
+            f = ng_day_fees(r, p["_adm_head"], p,
+                            (r.get("admin") or 5e9) / 1e10)
+            if f is not None:
+                r["fees"] = f
+        # summed from the pool's swap events (scan_swaps): the newest row
+        # holds its day so far
+        for d in ds:
+            r = all_rows[d]
+            px, sold, fee = r.get("_px"), r.get("_swsold"), r.get("_swfee")
+            if r.get("_swn") is None or not px or not sold:
+                continue
+            usd = lambda raw: None if any(a and x is None for a, x in  # noqa: E731
+                                          zip(raw, px)) else sum(
+                a / 10 ** dec * x for a, dec, x in zip(raw, p["dec"], px) if a)
+            r["vol"] = usd(sold)
+            if p.get("crypto_ng") and fee:
+                r["fees"] = usd(fee)
     return ds
+
+
+def ng_day_fees(r0: dict, adm1, p: dict, adm_share: float):
+    """Fees a stableswap-ng pool charged from row r0 to the state adm1, in
+    USD, or None when a piece is missing. Per coin the pool sets exactly
+    admin share x fee aside in admin_balances and pays it out to the fee
+    receiver now and then, so: (growth of the counter + paid out) / share."""
+    if not (p.get("logs") and p["ng"] and adm_share):
+        return None
+    a0, out, px = r0.get("_adm"), r0.get("_admout"), r0.get("_px")
+    if not a0 or not adm1 or out is None or not px \
+            or any(x is None for x in list(a0) + list(adm1) + list(px)):
+        return None
+    got = sum((x1 - x0 + w) / 10 ** dec * q for x0, x1, w, dec, q
+              in zip(a0, adm1, out, p["dec"], px))
+    return max(0.0, got) / adm_share
+
+
+def get_logs(ch: Chain, addr: str, frm: int, to: int, topics: list,
+             budget: list[int]) -> list:
+    """One getLogs over [frm, to], halved where a provider refuses the span."""
+    if budget[0] <= 0:
+        raise RuntimeError("log query budget spent")
+    budget[0] -= 1
+    try:
+        return ch.rpc.raw("eth_getLogs", [{
+            "address": addr, "topics": topics,
+            "fromBlock": hex(frm), "toBlock": hex(to)}])
+    except Exception:  # noqa: BLE001
+        if to - frm < 2000:
+            raise
+        mid = (frm + to) // 2
+        return get_logs(ch, addr, frm, mid, topics, budget) \
+            + get_logs(ch, addr, mid + 1, to, topics, budget)
+
+
+def scan_swaps(ch: Chain, p: dict, all_rows: dict[int, dict]) -> int:
+    """Per-day raw sums of the pool's TokenExchange events: tokens sold per
+    coin, fee per coin (crypto-ng events carry it, in the bought coin), and
+    the swap count. A day runs from its 00:00 block to the next row's; days
+    summed on an earlier run are final, the newest row is re-summed up to
+    the head every time. Returns the number of swaps read."""
+    import bisect
+    ds = sorted(d for d in all_rows if all_rows[d].get("_blk"))
+    if not ds:
+        return 0
+    first = next((d for d in ds if all_rows[d].get("_swn") is None), ds[-1])
+    todo = [d for d in ds if d >= first]
+    starts = [all_rows[d]["_blk"] for d in todo]
+    logs = get_logs(ch, p["addr"], starts[0], ch.head_n,
+                    [[T_SWAP_NG, T_SWAP_CRYPTO_NG]], [LOG_QUERY_BUDGET])
+    n = len(p["coins"])
+    acc = {d: [0, [0] * n, [0] * n] for d in todo}
+    for lg in logs:
+        i = bisect.bisect_right(starts, int(lg["blockNumber"], 16)) - 1
+        w = [int(lg["data"][2 + j * 64: 66 + j * 64], 16)
+             for j in range((len(lg["data"]) - 2) // 64)]
+        if i < 0 or len(w) < 4 or w[0] >= n or w[2] >= n:
+            continue
+        a = acc[todo[i]]
+        a[0] += 1
+        a[1][w[0]] += w[1]                       # tokens_sold, in the sold coin
+        if lg["topics"][0] == T_SWAP_CRYPTO_NG and len(w) >= 5:
+            a[2][w[2]] += w[4]                   # fee, in the bought coin
+    # what a stableswap-ng pool paid out to the fee receiver, per coin
+    paid = {d: [0] * n for d in todo}
+    if p["ng"] and p.get("fee_receiver"):
+        pad = lambda a: "0x" + "0" * 24 + a[2:].lower()  # noqa: E731
+        for k, coin in enumerate(p["coins"]):
+            for lg in get_logs(ch, coin, starts[0], ch.head_n,
+                               [T_TRANSFER, pad(p["addr"]),
+                                pad(p["fee_receiver"])], [LOG_QUERY_BUDGET]):
+                i = bisect.bisect_right(starts, int(lg["blockNumber"], 16)) - 1
+                if i >= 0:
+                    paid[todo[i]][k] += int(lg["data"], 16)
+    for d in todo:
+        all_rows[d]["_swn"], all_rows[d]["_swsold"], all_rows[d]["_swfee"] \
+            = acc[d]
+        all_rows[d]["_admout"] = paid[d] if p["ng"] and p.get("fee_receiver") \
+            else None
+    return len(logs)
 
 
 def px_calls(p: dict) -> list[tuple[str, str]]:
@@ -590,6 +769,7 @@ def process_pool(ch: Chain, ch_name: str, p: dict, now_day: int,
     days.sort()
     n = len(p["coins"])
     crypto, lending, ng = p["crypto"], p["lending"], p["ng"]
+    ng_state = bool(p.get("logs") and ng)      # rates + admin balances too
     if days and created is None:
         created = ch.creation_day(p["addr"])
         if created is None:
@@ -615,14 +795,17 @@ def process_pool(ch: Chain, ch_name: str, p: dict, now_day: int,
                 day_calls += [("xcp", sel("xcp_profit()")),
                               ("xcpa", sel("xcp_profit_a()"))]
             day_calls += px_calls(p)
-            if lending:
+            if ng_state:
+                day_calls.append(("rates", sel("stored_rates()")))
+            if lending or ng_state:
                 day_calls += [(f"adm{k}", sel("admin_balances(uint256)")
                                + hex(k)[2:].rjust(64, "0"))
                               for k in range(n)]
             if i % 7 == 0 or d == days[-1] or d not in have:
                 # weekly on the backfill grid, every appended day after
                 day_calls += [("A", sel("A()")), ("fee", sel("fee()")),
-                              ("admin", sel("admin_fee()"))]
+                              ("admin", sel("ADMIN_FEE()" if p["crypto_ng"]
+                                            else "admin_fee()"))]
                 if ng:
                     day_calls.append(("offpeg",
                                       sel("offpeg_fee_multiplier()")))
@@ -633,14 +816,17 @@ def process_pool(ch: Chain, ch_name: str, p: dict, now_day: int,
                                   ("fg", sel("fee_gamma()")),
                                   ("aep", sel("allowed_extra_profit()")),
                                   ("astep", sel("adjustment_step()")),
-                                  ("maht", sel("ma_half_time()"))]
+                                  ("maht", sel("ma_time()" if p["crypto_ng"]
+                                               else "ma_half_time()"))]
             for tag, data in day_calls:
                 calls.append(("eth_call", [{"to": p["addr"], "data": data}, bb]))
                 layout.append((d, tag))
         res = ch.batch(calls)
         per_day: dict[int, dict] = {d: {} for d in days}
         for (d, tag), r in zip(layout, res):
-            per_day[d][tag] = word(r)
+            # stored_rates() answers a dynamic array: offset, length, values
+            per_day[d][tag] = [word(r, 2 + k) for k in range(n)] \
+                if tag == "rates" else word(r)
 
         # params carry forward from the newest cached row
         last_p: dict[str, int | None] = {}
@@ -673,7 +859,9 @@ def process_pool(ch: Chain, ch_name: str, p: dict, now_day: int,
             row["_xcpa"] = g.get("xcpa")
             row["pscale"], row["poracle"] = px_rows_of(g, p)
             row["_bal"] = bals
-            row["_adm"] = [g.get(f"adm{k}") for k in range(n)] if lending else None
+            row["_adm"] = [g.get(f"adm{k}") for k in range(n)] \
+                if lending or ng_state else None
+            row["_rates"] = g.get("rates") if ng_state else None
             row["_blk"], row["_ts"] = blocks[d]
             all_rows[d] = row
             n_ok += 1
@@ -708,12 +896,27 @@ def process_pool(ch: Chain, ch_name: str, p: dict, now_day: int,
     if not all_rows:
         print(f"[side] {ch_name} {p['name'][:28]:28s} no data yet", flush=True)
         return
+    n_sw = None
+    if p.get("logs"):
+        if ng_state:
+            head = ch.batch([("eth_call", [{"to": p["addr"], "data":
+                              sel("admin_balances(uint256)")
+                              + hex(k)[2:].rjust(64, "0")}, "latest"])
+                             for k in range(n)])
+            adm = [word(x) for x in head]
+            p["_adm_head"] = adm if all(x is not None for x in adm) else None
+        try:
+            n_sw = scan_swaps(ch, p, all_rows)
+        except Exception as e:  # noqa: BLE001
+            # volume stays unknown for the days not summed yet: retried
+            print(f"[side] {ch_name} {p['name'][:28]:28s} swap events not "
+                  f"read ({str(e)[:60]})", flush=True)
     ds = derive(all_rows, p, btc, eth, lp_vp)
     out = {"fetched_at": int(time.time()), "chain": ch_name,
            "address": p["addr"], "walkfix": 1, "sidechain": 1,
            "created": created, "syms": p["sym"], "decs": p["dec"],
            "impl": p["impl"], "t": ds}
-    for k in PH_FIELDS + ["_bal", "_adm", "_xcpa", "_blk", "_ts"]:
+    for k in PH_FIELDS + list(RAW_KEYS):
         out[k] = [all_rows[d].get(k) for d in ds]
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     tmp = f.with_suffix(".json.tmp")
@@ -724,7 +927,9 @@ def process_pool(ch: Chain, ch_name: str, p: dict, now_day: int,
     n_tvl = sum(1 for d in ds if all_rows[d].get("tvl") is not None)
     print(f"[side] {ch_name} {p['name'][:28]:28s} +{n_ok} days"
           f"{f' ({n_skip} unresolved, retry next run)' if n_skip else ''}"
-          f" ({len(ds)} total, tvl on {n_tvl})", flush=True)
+          f" ({len(ds)} total, tvl on {n_tvl})"
+          f"{f', {n_sw} swap events read' if n_sw is not None else ''}",
+          flush=True)
 
 
 def main() -> None:
@@ -758,13 +963,31 @@ def main() -> None:
             print(f"[side] {ch_name}: no provider answers ({str(e)[:80]})",
                   flush=True)
             continue
+        fee_receiver = None
+        if ch_name in NG_FACTORY:
+            try:
+                got = ch.rpc.call(NG_FACTORY[ch_name], sel("fee_receiver()"))
+                if got and int(got, 16):
+                    fee_receiver = "0x" + got[-40:]
+            except Exception:  # noqa: BLE001
+                fee_receiver = None
         pools = []
         for r in rows_cen:
             addr = r[0].lower()
             impl = (imap.get(f"{ch_name}:{addr}") or {}).get("impl", "")
+            if not impl:
+                # a pool the implementation map has not classified yet (it
+                # runs after this script): which reads make up a day depends
+                # on the family, so its history starts on the next cycle
+                print(f"[side] {ch_name} {r[1][:28]:28s} not classified "
+                      "yet — next cycle", flush=True)
+                continue
             pools.append({"addr": addr, "name": r[1], "coins": r[3],
                           "impl": impl,
-                          "crypto": impl in ("tricrypto2", "crypto2"),
+                          "crypto": impl in CRYPTO_OLD + CRYPTO_NG,
+                          "crypto_ng": impl in CRYPTO_NG,
+                          "logs": ch_name in LOG_CHAINS,
+                          "fee_receiver": fee_receiver,
                           "lending": impl == "lending_underlying"
                           or addr in REBASING_POOLS,
                           "ng": impl in ("stableswap_ng", "meta_ng")})

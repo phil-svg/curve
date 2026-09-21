@@ -66,6 +66,12 @@ CHAIN_RPCS = {
     "kava":     ["https://evm.kava.io", "https://kava-evm-rpc.publicnode.com"],
     "x-layer":  ["https://rpc.xlayer.tech", "https://xlayerrpc.okx.com"],
     "hyperliquid": ["https://rpc.hyperliquid.xyz/evm"],
+    # Robinhood Chain (4663). The chain's own endpoint answers latest reads
+    # and whole-chain getLogs but keeps no historical state; the two after
+    # it do (drpc's free plan caps a JSON-RPC batch at 3 calls).
+    "robinhood": ["https://rpc.mainnet.chain.robinhood.com",
+                  "https://rpc.ordofi.network", "https://robinhood.drpc.org",
+                  "https://robinhood-rpc.publicnode.com"],
 }
 
 # Dwellir per-chain endpoints (verified against the account 2026-08-27):

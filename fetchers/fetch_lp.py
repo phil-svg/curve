@@ -63,6 +63,14 @@ def write_state(st: dict) -> None:
 OUT = HERE / "data" / "lp.json"
 CVX_SEED = HERE / "data" / "convex_stakers_seed.json"
 MIN_TVL = 100_000       # track every pool at or above this TVL
+# chains the main Curve API does not list: their registries are served by
+# the core API (Curve's light deployments), same getPools shape, no volumes
+CORE_API = "https://api-core.curve.finance/v1"
+CORE_CHAINS = ("robinhood",)
+# pools tracked whatever their TVL, because they were asked for by name
+PINNED_POOLS = {
+    ("robinhood", "0xec79c414c5f3fad8e1f8eee1af0a866a31ccf2c6"),   # SP-NVDA
+}
 MIN_VOL = 100_000       # ...or with daily volume at or above this
 MAX_POOLS = 400         # hard safety cap
 LIST_N = 60             # rows kept per pool in lp.json
@@ -206,13 +214,21 @@ def top_pools() -> list[dict]:
                     pools.append((p.get("usdTotal") or 0, ch, p))
         except Exception:
             pass
+    for ch in CORE_CHAINS:
+        try:
+            for p in http(f"{CORE_API}/getPools/all/{ch}")["data"]["poolData"]:
+                if p.get("usdTotal") or (ch, p["address"].lower()) in PINNED_POOLS:
+                    pools.append((p.get("usdTotal") or 0, ch, p))
+        except Exception:
+            pass
     pools.sort(key=lambda x: -x[0])
     vol_of = lambda ch, p: vols.get((ch, p["address"].lower()), 0)
     # slim census for the LLM tab's exit-liquidity join (>= $25k TVL,
     # or active enough that its LP pie matters regardless of TVL)
     census: dict = {}
     for tvl, ch, p in pools:
-        if tvl < 25_000 and vol_of(ch, p) < MIN_VOL:
+        if tvl < 25_000 and vol_of(ch, p) < MIN_VOL \
+                and (ch, p["address"].lower()) not in PINNED_POOLS:
             continue
         census.setdefault(ch, []).append(
             [p["address"].lower(), p.get("name") or p.get("symbol") or "",
@@ -226,7 +242,7 @@ def top_pools() -> list[dict]:
     pools_kept = [p for p in pools if p[0] >= MIN_TVL
                   or vol_of(p[1], p[2]) >= MIN_VOL][:MAX_POOLS]
     # oracle-read + venue pools ride along below the TVL cutoff
-    must = oracle_pools()
+    must = {**oracle_pools(), **{k: "" for k in PINNED_POOLS}}
     kept_keys = {(ch, p["address"].lower()) for _t, ch, p in pools_kept}
     for tvl, ch, p in pools:
         k = (ch, p["address"].lower())

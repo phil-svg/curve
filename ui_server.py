@@ -670,7 +670,7 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None,
 # chains whose history is built by fetchers/fetch_sidechain_hist.py from
 # archive RPC state — the prices API has no data for them, so the API
 # rebuild below must never touch their files
-SIDE_HIST_CHAINS = {"fantom", "avalanche", "celo", "x-layer"}
+SIDE_HIST_CHAINS = {"fantom", "avalanche", "celo", "x-layer", "robinhood"}
 
 
 # -- request-path policy ------------------------------------------------
@@ -1036,6 +1036,39 @@ def pool_hist(chain: str, addr: str) -> dict:
             _ph_bg(chain, addr)     # refresh behind the response
         return cached               # a visit never waits on upstream
     return _ph_refresh(chain, addr)      # first-ever visit of a pool
+
+
+def side_metrics() -> dict:
+    """List metrics of the pools whose history is read from the chain
+    (SIDE_HIST_CHAINS), which no Curve API serves: DAO revenue per day
+    (fees x admin share, mean of the last 30 days on record) and, only
+    where it was summed from the pool's own swap events, the volume of the
+    last complete day (the open day when there is no other)."""
+    out: dict = {}
+    for f in POOL_HIST_DIR.glob("*.json"):
+        ch, _, a = f.stem.partition("_")
+        if ch not in SIDE_HIST_CHAINS or not a.startswith("0x"):
+            continue
+        try:
+            c = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        if c.get("sidechain") != 1:
+            continue
+        n = len(c.get("t") or [])
+        col = lambda k: c.get(k) or [None] * n  # noqa: E731
+        revs = [x * y / 1e10 for x, y in zip(col("fees"), col("admin"))
+                if x is not None and y is not None][-30:]
+        vols = [v for v, k in zip(col("vol"), col("_swn"))
+                if v is not None and k is not None]
+        m = {}
+        if revs:
+            m["rev"] = sum(revs) / len(revs)
+        if vols:
+            m["vol"] = vols[-2] if len(vols) > 1 else vols[-1]
+        if m:
+            out[f"{ch}:{a}"] = m
+    return out
 
 
 def _ph_universe() -> list[tuple[str, str]]:
@@ -2206,6 +2239,9 @@ class Handler(BaseHTTPRequestHandler):
                                                 "refresh cycle writes it"})
                 return
             _http_json(self, 200, json.loads(f.read_text()))
+            return
+        if self.path == "/sidemetrics":
+            _http_json(self, 200, side_metrics())
             return
         if self.path.startswith("/poolhist"):
             # 2y daily pool history, cached server-side — ?m=chain:0xpool
