@@ -1085,7 +1085,7 @@
   <div id="lp_controls" style="position:relative; display:flex;
               justify-content:center; align-items:center; margin-bottom:14px">
     <input id="lp_search" type="text" spellcheck="false"
-           placeholder="search — name / pool / coin / LP"
+           placeholder="search — name / pool / coin / LP / chain"
            title="matches pool names and addresses, coin symbols / names / addresses, and LP wallet addresses or labels"
            style="width:min(620px, 55vw); min-width:240px; padding:7px 10px;
                   background:#0d1117; color:#e6edf3; border:1px solid #30363d;
@@ -7582,16 +7582,26 @@ window.loadLpTab = async function () {
     // free text matches at word starts only (holder labels, coin names):
     // a substring match let "tri" list every pool whose LP is the
     // "fee distributor"; pool names and coin symbols still match anywhere
-    const wordHit = t => String(t || "").toLowerCase()
-      .split(/[^a-z0-9]+/).some(w => w && w.startsWith(q));
-    const hit = p.top.find(r => r.addr.startsWith(q)
-      || wordHit(r.label || r.tag));
-    const meta = p.label.toLowerCase().includes(q)
-      || (p.pool || "").startsWith(q)
-      || (p.coins || []).some(c => (c.a || "").startsWith(q)
-          || (c.s || "").toLowerCase().includes(q)
-          || wordHit(c.n));
-    return { show: !!(hit || meta), hl: hit ? hit.addr : null };
+    // the chain matches by the start of its name ("robin", "arbitrum").
+    // Several words narrow the list: every one has to match something
+    // ("arbitrum crvusd"); the holder to highlight is the first one hit.
+    const chain = (p.chain || "").toLowerCase();
+    let hl = null;
+    for (const w1 of q.split(/\s+/)) {
+      const wordHit = t => String(t || "").toLowerCase()
+        .split(/[^a-z0-9]+/).some(w => w && w.startsWith(w1));
+      const hit = p.top.find(r => r.addr.startsWith(w1)
+        || wordHit(r.label || r.tag));
+      const meta = p.label.toLowerCase().includes(w1)
+        || chain.startsWith(w1)
+        || (p.pool || "").startsWith(w1)
+        || (p.coins || []).some(c => (c.a || "").startsWith(w1)
+            || (c.s || "").toLowerCase().includes(w1)
+            || wordHit(c.n));
+      if (!hit && !meta) return { show: false, hl: null };
+      if (hit && !hl) hl = hit.addr;
+    }
+    return { show: true, hl };
   }
 
   // LP-distribution card for ONE pool (pie + legend + copy-JSON) — used

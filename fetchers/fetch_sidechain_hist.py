@@ -766,6 +766,14 @@ def process_pool(ch: Chain, ch_name: str, p: dict, now_day: int,
     idx = ch.blk_cache
     days += [d for d in have if d not in days and all_rows[d].get("_blk")
              and (d not in idx or idx[d][0] != all_rows[d]["_blk"])]
+    # a young pool's first rows can sit without parameters: they are read
+    # weekly and carried forward, and a re-read first day has nothing before
+    # it to carry from. Such rows are read again, parameters included.
+    first_p = next((d for d in sorted(have)
+                    if all_rows[d].get("a") is not None), None)
+    heal = [d for d in sorted(have) if all_rows[d].get("a") is None
+            and (first_p is None or d < first_p)][:3]
+    days += [d for d in heal if d not in days]
     days.sort()
     n = len(p["coins"])
     crypto, lending, ng = p["crypto"], p["lending"], p["ng"]
@@ -801,7 +809,8 @@ def process_pool(ch: Chain, ch_name: str, p: dict, now_day: int,
                 day_calls += [(f"adm{k}", sel("admin_balances(uint256)")
                                + hex(k)[2:].rjust(64, "0"))
                               for k in range(n)]
-            if i % 7 == 0 or d == days[-1] or d not in have:
+            if i % 7 == 0 or d == days[-1] or d not in have or d in heal \
+                    or d == max(have, default=None):
                 # weekly on the backfill grid, every appended day after
                 day_calls += [("A", sel("A()")), ("fee", sel("fee()")),
                               ("admin", sel("ADMIN_FEE()" if p["crypto_ng"]

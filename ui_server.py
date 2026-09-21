@@ -1041,7 +1041,7 @@ def pool_hist(chain: str, addr: str) -> dict:
 def side_metrics() -> dict:
     """List metrics of the pools whose history is read from the chain
     (SIDE_HIST_CHAINS), which no Curve API serves: DAO revenue per day
-    (fees x admin share, mean of the last 30 days on record) and, only
+    (fees x admin share, mean of the last 30 complete days) and, only
     where it was summed from the pool's own swap events, the volume of the
     last complete day (the open day when there is no other)."""
     out: dict = {}
@@ -1057,7 +1057,11 @@ def side_metrics() -> dict:
             continue
         n = len(c.get("t") or [])
         col = lambda k: c.get(k) or [None] * n  # noqa: E731
-        revs = [x * y / 1e10 for x, y in zip(col("fees"), col("admin"))
+        # the newest row is the open day (hours, not a day): it only counts
+        # while it is all there is
+        full = slice(0, n - 1) if n > 1 else slice(0, n)
+        revs = [x * y / 1e10 for x, y in zip(col("fees")[full],
+                                             col("admin")[full])
                 if x is not None and y is not None][-30:]
         vols = [v for v, k in zip(col("vol"), col("_swn"))
                 if v is not None and k is not None]
