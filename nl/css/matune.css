@@ -1,0 +1,19 @@
+/* MA sliders + the bad-debt tiles they drive */
+.nl-mt { display:flex; flex-direction:column; gap:8px; container-type:inline-size; }
+.nl-mt-rows { display:flex; flex-direction:column; gap:6px; }
+.nl-mt-row { display:grid; grid-template-columns:minmax(180px, 1.1fr) minmax(200px, 2.4fr) 104px 128px; align-items:center; gap:6px 16px; }
+.nl-mt-id { display:flex; flex-direction:column; min-width:0; line-height:1.25; }
+.nl-mt-id b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nl-mt-id .nl-note { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nl-mt-slide { position:relative; display:flex; align-items:center; height:26px; }
+.nl-mt-tick { position:absolute; top:50%; width:2px; height:16px; margin:-8px 0 0 -1px; border-radius:1px; background:var(--nl-dim); opacity:.75; pointer-events:none; }
+.nl-mt-row.nl-mt-changed .nl-mt-tick { background:var(--nl-warn); opacity:1; }
+.nl-mt-num { position:relative; display:flex; align-items:center; }
+.nl-root .nl-mt .nl-mt-num input.nl-input { width:100%; padding-right:24px; text-align:right; }
+.nl-mt-num .nl-unit { position:absolute; right:8px; font-style:normal; color:var(--nl-dim); font-size:.9em; pointer-events:none; }
+.nl-mt-back { font:inherit; font-size:.86em; color:var(--nl-warn); background:none; border:1px solid color-mix(in srgb, var(--nl-warn) 45%, transparent); border-radius:99px; padding:2px 9px; cursor:pointer; white-space:nowrap; justify-self:start; }
+.nl-mt-back:hover { background:color-mix(in srgb, var(--nl-warn) 12%, transparent); }
+.nl-mt-run { display:flex; flex-direction:column; gap:8px; margin-top:6px; padding-top:12px; border-top:1px solid var(--nl-line); }
+.nl-mt-runh { display:flex; align-items:baseline; gap:12px; }
+.nl-mt .nl-bd-tiles.nl-mt-stale { opacity:.45; transition:opacity .15s; }
+@container (max-width:760px) { .nl-mt-row { grid-template-columns:1fr 104px; } .nl-mt-slide { grid-column:1 / -1; order:3; } .nl-mt-back { order:4; } }

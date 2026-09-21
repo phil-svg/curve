@@ -2060,7 +2060,7 @@ class Handler(BaseHTTPRequestHandler):
                  "bad-debt", "sldl", "util", "pegkeeper", "yb", "lp",
                  "pools", "llm", "lending-markets", "dao-revenue",
                  "implementations", "impl",
-                 "map",
+                 "map", "new-llamalend",
                  # legacy pre-rename paths still serve the page
                  "bad-debt-sim", "spring-cleaning", "s.l.-d.l.",
                  "high-util", "yb_")
@@ -2081,6 +2081,31 @@ class Handler(BaseHTTPRequestHandler):
             body = INDEX_HTML.read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith("/nlapi/"):
+            # new-llamalend tab backend (token lookup, archive sampling, ...)
+            import nl_api
+            nl_api.handle(self, "GET", _http_json)
+            return
+        if self.path.startswith("/nl/"):
+            # new-llamalend tab frontend: ES modules + css under nl/. Text
+            # assets only, never outside the directory.
+            rel = self.path.split("?")[0][len("/nl/"):]
+            root = (HERE / "nl").resolve()
+            f = (root / rel).resolve()
+            ctype = {".js": "text/javascript", ".css": "text/css",
+                     ".json": "application/json", ".svg": "image/svg+xml",
+                     ".md": "text/plain; charset=utf-8"}.get(f.suffix)
+            if ctype is None or not str(f).startswith(str(root) + os.sep) \
+                    or not f.is_file():
+                self.send_response(404); self.end_headers(); return
+            body = f.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
@@ -2614,6 +2639,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
+        if self.path.startswith("/nlapi/"):
+            import nl_api
+            nl_api.handle(self, "POST", _http_json)
+            return
         if self.path == "/sldl_run":
             if not SLDL_SERVER_COMPUTE:
                 _http_json(self, 403, {

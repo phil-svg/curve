@@ -89,6 +89,37 @@ SELECTORS: dict[str, str] = {
 # NOTE: several selectors above are placeholders. common.py exports a helper
 # that computes selectors from a signature so we don't rely on the table.
 
+def _keccak256_py(data: bytes) -> bytes:
+    """Keccak-256 (the pre-NIST padding Ethereum uses; hashlib's sha3_256 is NOT it) in plain Python, for a
+    machine without pycryptodome. Slow, and only ever asked for selectors and address checksums."""
+    RC = [0x0000000000000001, 0x0000000000008082, 0x800000000000808A, 0x8000000080008000, 0x000000000000808B,
+          0x0000000080000001, 0x8000000080008081, 0x8000000000008009, 0x000000000000008A, 0x0000000000000088,
+          0x0000000080008009, 0x000000008000000A, 0x000000008000808B, 0x800000000000008B, 0x8000000000008089,
+          0x8000000000008003, 0x8000000000008002, 0x8000000000000080, 0x000000000000800A, 0x800000008000000A,
+          0x8000000080008081, 0x8000000000008080, 0x0000000080000001, 0x8000000080008008]
+    ROT = [[0, 36, 3, 41, 18], [1, 44, 10, 45, 2], [62, 6, 43, 15, 61], [28, 55, 25, 21, 56], [27, 20, 39, 8, 14]]
+    M = (1 << 64) - 1
+    rol = lambda v, n: ((v << n) | (v >> (64 - n))) & M if n else v        # noqa: E731
+    rate = 136
+    msg = bytearray(data) + b"\x01" + b"\x00" * ((-len(data) - 2) % rate) + b"\x80" \
+        if (len(data) + 1) % rate else bytearray(data) + b"\x81"
+    A = [[0] * 5 for _ in range(5)]
+    for off in range(0, len(msg), rate):
+        for i in range(rate // 8):
+            A[i % 5][i // 5] ^= int.from_bytes(msg[off + 8 * i: off + 8 * i + 8], "little")
+        for rc in RC:
+            C = [A[x][0] ^ A[x][1] ^ A[x][2] ^ A[x][3] ^ A[x][4] for x in range(5)]
+            D = [C[(x - 1) % 5] ^ rol(C[(x + 1) % 5], 1) for x in range(5)]
+            A = [[A[x][y] ^ D[x] for y in range(5)] for x in range(5)]
+            B = [[0] * 5 for _ in range(5)]
+            for x in range(5):
+                for y in range(5):
+                    B[y][(2 * x + 3 * y) % 5] = rol(A[x][y], ROT[x][y])
+            A = [[B[x][y] ^ ((~B[(x + 1) % 5][y]) & B[(x + 2) % 5][y]) for y in range(5)] for x in range(5)]
+            A[0][0] ^= rc
+    return b"".join(A[i % 5][i // 5].to_bytes(8, "little") for i in range(4))
+
+
 try:
     from Crypto.Hash import keccak  # pycryptodome (may or may not be installed)
 
@@ -97,14 +128,10 @@ try:
         k.update(sig.encode())
         return "0x" + k.hexdigest()[:8]
 except ImportError:
-    # Fallback: allow selectors from the SELECTORS dict only.
     def sel(sig: str) -> str:
         if sig in SELECTORS and SELECTORS[sig] not in ("", "0x"):
             return SELECTORS[sig]
-        raise RuntimeError(
-            f"pycryptodome not installed and no baked selector for {sig!r}."
-            " Install: pip install pycryptodome"
-        )
+        return "0x" + _keccak256_py(sig.encode()).hex()[:8]
 
 
 def eth_call(to: str, data: str, block: int | str = "latest") -> str:
@@ -132,7 +159,10 @@ def eth_get_storage_at_signed(address: str, slot: int, block: int | str = "lates
 # Solidity/Vyper mapping-slot derivation
 # ---------------------------------------------------------------------------
 def keccak256(b: bytes) -> bytes:
-    from Crypto.Hash import keccak
+    try:
+        from Crypto.Hash import keccak
+    except ImportError:
+        return _keccak256_py(b)
     k = keccak.new(digest_bits=256)
     k.update(b)
     return k.digest()

@@ -1,0 +1,46 @@
+/* the oracle flowchart + the formula view */
+.nl-flow-board { position:relative; overflow-x:auto; padding:6px 2px 10px; }
+.nl-flow-wires { position:absolute; left:0; top:0; pointer-events:none; overflow:visible; }
+.nl-flow-wires path { fill:none; stroke:color-mix(in srgb, var(--nl-accent) 60%, var(--nl-line)); stroke-width:1.5; stroke-linejoin:round; }
+.nl-flow-wires path.nl-flow-w-c { stroke:color-mix(in srgb, var(--nl-dim) 55%, transparent); stroke-width:1.1; }
+.nl-flow-cols { position:relative; display:flex; align-items:center; justify-content:flex-end; gap:40px; width:max-content; min-width:100%; }
+.nl-flow-col { display:flex; flex-direction:column; gap:12px; justify-content:center; }
+.nl-flow-node { width:192px; background:var(--nl-bg); border:1px solid var(--nl-line); border-left:3px solid var(--nl-dim); border-radius:calc(var(--nl-radius) - 5px);
+  padding:8px 10px; display:flex; flex-direction:column; gap:3px; min-width:0; }
+.nl-flow-k-contract { width:166px; border-left-color:color-mix(in srgb, var(--nl-dim) 70%, transparent); opacity:.92; }
+.nl-flow-k-part { border-left-color:var(--nl-c3); } .nl-flow-k-line { border-left-color:var(--nl-c4); }
+.nl-flow-k-market { border-left-color:var(--nl-c2); } .nl-flow-k-missing { border-style:dashed; border-color:var(--nl-bad); }
+.nl-flow-k-oracle { border-left-color:var(--nl-accent); background:color-mix(in srgb, var(--nl-accent) 13%, var(--nl-bg)); box-shadow:0 0 0 1px color-mix(in srgb, var(--nl-accent) 45%, transparent); }
+.nl-flow-node.nl-flow-retimed { box-shadow:0 0 0 1px var(--nl-accent); }
+.nl-flow-head b { font-size:1.02em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; }
+.nl-flow-sub { color:var(--nl-dim); font-size:.8em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nl-flow-val { color:var(--nl-accent); font-weight:600; font-size:.94em; min-height:1.1em; }
+.nl-flow-ma { display:flex; align-items:center; gap:5px; font-size:.84em; color:var(--nl-dim); margin-top:3px; padding-top:5px; border-top:1px dashed var(--nl-line); }
+.nl-flow-ma.nl-flow-ro { color:var(--nl-fg); font-family:var(--nl-mono); font-size:.8em; }
+.nl-flow-mal { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1 1 auto; font-family:var(--nl-mono); }
+.nl-root input.nl-flow-in { width:62px; flex:none; padding:2px 6px; font-size:.95em; text-align:right; }
+.nl-flow-chips { gap:0; }
+.nl-flow-legend { display:flex; gap:14px; flex-wrap:wrap; }
+.nl-flow-key::before { content:""; display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:-1px; background:var(--nl-dim); }
+.nl-flow-lg-part::before { background:var(--nl-c3); } .nl-flow-lg-line::before { background:var(--nl-c4); }
+.nl-flow-lg-oracle::before { background:var(--nl-accent); } .nl-flow-lg-market::before { background:var(--nl-c2); }
+
+.nl-formula-lines { display:flex; flex-direction:column; gap:10px; }
+.nl-formula-line { background:var(--nl-bg); border:1px solid var(--nl-line); border-left:3px solid var(--nl-c4); border-radius:calc(var(--nl-radius) - 5px); padding:11px 13px; display:flex; flex-direction:column; gap:10px; }
+.nl-formula-oracle { border-left-color:var(--nl-accent); background:color-mix(in srgb, var(--nl-accent) 10%, var(--nl-bg)); } .nl-formula-market { border-left-color:var(--nl-c2); }
+.nl-formula-eq { display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; font-size:1.06em; }
+.nl-formula-eq code { flex:1 1 320px; min-width:0; overflow-wrap:anywhere; }
+.nl-formula-is { color:var(--nl-dim); } .nl-formula-val { color:var(--nl-accent); font-weight:600; }
+.nl-formula-pill { padding:1px 7px; border-radius:99px; border:1px solid var(--nl-line); }
+.nl-formula-src { border-color:color-mix(in srgb, var(--nl-c3) 60%, transparent); color:var(--nl-c3); cursor:help; }
+.nl-formula-var { border-color:color-mix(in srgb, var(--nl-c4) 55%, transparent); color:var(--nl-c4); }
+.nl-formula-knobs { grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); }
+
+/* wrapping: a box with inputs can swallow everything that flows into it */
+.nl-flow-head { display:flex; align-items:center; gap:6px; min-width:0; } .nl-flow-head b { flex:1 1 auto; min-width:0; }
+.nl-flow-fold { flex:none; font-size:.8em; color:var(--nl-dim); border:1px solid var(--nl-line); border-radius:99px; padding:0 6px; line-height:1.5; }
+.nl-flow-can { cursor:pointer; } .nl-flow-can:hover { border-color:var(--nl-accent); } .nl-flow-can:hover .nl-flow-fold { color:var(--nl-fg); border-color:var(--nl-accent); }
+.nl-flow-node.nl-flow-wrapped { box-shadow:-5px 5px 0 -1px var(--nl-bg), -5px 5px 0 0 var(--nl-line), -10px 10px 0 -1px var(--nl-bg), -10px 10px 0 0 var(--nl-line); margin-left:10px; margin-bottom:10px; }
+.nl-flow-wrapped .nl-flow-fold { color:var(--nl-accent-fg); background:var(--nl-accent); border-color:var(--nl-accent); font-weight:700; }
+/* the lane a wire takes through a column it skips: a thin slot between two boxes, nothing is drawn in it but the wire */
+.nl-flow-lane { height:12px; align-self:stretch; }

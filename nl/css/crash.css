@@ -1,0 +1,12 @@
+/* the crash picker: which recorded crash, inside how long a window, how many times worse */
+.nl-crash-row { display:flex; gap:12px 28px; flex-wrap:wrap; align-items:flex-end; }
+.nl-crash-group { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.nl-crash-ranks { display:flex; gap:8px; flex-wrap:wrap; }
+.nl-crash-rank { display:flex; flex-direction:column; align-items:flex-start; gap:1px; padding:7px 14px 8px; min-width:132px; cursor:pointer; font:inherit;
+  color:var(--nl-fg); background:var(--nl-bg); border:1px solid var(--nl-line); border-radius:12px; transition:border-color .12s; }
+.nl-crash-rank b { font-weight:650; } .nl-crash-rank span { font-size:.84em; color:var(--nl-dim); }
+.nl-crash-rank:hover:not(:disabled) { border-color:var(--nl-accent); }
+.nl-crash-rank.on { background:var(--nl-accent); border-color:var(--nl-accent); color:var(--nl-accent-fg); } .nl-crash-rank.on span { color:inherit; opacity:.8; }
+.nl-crash-rank:disabled { opacity:.45; cursor:not-allowed; }
+.nl-crash-group .nl-field { flex-direction:row; align-items:center; gap:8px; } .nl-crash-group .nl-field .nl-inwrap { width:92px; }
+.nl-crash-played { color:var(--nl-bad); }

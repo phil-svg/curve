@@ -1,0 +1,31 @@
+/* bad-debt simulation: pre-flight, tiles with their equations, the chart wall */
+.nl-bd { container-type:inline-size; }
+.nl-bd-pre { display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:8px 16px; }
+.nl-bd-pre-item { display:flex; flex-direction:column; gap:1px; font-size:.92em; border-left:2px solid var(--nl-line); padding-left:9px; min-width:0; }
+.nl-bd-pre-item i { font-style:normal; font-size:.76em; text-transform:uppercase; letter-spacing:.08em; color:var(--nl-dim); }
+.nl-bd-pre-item.nl-warn { border-left-color:var(--nl-warn); } .nl-bd-pre-item.nl-warn span { color:var(--nl-warn); }
+/* the six tiles, shaped like the Bad-Debt-Sim tab's: one row of six equal cells, small caps label with its "i" right behind it,
+   a 17px mono figure; cells share one height and the figures sit on one baseline even when a label wraps */
+.nl-bd-tiles { display:grid; grid-template-columns:repeat(6, minmax(0, 1fr)); gap:10px; }
+.nl-bd-tile { position:relative; display:flex; flex-direction:column; min-width:0; padding:10px 14px; background:var(--nl-panel); border:1px solid var(--nl-line); border-radius:8px; }
+.nl-bd-tl { display:block; font-size:10.5px; line-height:1.4; color:var(--nl-dim); text-transform:uppercase; letter-spacing:.04em; margin-bottom:3px; }
+.nl-bd-tl .nl-q { display:inline-flex; align-items:center; justify-content:center; width:13px; height:13px; margin-left:5px; padding:0; vertical-align:1px;
+  border:1px solid var(--nl-accent); border-radius:50%; background:none; cursor:pointer; color:var(--nl-accent); font-size:9px; font-family:inherit; font-style:normal; line-height:1; }
+.nl-bd-tl .nl-q:hover { background:var(--nl-accent); color:var(--nl-accent-fg); }
+.nl-bd-tile > b { display:block; margin-top:auto; font-family:var(--nl-mono); font-size:17px; font-weight:600; color:var(--nl-fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nl-bd-tile.nl-good > b { color:var(--nl-good); } .nl-bd-tile.nl-warn > b { color:var(--nl-warn); } .nl-bd-tile.nl-bad > b { color:var(--nl-bad); }
+@container (max-width:900px) { .nl-bd-tiles { grid-template-columns:repeat(3, minmax(0, 1fr)); } }
+@container (max-width:520px) { .nl-bd-tiles { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+.nl-bd-pop { position:absolute; z-index:40; left:0; top:calc(100% + 6px); text-transform:none; letter-spacing:0; width:min(440px, 92cqw); background:var(--nl-panel2); border:1px solid var(--nl-line);
+  border-radius:calc(var(--nl-radius) - 4px); padding:11px 13px; box-shadow:0 16px 44px rgba(0,0,0,.45); font-size:.92em; }
+.nl-bd-pop p { margin:0 0 7px; } .nl-bd-pop p:last-child { margin-bottom:0; } .nl-bd-pop ul { margin:6px 0 0; padding-left:16px; display:flex; flex-direction:column; gap:3px; font-size:.95em; }
+.nl-bd-tile:nth-last-child(-n+2) .nl-bd-pop { left:auto; right:0; }
+/* the charts of the Bad-Debt-Sim tab: one under the other, full width, same order */
+.nl-bd-charts { display:flex; flex-direction:column; gap:16px; }
+.nl-bd-chart { min-width:0; background:var(--nl-bg); border:1px solid var(--nl-line); border-radius:calc(var(--nl-radius) - 4px); padding:12px 14px 10px; }
+.nl-bd-chart-h { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+.nl-bd-chart-t { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; font-weight:650; } .nl-bd-chart-t .nl-note { font-weight:400; }
+.nl-bd-chart > .nl-note { margin:0 0 8px; max-width:900px; line-height:1.55; }
+.nl-bd-i { background:none; cursor:pointer; font-family:inherit; color:var(--nl-dim); padding:0; } .nl-bd-i:hover { color:var(--nl-fg); border-color:var(--nl-accent); }
+.nl-bd-run { align-items:center; } .nl-bd-runinfo { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.nl-bd-line { color:var(--nl-dim); font-size:.94em; font-variant-numeric:tabular-nums; }

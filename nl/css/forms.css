@@ -1,0 +1,31 @@
+/* params, summary + small shared layout bits */
+.nl-slot { min-width:0; }
+.nl-two { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap:var(--nl-gap); align-items:start; }
+.nl-dot { width:8px; height:8px; border-radius:50%; display:inline-block; flex:none; background:var(--nl-dim); opacity:.55; }
+.nl-dot.nl-ok { background:var(--nl-good); opacity:1; } .nl-dot.nl-bad { background:var(--nl-bad); opacity:1; }
+
+/* how to add a market: one block to copy */
+.nl-tokens-howto { margin:0; padding:12px 14px; background:var(--nl-bg); border:1px solid var(--nl-line); border-radius:calc(var(--nl-radius) - 4px);
+  font-size:.86em; line-height:1.55; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--nl-fg); user-select:text; }
+.nl-root a.nl-btn { text-decoration:none; display:inline-flex; align-items:center; }
+
+/* summary */
+.nl-summary { display:flex; flex-direction:column; gap:12px; background:var(--nl-panel); border:1px solid var(--nl-line);
+  border-radius:var(--nl-radius); padding:14px; min-width:0; }
+.nl-summary.nl-compact { flex-direction:row; align-items:center; flex-wrap:wrap; padding:9px 12px; gap:10px 18px; }
+.nl-summary-id { display:flex; align-items:center; gap:10px; min-width:0; }
+.nl-summary-logos { display:inline-flex; } .nl-summary-logos .nl-logo + .nl-logo { margin-left:-9px; box-shadow:0 0 0 2px var(--nl-panel); }
+.nl-summary-name { font-family:var(--nl-head); font-weight:700; font-size:1.12em; letter-spacing:-.01em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nl-summary-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.nl-summary-chip { display:inline-flex; flex-direction:column; gap:1px; padding:4px 9px; background:var(--nl-bg); border:1px solid var(--nl-line);
+  border-radius:calc(var(--nl-radius) - 2px); min-width:0; }
+.nl-summary-chip i { font-style:normal; font-size:.72em; text-transform:uppercase; letter-spacing:.07em; color:var(--nl-dim); }
+.nl-summary-chip b { font-family:var(--nl-mono); font-size:.92em; font-weight:600; white-space:nowrap; }
+.nl-summary-chip.nl-live b { color:var(--nl-accent); } .nl-summary-chip.nl-good b { color:var(--nl-good); } .nl-summary-chip.nl-bad b { color:var(--nl-bad); }
+/* a parameter typed right in its chip (the host page styles bare labels and inputs: say everything) */
+.nl-root label.nl-summary-edit { display:inline-flex; flex-direction:column; cursor:text; margin:0; } .nl-root label.nl-summary-edit:focus-within { border-color:var(--nl-accent); }
+.nl-root .nl-summary-edit span { display:inline-flex; align-items:baseline; gap:3px; }
+.nl-root .nl-summary-edit input { box-sizing:content-box; font:inherit; font-family:var(--nl-mono); font-size:.92em; font-weight:600; color:var(--nl-fg); background:none; border:0;
+  border-bottom:1px dashed var(--nl-line); border-radius:0; padding:0; margin:0; outline:none; min-width:0; height:auto; box-shadow:none; }
+.nl-root .nl-summary-edit input:focus { border-bottom-color:var(--nl-accent); } .nl-root .nl-summary-edit input.nl-bad { color:var(--nl-bad); }
+.nl-root .nl-summary-edit em { font-style:normal; font-size:.8em; color:var(--nl-dim); }

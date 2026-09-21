@@ -1,0 +1,152 @@
+/* new-llamalend tab: component vocabulary. Everything is scoped under
+   .nl-root and coloured through custom properties; the five designs
+   (designs.css) override the properties and lay the panes out differently. */
+.nl-root {
+  --nl-bg:#0d1117; --nl-panel:#161b22; --nl-panel2:#1c2330; --nl-line:#30363d;
+  --nl-fg:#e6edf3; --nl-dim:#8b949e; --nl-accent:#58a6ff; --nl-accent-fg:#06121f;
+  --nl-good:#3fb950; --nl-warn:#d29922; --nl-bad:#f85149;
+  --nl-c1:#58a6ff; --nl-c2:#f0883e; --nl-c3:#3fb950; --nl-c4:#bc8cff; --nl-c5:#f778ba; --nl-c6:#79c0ff;
+  --nl-radius:8px; --nl-gap:14px; --nl-fs:13px;
+  --nl-font:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Helvetica,Arial,sans-serif;
+  --nl-head:var(--nl-font);
+  --nl-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  color:var(--nl-fg); font-family:var(--nl-font); font-size:var(--nl-fs); line-height:1.45;
+  position:relative;
+}
+.nl-root *, .nl-root *::before, .nl-root *::after { box-sizing:border-box; }
+.nl-root [hidden] { display:none !important; }
+.nl-root h2, .nl-root h3, .nl-root h4 { font-family:var(--nl-head); margin:0; font-weight:650; letter-spacing:-.005em; }
+.nl-root h2 { font-size:1.35em; } .nl-root h3 { font-size:1.1em; } .nl-root h4 { font-size:1em; }
+.nl-mono { font-family:var(--nl-mono); font-variant-numeric:tabular-nums; }
+.nl-dim { color:var(--nl-dim); }
+.nl-note { color:var(--nl-dim); font-size:.92em; }
+.nl-err { color:var(--nl-bad); font-size:.92em; }
+.nl-ok { color:var(--nl-good); }
+.nl-row { display:flex; gap:var(--nl-gap); align-items:center; flex-wrap:wrap; }
+.nl-row.nl-tight { gap:6px; }
+.nl-spread { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+.nl-stack { display:flex; flex-direction:column; gap:var(--nl-gap); }
+.nl-grow { flex:1 1 0; min-width:0; }
+.nl-grid { display:grid; gap:10px var(--nl-gap); grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); }
+.nl-grid.nl-wide-cols { grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); }
+
+/* cards */
+.nl-card { background:var(--nl-panel); border:1px solid var(--nl-line); border-radius:var(--nl-radius); min-width:0; }
+.nl-card-h { padding:10px 14px; border-bottom:1px solid var(--nl-line); font-family:var(--nl-head); font-weight:650;
+  display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.nl-card-b { padding:14px; display:flex; flex-direction:column; gap:var(--nl-gap); min-width:0; }
+.nl-sub { font-size:.78em; text-transform:uppercase; letter-spacing:.08em; color:var(--nl-dim); font-weight:650; }
+
+/* fields */
+.nl-field { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.nl-field.nl-wide { grid-column:1 / -1; }
+.nl-label { font-size:.86em; color:var(--nl-dim); display:flex; align-items:center; gap:5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nl-q { font-style:normal; font-size:.8em; width:13px; height:13px; line-height:13px; text-align:center; border-radius:50%;
+  border:1px solid var(--nl-line); color:var(--nl-dim); cursor:help; flex:none; }
+.nl-inwrap { position:relative; display:flex; }
+.nl-input { width:100%; min-width:0; background:var(--nl-bg); color:var(--nl-fg); border:1px solid var(--nl-line);
+  border-radius:calc(var(--nl-radius) - 2px); padding:6px 9px; font:inherit; font-variant-numeric:tabular-nums; outline:none;
+  transition:border-color .12s, box-shadow .12s; }
+.nl-input:focus { border-color:var(--nl-accent); box-shadow:0 0 0 3px color-mix(in srgb, var(--nl-accent) 22%, transparent); }
+.nl-input.nl-bad { border-color:var(--nl-bad); }
+.nl-input::placeholder { color:color-mix(in srgb, var(--nl-dim) 70%, transparent); }
+.nl-unit { position:absolute; right:9px; top:50%; transform:translateY(-50%); font-style:normal; color:var(--nl-dim); font-size:.86em; pointer-events:none; }
+.nl-inwrap:has(.nl-unit) .nl-input { padding-right:34px; }
+select.nl-input { appearance:none; -webkit-appearance:none; padding-right:26px; cursor:pointer;
+  background-image:linear-gradient(45deg, transparent 50%, var(--nl-dim) 50%), linear-gradient(135deg, var(--nl-dim) 50%, transparent 50%);
+  background-position:calc(100% - 14px) 55%, calc(100% - 9px) 55%; background-size:5px 5px; background-repeat:no-repeat; }
+textarea.nl-input { resize:vertical; font-family:var(--nl-mono); line-height:1.55; tab-size:2; white-space:pre; overflow:auto; }
+
+/* buttons */
+.nl-btn { font:inherit; font-weight:600; color:var(--nl-fg); background:var(--nl-panel2); border:1px solid var(--nl-line);
+  border-radius:calc(var(--nl-radius) - 2px); padding:6px 12px; cursor:pointer; white-space:nowrap; transition:filter .12s, border-color .12s; }
+.nl-btn:hover:not(:disabled) { border-color:var(--nl-accent); filter:brightness(1.12); }
+.nl-btn:disabled { opacity:.45; cursor:default; }
+.nl-btn.nl-primary { background:var(--nl-accent); border-color:var(--nl-accent); color:var(--nl-accent-fg); }
+.nl-btn.nl-ghost { background:transparent; }
+.nl-btn.nl-danger:hover:not(:disabled) { border-color:var(--nl-bad); color:var(--nl-bad); }
+.nl-btn.nl-small { padding:3px 8px; font-size:.9em; }
+.nl-seg { display:inline-flex; background:var(--nl-bg); border:1px solid var(--nl-line); border-radius:calc(var(--nl-radius) - 1px); padding:2px; gap:2px; flex-wrap:wrap; }
+.nl-seg button { font:inherit; font-weight:600; font-size:.92em; border:0; background:none; color:var(--nl-dim); padding:4px 11px;
+  border-radius:calc(var(--nl-radius) - 3px); cursor:pointer; }
+.nl-seg button:hover { color:var(--nl-fg); }
+.nl-seg button.on { background:var(--nl-accent); color:var(--nl-accent-fg); }
+
+/* badges, kpis, progress, toasts */
+.nl-badge { display:inline-flex; align-items:center; gap:5px; font-size:.84em; font-weight:600; padding:2px 8px; border-radius:99px;
+  border:1px solid var(--nl-line); color:var(--nl-dim); white-space:nowrap; }
+.nl-badge.nl-good { color:var(--nl-good); border-color:color-mix(in srgb, var(--nl-good) 45%, transparent); }
+.nl-badge.nl-warn { color:var(--nl-warn); border-color:color-mix(in srgb, var(--nl-warn) 45%, transparent); }
+.nl-badge.nl-bad { color:var(--nl-bad); border-color:color-mix(in srgb, var(--nl-bad) 45%, transparent); }
+.nl-kpis { display:grid; gap:10px; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); }
+.nl-kpi { background:var(--nl-bg); border:1px solid var(--nl-line); border-radius:calc(var(--nl-radius) - 2px); padding:9px 11px; min-width:0; }
+.nl-kpi b { display:block; font-size:1.3em; font-family:var(--nl-mono); font-variant-numeric:tabular-nums; letter-spacing:-.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nl-kpi span { font-size:.8em; color:var(--nl-dim); text-transform:uppercase; letter-spacing:.06em; }
+.nl-kpi.nl-good b { color:var(--nl-good); } .nl-kpi.nl-bad b { color:var(--nl-bad); } .nl-kpi.nl-warn b { color:var(--nl-warn); }
+.nl-progress { display:flex; align-items:center; gap:10px; font-size:.9em; color:var(--nl-dim); }
+.nl-progress-track { flex:1 1 auto; height:5px; background:var(--nl-bg); border:1px solid var(--nl-line); border-radius:99px; overflow:hidden; min-width:80px; }
+.nl-progress-track i { display:block; height:100%; width:0; background:var(--nl-accent); transition:width .18s; }
+.nl-toasts { position:fixed; right:18px; bottom:18px; display:flex; flex-direction:column; gap:8px; z-index:9000; pointer-events:none; }
+.nl-toast { background:var(--nl-panel2); border:1px solid var(--nl-line); border-left:3px solid var(--nl-accent); color:var(--nl-fg);
+  padding:9px 13px; border-radius:var(--nl-radius); max-width:360px; box-shadow:0 8px 28px rgba(0,0,0,.35); transition:opacity .5s, transform .5s; }
+.nl-toast.nl-error { border-left-color:var(--nl-bad); } .nl-toast.nl-good { border-left-color:var(--nl-good); }
+.nl-toast.out { opacity:0; transform:translateY(8px); }
+
+/* token logo */
+.nl-logo { display:inline-flex; align-items:center; justify-content:center; border-radius:50%; overflow:hidden; flex:none;
+  background:var(--nl-bg); border:1px solid var(--nl-line); font-weight:700; color:var(--nl-dim); }
+.nl-logo img { width:100%; height:100%; object-fit:cover; display:block; }
+
+/* charts */
+.nl-chart { min-width:0; }
+.nl-chart-legend { display:flex; gap:12px; flex-wrap:wrap; font-size:.86em; color:var(--nl-dim); margin-bottom:4px; min-height:1.2em; }
+.nl-chart-key { display:inline-flex; align-items:center; gap:5px; }
+.nl-chart-key i, .nl-chart-tip i { width:9px; height:3px; border-radius:2px; display:inline-block; }
+.nl-chart-body { position:relative; width:100%; }
+.nl-chart-body canvas { display:block; }
+.nl-chart-tip { position:absolute; pointer-events:none; background:var(--nl-panel2); border:1px solid var(--nl-line); border-radius:6px;
+  padding:6px 9px; font-size:.86em; font-family:var(--nl-mono); white-space:nowrap; z-index:5; box-shadow:0 6px 20px rgba(0,0,0,.3); }
+.nl-chart-tip div { display:flex; align-items:center; gap:6px; } .nl-chart-tip span { margin-left:auto; padding-left:14px; }
+.nl-heat-title { font-weight:650; margin-bottom:6px; }
+.nl-heat-scroll { overflow-x:auto; }
+.nl-heat table { border-collapse:separate; border-spacing:2px; font-family:var(--nl-mono); font-size:.84em; font-variant-numeric:tabular-nums; }
+.nl-heat th { color:var(--nl-dim); font-weight:500; padding:3px 7px; text-align:right; white-space:nowrap; }
+.nl-heat td { padding:4px 7px; text-align:right; border-radius:3px; color:#0b0f14; font-weight:600;
+  background:color-mix(in srgb, var(--tone) 82%, var(--nl-panel)); }
+.nl-heat td.nl-heat-mark { outline:2px solid var(--nl-fg); outline-offset:-1px; }
+.nl-heat td.nl-heat-bold { font-weight:800; box-shadow:inset 0 0 0 2px #0b0f14; }
+.nl-heat tr.nl-heat-row th { color:var(--nl-accent); box-shadow:inset 2px 0 0 var(--nl-accent); }
+
+/* ---- take back what the host page styles globally -----------------------------
+   ui_index.html styles bare label / input / select / textarea / svg / a for its
+   own tabs (dark, monospace, block-level). Inside .nl-root those must follow
+   the design's variables instead, with enough specificity to win. */
+.nl-root label { display:inline; margin:0; font-size:inherit; color:inherit; }
+.nl-root label.nl-field { display:flex; }
+.nl-root a { color:var(--nl-accent); }
+.nl-root svg { display:inline-block; width:auto; height:auto; }
+.nl-root fieldset { border:0; padding:0; margin:0; } .nl-root legend { all:unset; }
+.nl-root input.nl-input, .nl-root select.nl-input, .nl-root textarea.nl-input,
+.nl-root input[type=text], .nl-root input[type=number], .nl-root input[type=search], .nl-root select, .nl-root textarea {
+  width:100%; min-width:0; background:var(--nl-bg); color:var(--nl-fg); border:1px solid var(--nl-line);
+  border-radius:calc(var(--nl-radius) - 2px); padding:6px 9px; font-family:var(--nl-font); font-size:inherit; line-height:1.4;
+  font-variant-numeric:tabular-nums; outline:none; box-shadow:none; }
+.nl-root input.nl-mono, .nl-root textarea, .nl-root textarea.nl-input { font-family:var(--nl-mono); }
+.nl-root textarea, .nl-root textarea.nl-input { line-height:1.55; font-size:.95em; }
+.nl-root select, .nl-root select.nl-input { appearance:none; -webkit-appearance:none; padding-right:26px; cursor:pointer;
+  background-image:linear-gradient(45deg, transparent 50%, var(--nl-dim) 50%), linear-gradient(135deg, var(--nl-dim) 50%, transparent 50%);
+  background-position:calc(100% - 14px) 55%, calc(100% - 9px) 55%; background-size:5px 5px; background-repeat:no-repeat; }
+.nl-root input:focus, .nl-root select:focus, .nl-root textarea:focus {
+  border-color:var(--nl-accent); box-shadow:0 0 0 3px color-mix(in srgb, var(--nl-accent) 22%, transparent); }
+.nl-root .nl-inwrap:has(.nl-unit) input.nl-input { padding-right:38px; }
+.nl-root input.nl-bad { border-color:var(--nl-bad); }
+.nl-root input[type=checkbox], .nl-root input[type=radio] { width:auto; accent-color:var(--nl-accent); }
+.nl-root input[type=range] { width:100%; accent-color:var(--nl-accent); padding:0; border:0; background:none; }
+.nl-field { margin:0; }
+/* figures on one line: the quiet alternative to a row of tiles */
+.nl-figures { display:flex; gap:6px 22px; flex-wrap:wrap; align-items:baseline; }
+/* a chart that zooms: wheel zooms, drag pans once zoomed, "show all" brings everything back */
+.nl-chart-zoomable { cursor:crosshair; touch-action:pan-y; } .nl-chart-zoomable.nl-chart-dragging { cursor:grabbing; }
+.nl-chart-reset { position:absolute; right:16px; top:12px; z-index:6; font:inherit; font-size:.84em; padding:3px 10px; border-radius:99px; cursor:pointer;
+  color:var(--nl-fg); background:var(--nl-panel2); border:1px solid var(--nl-line); }
+.nl-chart-reset:hover { border-color:var(--nl-accent); }

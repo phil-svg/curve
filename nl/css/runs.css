@@ -1,0 +1,93 @@
+/* ui/runs.js: bad-debt run + S.L./D.L. sweep. Everything is scoped under
+   .nl-runs and coloured through the base.css custom properties, so the dark
+   designs and the light one restyle it by setting variables only. */
+.nl-runs { container-type:inline-size; display:flex; flex-direction:column; gap:var(--nl-gap); min-width:0; width:100%; }
+.nl-runs .nl-runs-part { min-width:0; }
+.nl-runs .nl-runs-bare { display:flex; flex-direction:column; gap:var(--nl-gap); }
+
+/* pre-flight: what the run will use, read before pressing the button */
+.nl-runs .nl-runs-pre { display:grid; gap:10px var(--nl-gap); grid-template-columns:repeat(auto-fit, minmax(min(100%, 250px), 1fr)); }
+.nl-runs .nl-runs-pre-item { display:flex; flex-direction:column; gap:2px; min-width:0; padding:1px 0 1px 10px;
+  border-left:2px solid var(--nl-line); }
+.nl-runs .nl-runs-pre-k { font-size:.78em; font-weight:650; text-transform:uppercase; letter-spacing:.07em; color:var(--nl-dim); }
+.nl-runs .nl-runs-pre-v { font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.nl-runs .nl-runs-pre-item.nl-warn { border-left-color:var(--nl-warn); }
+.nl-runs .nl-runs-pre-item.nl-warn .nl-runs-pre-v { color:var(--nl-warn); }
+
+/* run row, progress, errors */
+.nl-runs .nl-runs-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px var(--nl-gap); min-width:0; }
+.nl-runs .nl-runs-actions > .nl-note { flex:1 1 220px; min-width:0; }
+.nl-runs .nl-runs-reason.nl-warn { color:var(--nl-warn); }
+.nl-runs .nl-runs-estimate { font-variant-numeric:tabular-nums; padding:7px 10px; border-radius:calc(var(--nl-radius) - 2px);
+  background:color-mix(in srgb, var(--nl-accent) 7%, transparent); border:1px solid color-mix(in srgb, var(--nl-accent) 22%, var(--nl-line)); }
+.nl-runs .nl-runs-retry { color:var(--nl-warn); }
+.nl-runs .nl-runs-error { padding:7px 10px; border-radius:calc(var(--nl-radius) - 2px); overflow-wrap:anywhere;
+  background:color-mix(in srgb, var(--nl-bad) 9%, transparent); border:1px solid color-mix(in srgb, var(--nl-bad) 40%, transparent); }
+.nl-runs .nl-progress { flex-wrap:wrap; font-variant-numeric:tabular-nums; }
+.nl-runs .nl-progress-track { flex:1 1 140px; }
+.nl-runs .nl-progress.nl-runs-indet .nl-progress-track i { width:32% !important; transition:none; animation:nl-runs-indet 1.3s ease-in-out infinite; }
+@keyframes nl-runs-indet { from { transform:translateX(-105%); } to { transform:translateX(320%); } }
+@media (prefers-reduced-motion: reduce) {
+  .nl-runs .nl-progress.nl-runs-indet .nl-progress-track i { animation:none; width:100% !important; opacity:.4; }
+}
+
+/* result blocks */
+.nl-runs .nl-runs-empty { padding:12px; border:1px dashed var(--nl-line); border-radius:calc(var(--nl-radius) - 2px); }
+.nl-runs .nl-runs-result { display:flex; flex-direction:column; gap:var(--nl-gap); min-width:0; }
+.nl-runs .nl-runs-meta { display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; min-width:0; }
+.nl-runs .nl-runs-meta .nl-note { flex:1 1 240px; min-width:0; font-variant-numeric:tabular-nums; }
+.nl-runs .nl-runs-kpis { grid-template-columns:repeat(auto-fit, minmax(min(100%, 138px), 1fr)); }
+.nl-runs .nl-runs-kpis .nl-kpi { display:flex; flex-direction:column; gap:1px; }
+.nl-runs .nl-runs-kpi-sub { display:block; font-size:.8em; color:var(--nl-dim); font-variant-numeric:tabular-nums;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:auto; padding-top:2px; }
+
+/* charts: stacked in a narrow pane, price on top of two half-width charts in a wide one */
+.nl-runs .nl-runs-charts { display:grid; gap:var(--nl-gap); grid-template-columns:minmax(0, 1fr); }
+.nl-runs .nl-runs-chart { min-width:0; display:flex; flex-direction:column; gap:6px; }
+.nl-runs .nl-runs-chart-h { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px 10px; min-height:28px; }
+.nl-runs .nl-runs-chart-h .nl-seg button { padding:2px 9px; font-size:.86em; }
+.nl-runs .nl-runs-venue-note { font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+
+/* run history */
+.nl-runs .nl-runs-history { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.nl-runs .nl-runs-tablewrap { overflow-x:auto; border:1px solid var(--nl-line); border-radius:calc(var(--nl-radius) - 2px); }
+.nl-runs .nl-runs-table { width:100%; border-collapse:collapse; font-size:.9em; }
+.nl-runs .nl-runs-table th { padding:6px 9px; text-align:right; white-space:nowrap; font-size:.84em; font-weight:650; text-transform:uppercase;
+  letter-spacing:.05em; color:var(--nl-dim); background:var(--nl-panel2); border-bottom:1px solid var(--nl-line); }
+.nl-runs .nl-runs-table td { padding:5px 9px; text-align:right; white-space:nowrap; font-family:var(--nl-mono); font-variant-numeric:tabular-nums;
+  border-bottom:1px solid color-mix(in srgb, var(--nl-line) 55%, transparent); }
+.nl-runs .nl-runs-table tbody tr:last-child td { border-bottom:0; }
+.nl-runs .nl-runs-table .nl-runs-left { text-align:left; }
+.nl-runs .nl-runs-table td.nl-runs-wrap { font-family:var(--nl-font); white-space:normal; min-width:150px; }
+.nl-runs .nl-runs-table td.nl-good { color:var(--nl-good); }
+.nl-runs .nl-runs-table td.nl-bad { color:var(--nl-bad); }
+.nl-runs .nl-runs-table tr.nl-runs-current td { background:color-mix(in srgb, var(--nl-accent) 10%, transparent); }
+.nl-runs .nl-runs-table tr.nl-runs-current td:first-child { box-shadow:inset 2px 0 0 var(--nl-accent); }
+
+/* S.L./D.L. */
+.nl-runs .nl-runs-controls { grid-template-columns:repeat(auto-fill, minmax(min(100%, 132px), 1fr)); }
+.nl-runs .nl-runs-heats { display:grid; gap:var(--nl-gap); grid-template-columns:minmax(0, 1fr); }
+.nl-runs .nl-runs-heat { min-width:0; }
+.nl-runs .nl-runs-heat .nl-heat-scroll { padding-bottom:2px; }
+.nl-runs .nl-runs-heat-legend { font-variant-numeric:tabular-nums; }
+
+@container (min-width: 860px) {
+  .nl-runs .nl-runs-charts { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .nl-runs .nl-runs-chart-wide { grid-column:1 / -1; }
+}
+@container (min-width: 1040px) {
+  .nl-runs .nl-runs-heats:not(.nl-runs-heats-stack) { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+}
+@container (max-width: 420px) {
+  .nl-runs .nl-runs-actions > .nl-btn { flex:1 1 100%; }
+  .nl-runs .nl-runs-kpis { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .nl-runs .nl-runs-table th, .nl-runs .nl-runs-table td { padding:5px 7px; }
+}
+/* the sweep's readout, in the order of the S.L. / D.L. tab */
+.nl-runs .nl-runs-block { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.nl-runs .nl-runs-h { font-weight:650; }
+.nl-runs .nl-runs-mine { padding:8px 12px; border-radius:calc(var(--nl-radius) - 4px); border:1px solid var(--nl-line); background:var(--nl-bg); }
+.nl-runs .nl-runs-mine.nl-good { border-color:color-mix(in srgb, var(--nl-good) 50%, transparent); }
+.nl-runs .nl-runs-mine.nl-bad { border-color:color-mix(in srgb, var(--nl-bad) 60%, transparent); color:var(--nl-bad); }
+.nl-runs .nl-runs-fcbox { display:flex; flex-direction:column; gap:6px; min-width:0; max-width:760px; margin-top:10px; }
+.nl-runs .nl-runs-result > .nl-seg { align-self:flex-start; }

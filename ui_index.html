@@ -402,6 +402,7 @@
     <button type="button" class="tab" data-view="impl">Implementations</button>
     <button type="button" class="tab" data-view="yb">yb_</button>
     <button type="button" class="tab" data-view="map">Map</button>
+    <button type="button" class="tab" data-view="nl">new-llamalend</button>
   </nav>
   <!-- Snapshot freshness belongs with the app chrome, not buried in the Market
        fieldset — it describes the whole dataset, not one field. -->
@@ -1062,6 +1063,11 @@
   <div class="note" id="lm_meta" style="margin-bottom:8px"></div>
   <div id="lm_body">loading…</div>
 </div>
+
+<!-- new-llamalend: free-form LLV2 market workbench. Everything lives in
+     /nl/ (ES modules + css); the page only hosts the container and loads the
+     app on first open. -->
+<div id="view_nl" style="display:none"></div>
 
 <div id="view_map" style="display:none">
   <!-- curve-map bundle served from /map/; iframe src set on first open so
@@ -3801,7 +3807,7 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
   // -- view switching -------------------------------------------------------
   const VIEWS = ["home", "sim", "study", "cleaning", "baddebt", "daorev",
                  "sldl", "pegkeeper", "lp", "llm",
-                 "impl", "yb", "map"];
+                 "impl", "yb", "map", "nl"];
   for (const t of document.querySelectorAll(".tab")) {
     t.addEventListener("click", () => {
       for (const o of document.querySelectorAll(".tab")) o.classList.toggle("on", o === t);
@@ -3840,6 +3846,16 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
           document.getElementById("lm_search").value = "";
           window.__lmShowList();
         }
+      }
+      if (t.dataset.view === "nl" && !window.__nlMounted) {
+        window.__nlMounted = true;
+        import("/nl/app.js?v=" + Date.now())
+          .then(m => m.mount(document.getElementById("view_nl")))
+          .catch(e => {
+            window.__nlMounted = false;
+            document.getElementById("view_nl").textContent =
+              "new-llamalend failed to load: " + (e.message || e);
+          });
       }
       if (t.dataset.view === "map") {
         const fr = document.getElementById("map_frame");
@@ -3913,7 +3929,7 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
                       pegkeeper: "pegkeeper", lp: "pools",
                       llm: "lending-markets", daorev: "dao-revenue",
                       impl: "implementations",
-                      yb: "yb", map: "map" };
+                      yb: "yb", map: "map", nl: "new-llamalend" };
   // pre-rename bookmarks (/S.L.-D.L., /yb_ …) keep working
   const TAB_ALIASES = { "sim": "sim",
                         "spring-cleaning": "cleaning", "s.l.-d.l.": "sldl",

@@ -1,0 +1,27 @@
+/* the page: theme + layout (one market, top to bottom) */
+.nl-root { --nl-bg:#0b1020; --nl-panel:#121a31; --nl-panel2:#1a2442; --nl-line:#2a3760; --nl-fg:#eef2ff; --nl-dim:#93a0c4;
+  --nl-accent:#8b7cf6; --nl-accent-fg:#0d0a24; --nl-c1:#8b7cf6; --nl-c2:#38bdf8; --nl-c3:#34d399; --nl-c4:#fbbf24; --nl-c5:#f472b6; --nl-c6:#a5b4fc;
+  --nl-radius:14px; --nl-gap:18px; --nl-fs:14px; }
+.nl-page { max-width:1180px; margin:0 auto; display:flex; flex-direction:column; gap:22px; padding:22px; border-radius:22px; min-width:0;
+  background:radial-gradient(1200px 420px at 50% -120px, color-mix(in srgb, var(--nl-accent) 22%, transparent), transparent 70%), var(--nl-bg); border:1px solid var(--nl-line); }
+.nl-market select.nl-input { font-weight:600; }
+.nl-market-tools { justify-content:flex-end; margin-bottom:10px; }
+
+/* a fold: title, what it is set to, and the content only while open */
+.nl-folds { display:flex; flex-direction:column; gap:8px; }
+.nl-fold { border:1px solid var(--nl-line); border-radius:var(--nl-radius); background:color-mix(in srgb, var(--nl-panel) 60%, transparent); min-width:0; }
+.nl-fold > summary { cursor:pointer; padding:11px 16px; display:flex; align-items:baseline; gap:12px; list-style:none; min-width:0; }
+.nl-fold > summary::before { content:"▸"; color:var(--nl-dim); flex:none; } .nl-fold[open] > summary::before { content:"▾"; }
+.nl-fold > summary::-webkit-details-marker { display:none; }
+.nl-fold > summary b { flex:none; } .nl-fold > summary:hover b { color:var(--nl-accent); }
+.nl-fold-sum { color:var(--nl-dim); font-size:.92em; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.nl-fold-body { padding:0 14px 14px; }
+/* the price history leads the page */
+.nl-oracle-hero .nl-card { border-color:color-mix(in srgb, var(--nl-accent) 45%, var(--nl-line)); box-shadow:0 18px 50px rgba(0,0,0,.28); }
+.nl-oracle-hero .nl-card-h { font-size:1.15em; }
+/* a fold already names what is inside: a single card in it sheds its frame and its title, keeping only its header controls */
+.nl-fold-body > .nl-slot:only-child > * > .nl-card { border:0; background:none; }
+.nl-fold-body > .nl-slot:only-child > * > .nl-card > .nl-card-h { padding:0; border:0; font-size:0; justify-content:flex-end; }
+.nl-fold-body > .nl-slot:only-child > * > .nl-card > .nl-card-h > * { font-size:var(--nl-fs); margin-bottom:10px; }
+.nl-fold-body > .nl-slot:only-child > * > .nl-card > .nl-card-h > span:first-child:not(.nl-row) { display:none; }
+.nl-fold-body > .nl-slot:only-child > * > .nl-card > .nl-card-b { padding:0; }

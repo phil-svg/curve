@@ -1,0 +1,289 @@
+{
+  "format": "new-llamalend/1",
+  "meta": {
+    "name": "reUSD/sfrxUSD LP · crvUSD",
+    "author": "",
+    "notes": "Demo market. Copy this file to add your own (see the Tokens step of the tab).",
+    "updated": 0,
+    "defaults": 4
+  },
+  "chain": "ethereum",
+  "collateral": {
+    "address": "0xed785af60bed688baa8990cd5c4166221599a441",
+    "symbol": "reusdsfrx",
+    "name": "reUSD/sfrxUSD",
+    "decimals": 18
+  },
+  "borrowed": {
+    "address": "0xf939e0a03fb07f59a73314e73794be0e57ac1b4e",
+    "symbol": "crvUSD",
+    "name": "Curve.Fi USD Stablecoin",
+    "decimals": 18
+  },
+  "params": {
+    "A": 236,
+    "fee_pct": 0.0975,
+    "admin_fee_pct": 10,
+    "loan_discount_pct": 2,
+    "liquidation_discount_pct": 1.36322,
+    "borrow_cap": 2000000,
+    "ma_exp_time": 866
+  },
+  "policy": {
+    "version": "HyperbolicMP",
+    "HyperbolicMP": {
+      "target_utilization_pct": 80,
+      "target_rate_apr_pct": 5.28,
+      "low_ratio": 0.3,
+      "high_ratio": 10,
+      "rate_shift_apr_pct": 0
+    },
+    "HyperbolicDynamicMP": {
+      "target_utilization_pct": 90,
+      "assumed_rate_apr_pct": 4.7,
+      "low_ratio": 0.5,
+      "high_ratio": 5,
+      "rate_shift_apr_pct": 0,
+      "rate_calculator": ""
+    },
+    "EMAMonetaryPolicy": {
+      "target_utilization_pct": 90,
+      "assumed_rate_apr_pct": 4.7,
+      "low_ratio": 0.5,
+      "high_ratio": 5,
+      "rate_shift_apr_pct": 0,
+      "rate_calculator": ""
+    },
+    "KinkedMonetaryPolicy": {
+      "target_utilization_pct": 85,
+      "base_rate_apr_pct": 8,
+      "low_ratio": 0.5,
+      "high_ratio": 3
+    },
+    "SecondaryMonetaryPolicy": {
+      "target_utilization_pct": 85,
+      "assumed_rate_apr_pct": 6,
+      "low_ratio": 0.35,
+      "high_ratio": 1.5,
+      "rate_shift_apr_pct": 0
+    },
+    "SemilogMonetaryPolicy": {
+      "min_rate_apr_pct": 0.5,
+      "max_rate_apr_pct": 40
+    }
+  },
+  "borrower": {
+    "mode": "cap",
+    "n_bands": 4,
+    "ltv_pct": null,
+    "collateral_usd": 2100000,
+    "debt_usd": 2000000
+  },
+  "venue": {
+    "pool_type": "stableswap-ng",
+    "tvl_usd": 3000000,
+    "A_raw": 270,
+    "ss_A": 200,
+    "n_coins": 2,
+    "state": null,
+    "note": ""
+  },
+  "oracle": {
+    "range": {
+      "days": 240,
+      "step_s": 300
+    },
+    "sources": [
+      {
+        "id": "s1",
+        "name": "vp",
+        "kind": "onchain",
+        "address": "0xed785af60bed688baa8990cd5c4166221599a441",
+        "preset": "vp",
+        "sig": "get_virtual_price()",
+        "args": [],
+        "slot": 0,
+        "rtype": "uint",
+        "decimals": 18,
+        "raw": false,
+        "note": "pool virtual price",
+        "ema": {
+          "onchain": null,
+          "use": null
+        }
+      },
+      {
+        "id": "s2",
+        "name": "p",
+        "kind": "onchain",
+        "address": "0xed785af60bed688baa8990cd5c4166221599a441",
+        "preset": "price_oracle_i",
+        "sig": "price_oracle(uint256)",
+        "args": [
+          0
+        ],
+        "slot": 0,
+        "rtype": "uint",
+        "decimals": 18,
+        "raw": false,
+        "note": "pool price_oracle(0): the pool's own EMA of its last price",
+        "ema": {
+          "onchain": 866,
+          "use": null
+        }
+      },
+      {
+        "id": "s3",
+        "name": "reusd_feed",
+        "kind": "onchain",
+        "address": "0x07ac1e016d4335fb833666ed5c43846162d2b7e8",
+        "preset": "priceAsCrvusd",
+        "sig": "priceAsCrvusd()",
+        "args": [],
+        "slot": 0,
+        "rtype": "uint",
+        "decimals": 18,
+        "raw": false,
+        "note": "reUSD in crvUSD, built from the reUSD pools' EMAs",
+        "ema": {
+          "onchain": 866,
+          "use": null
+        }
+      },
+      {
+        "id": "s4",
+        "name": "agg",
+        "kind": "onchain",
+        "address": "0x18672b1b0c623a30089a280ed9256379fb0e4e62",
+        "preset": "price",
+        "sig": "price()",
+        "args": [],
+        "slot": 0,
+        "rtype": "uint",
+        "decimals": 18,
+        "raw": false,
+        "note": "crvUSD/USD aggregator over five pools' EMAs",
+        "ema": {
+          "onchain": 866,
+          "use": null
+        }
+      },
+      {
+        "id": "s7",
+        "name": "p_last",
+        "kind": "onchain",
+        "address": "0xed785af60bed688baa8990cd5c4166221599a441",
+        "preset": "last_price_ng",
+        "sig": "last_price(uint256)",
+        "args": [
+          0
+        ],
+        "slot": 0,
+        "rtype": "uint",
+        "decimals": 18,
+        "raw": false,
+        "note": "LP pool: last traded price, no EMA",
+        "ema": {
+          "onchain": null,
+          "use": null
+        }
+      },
+      {
+        "id": "s8",
+        "name": "bridge_last",
+        "kind": "onchain",
+        "address": "0xc522a6606bba746d7960404f22a3db936b6f4f50",
+        "preset": "last_price_ng",
+        "sig": "last_price(uint256)",
+        "args": [
+          0
+        ],
+        "slot": 0,
+        "rtype": "uint",
+        "decimals": 18,
+        "raw": false,
+        "note": "reUSD/scrvUSD pool: last traded price (crvUSD-side per reUSD is its inverse), no EMA",
+        "ema": {
+          "onchain": null,
+          "use": null
+        }
+      },
+      {
+        "id": "s5",
+        "name": "ref_market",
+        "kind": "dataset",
+        "key": "pv2-reusd-sfrxusd-lp",
+        "column": "close",
+        "note": "llamma-simulator_v2 PR 9 dataset: LP market price (not read by the script; overlay it in the chart)",
+        "ema": {
+          "onchain": null,
+          "use": null
+        }
+      },
+      {
+        "id": "s6",
+        "name": "ref_oracle",
+        "kind": "dataset",
+        "key": "pv2-reusd-sfrxusd-lp",
+        "column": "oracle",
+        "note": "llamma-simulator_v2 PR 9 dataset: its composed oracle",
+        "ema": {
+          "onchain": null,
+          "use": null
+        }
+      }
+    ],
+    "script": "# StableSwapNGLPOracle: portfolio value x dampened virtual price, in reUSD\nvp_ema_time  = 866                # the LP oracle's own deploy-time EMA on the virtual price\nlp_reusd     = lp_stable(asym_ema(vp, vp_ema_time), p, 200)\nreusd_crvusd = min(1, reusd_feed)\nlp_crvusd    = lp_reusd * reusd_crvusd\noracle       = lp_crvusd * agg\n\n# the external mark: the same LP formula on the pools' LAST TRADED prices (no EMA, no dampening, no cap)\nmarket       = lp_stable(vp, p_last, 200) * inv(bridge_last) * agg"
+  },
+  "scenario": {
+    "mode": "history",
+    "clips": [],
+    "crash": {
+      "rank": 0,
+      "span_s": 259200
+    },
+    "worse": 1,
+    "by_hand": false,
+    "points": [
+      [
+        0,
+        1
+      ],
+      [
+        1800,
+        0.99
+      ],
+      [
+        3600,
+        0.9
+      ],
+      [
+        7200,
+        0.86
+      ],
+      [
+        14400,
+        0.9
+      ]
+    ],
+    "tool": "points",
+    "linear": {
+      "drop_pct": 10,
+      "duration_min": 60
+    },
+    "lead_in_min": 10,
+    "tail_min": 60,
+    "start_price": null,
+    "oracle_mode": "recorded"
+  },
+  "sldl": {
+    "a_min": 118,
+    "a_max": 354,
+    "fee_min": 0.025,
+    "fee_max": 0.29,
+    "grid": 15,
+    "bands": 4,
+    "tail_pct": 0.05,
+    "loan_days": 2
+  }
+}

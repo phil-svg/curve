@@ -1,0 +1,263 @@
+/* ui/oracle.js: range | sources | script | graph | chart.
+   Everything is scoped under .nl-oracle and coloured through the base.css
+   custom properties only, so the dark designs and the light one restyle it by
+   setting variables. The root is a size container: the rules at the end adapt
+   each part from about 320 px to 1300 px of pane width. */
+.nl-oracle { container-type:inline-size; container-name:nl-oracle; display:flex; flex-direction:column; gap:var(--nl-gap); min-width:0; }
+.nl-oracle [hidden] { display:none !important; }
+.nl-oracle .nl-oracle-part { min-width:0; }
+.nl-oracle .nl-oracle-bare { display:flex; flex-direction:column; gap:var(--nl-gap); }
+.nl-oracle .nl-oracle-barehead { display:flex; justify-content:flex-end; }
+.nl-oracle .nl-oracle-title { min-width:0; }
+.nl-oracle .nl-oracle-headtools { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-weight:400; font-family:var(--nl-font); }
+.nl-oracle .nl-btn.nl-oracle-on { border-color:var(--nl-accent); color:var(--nl-accent); }
+
+/* shared small pieces */
+.nl-oracle .nl-oracle-summary { font-size:.9em; color:var(--nl-dim); overflow-wrap:anywhere; }
+.nl-oracle .nl-oracle-hint { display:flex; align-items:center; gap:8px 12px; flex-wrap:wrap; font-size:.92em; color:var(--nl-fg);
+  padding:7px 10px; border-radius:calc(var(--nl-radius) - 2px); border:1px solid color-mix(in srgb, var(--nl-warn) 40%, var(--nl-line));
+  background:color-mix(in srgb, var(--nl-warn) 9%, transparent); overflow-wrap:anywhere; }
+.nl-oracle .nl-oracle-empty { display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center; color:var(--nl-dim);
+  padding:26px 18px; border:1px dashed var(--nl-line); border-radius:calc(var(--nl-radius) - 2px); background:color-mix(in srgb, var(--nl-bg) 55%, transparent); }
+.nl-oracle .nl-oracle-empty b { color:var(--nl-fg); font-weight:650; }
+.nl-oracle .nl-oracle-empty > div { max-width:62ch; overflow-wrap:anywhere; }
+.nl-oracle .nl-oracle-check { display:inline-flex; align-items:center; gap:7px; color:var(--nl-dim); font-size:.92em; cursor:pointer; user-select:none; }
+.nl-oracle .nl-oracle-check input { margin:0; width:14px; height:14px; accent-color:var(--nl-accent); cursor:pointer; flex:none; }
+.nl-oracle .nl-oracle-check:hover { color:var(--nl-fg); }
+.nl-oracle .nl-oracle-off { opacity:.45; }
+
+/* ---- range ------------------------------------------------------------------------------ */
+.nl-oracle .nl-oracle-range-row { display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px var(--nl-gap); }
+.nl-oracle .nl-oracle-ctl { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.nl-oracle .nl-oracle-custom { width:112px; }
+.nl-oracle .nl-seg button:disabled { opacity:.5; cursor:default; }
+.nl-oracle .nl-oracle-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; }
+.nl-oracle .nl-oracle-actions .nl-oracle-check { margin-left:4px; }
+.nl-oracle .nl-oracle-state { display:flex; flex-direction:column; gap:2px; font-size:.9em; color:var(--nl-dim);
+  font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+
+/* ---- sources ---------------------------------------------------------------------------- */
+.nl-oracle .nl-oracle-srclist { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.nl-oracle .nl-oracle-srclist:empty { display:none; }
+.nl-oracle .nl-oracle-src { min-width:0; border:1px solid var(--nl-line); border-left:3px solid var(--nl-line);
+  border-radius:calc(var(--nl-radius) - 2px); background:color-mix(in srgb, var(--nl-panel2) 50%, var(--nl-panel)); }
+.nl-oracle .nl-oracle-src.nl-oracle-src-used { border-left-color:var(--nl-accent); }
+.nl-oracle .nl-oracle-src-head { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; padding:7px 9px; }
+.nl-oracle .nl-oracle-src-toggle { flex:none; width:22px; height:22px; padding:0; border:0; border-radius:5px; background:none; color:var(--nl-dim);
+  cursor:pointer; display:inline-flex; align-items:center; justify-content:center; }
+.nl-oracle .nl-oracle-src-toggle:hover { color:var(--nl-fg); background:color-mix(in srgb, var(--nl-fg) 8%, transparent); }
+.nl-oracle .nl-oracle-src-toggle:focus-visible { outline:2px solid var(--nl-accent); outline-offset:1px; }
+.nl-oracle .nl-oracle-src-toggle::before { content:""; width:6px; height:6px; border-right:1.6px solid currentColor; border-bottom:1.6px solid currentColor;
+  transform:translateX(-1px) rotate(-45deg); transition:transform .12s; }
+.nl-oracle .nl-oracle-src-toggle[aria-expanded="true"]::before { transform:translateY(-1px) rotate(45deg); }
+.nl-oracle .nl-oracle-src-nameinput { flex:1 1 120px; width:auto; max-width:230px; font-weight:650; padding-top:4px; padding-bottom:4px; }
+.nl-oracle .nl-oracle-src-kind { flex:0 1 158px; width:auto; min-width:118px; padding-top:4px; padding-bottom:4px; }
+.nl-oracle .nl-oracle-src-chips { flex:1 1 210px; display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; min-width:0; }
+.nl-oracle .nl-oracle-src-actions { flex:none; display:flex; gap:6px; margin-left:auto; }
+.nl-oracle .nl-oracle-src-span { font-size:.84em; color:var(--nl-dim); white-space:nowrap; }
+.nl-oracle .nl-oracle-live { font-size:.88em; color:var(--nl-fg); white-space:nowrap; padding:1px 7px; border-radius:99px;
+  background:color-mix(in srgb, var(--nl-accent) 13%, transparent); }
+.nl-oracle .nl-oracle-used.nl-oracle-used-yes { color:var(--nl-accent); border-color:color-mix(in srgb, var(--nl-accent) 45%, transparent); }
+.nl-oracle .nl-btn.nl-oracle-armed { color:var(--nl-bad); border-color:var(--nl-bad); background:color-mix(in srgb, var(--nl-bad) 10%, transparent); }
+.nl-oracle .nl-oracle-src-summary { padding:0 10px 8px 39px; font-size:.86em; color:var(--nl-dim); overflow-wrap:anywhere; }
+.nl-oracle .nl-oracle-src > .nl-err, .nl-oracle .nl-oracle-src > .nl-oracle-src-warn { padding:0 10px 8px 39px; overflow-wrap:anywhere; }
+.nl-oracle .nl-oracle-src-warn { color:var(--nl-warn); font-size:.92em; overflow-wrap:anywhere; }
+.nl-oracle .nl-oracle-src-body { display:flex; flex-direction:column; gap:10px; padding:10px 10px 12px; border-top:1px solid var(--nl-line);
+  background:color-mix(in srgb, var(--nl-bg) 35%, transparent); border-radius:0 0 calc(var(--nl-radius) - 3px) calc(var(--nl-radius) - 3px); }
+.nl-oracle .nl-oracle-src-body .nl-grid { grid-template-columns:repeat(auto-fill, minmax(138px, 1fr)); }
+.nl-oracle .nl-oracle-add { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.nl-oracle .nl-oracle-add .nl-label { margin-right:4px; }
+.nl-oracle textarea.nl-oracle-csv { min-height:84px; font-size:.92em; }
+.nl-oracle .nl-oracle-filebtn { position:relative; display:inline-flex; align-items:center; overflow:hidden; }
+.nl-oracle .nl-oracle-filebtn input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; font-size:0; }
+.nl-oracle .nl-oracle-filebtn:focus-within { border-color:var(--nl-accent); }
+
+/* pool inspector (curve source, LP template) */
+.nl-oracle .nl-oracle-pool { display:flex; flex-direction:column; gap:6px; padding:9px 10px; border:1px solid var(--nl-line);
+  border-radius:calc(var(--nl-radius) - 2px); background:var(--nl-bg); min-width:0; }
+.nl-oracle .nl-oracle-pool-h { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; overflow-wrap:anywhere; }
+.nl-oracle .nl-oracle-coin { display:grid; grid-template-columns:minmax(70px, 1.2fr) minmax(90px, 1fr) minmax(60px, 1fr) auto; align-items:center;
+  gap:6px 10px; padding:5px 0; border-top:1px solid color-mix(in srgb, var(--nl-line) 70%, transparent); font-size:.94em; }
+.nl-oracle .nl-oracle-coin-sym { font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nl-oracle .nl-oracle-coin-bal { text-align:right; color:var(--nl-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nl-oracle .nl-oracle-coin-pick { flex-wrap:nowrap; }
+.nl-oracle .nl-oracle-coin-pick button { padding:2px 9px; }
+
+/* templates */
+.nl-oracle .nl-oracle-tpl { display:flex; flex-direction:column; gap:12px; padding:12px; min-width:0;
+  border:1px solid color-mix(in srgb, var(--nl-accent) 40%, var(--nl-line)); border-radius:calc(var(--nl-radius) - 2px);
+  background:color-mix(in srgb, var(--nl-accent) 5%, var(--nl-panel)); }
+.nl-oracle .nl-oracle-tpl-h { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
+.nl-oracle .nl-oracle-tpl-pane { display:flex; flex-direction:column; gap:10px; min-width:0; }
+.nl-oracle .nl-oracle-tpl-controls { display:grid; grid-template-columns:minmax(120px, 170px) minmax(0, 1fr); gap:8px; }
+.nl-oracle .nl-oracle-tpl-preview { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.nl-oracle .nl-oracle-tpl-preview:empty { display:none; }
+.nl-oracle .nl-oracle-mlist { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:4px; max-height:188px; overflow:auto;
+  padding:4px; border:1px solid var(--nl-line); border-radius:calc(var(--nl-radius) - 2px); background:var(--nl-bg); }
+.nl-oracle .nl-oracle-mlist:empty { display:none; }
+.nl-oracle .nl-oracle-mitem { font:inherit; text-align:left; color:var(--nl-fg); background:none; border:1px solid transparent; border-radius:5px;
+  padding:4px 8px; cursor:pointer; display:flex; flex-direction:column; min-width:0; }
+.nl-oracle .nl-oracle-mitem b { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.nl-oracle .nl-oracle-mitem .nl-note { font-size:.84em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.nl-oracle .nl-oracle-mitem:hover { background:color-mix(in srgb, var(--nl-fg) 6%, transparent); }
+.nl-oracle .nl-oracle-mitem:focus-visible { outline:2px solid var(--nl-accent); outline-offset:-2px; }
+.nl-oracle .nl-oracle-mitem.on { border-color:var(--nl-accent); background:color-mix(in srgb, var(--nl-accent) 14%, transparent); }
+.nl-oracle .nl-oracle-mnone { padding:8px; grid-column:1 / -1; }
+.nl-oracle .nl-oracle-tablewrap { overflow-x:auto; border:1px solid var(--nl-line); border-radius:calc(var(--nl-radius) - 2px); background:var(--nl-bg); }
+.nl-oracle .nl-oracle-table { border-collapse:collapse; width:100%; font-size:.88em; }
+.nl-oracle .nl-oracle-table th { text-align:left; font-weight:600; color:var(--nl-dim); font-size:.9em; text-transform:uppercase; letter-spacing:.06em;
+  padding:6px 10px; border-bottom:1px solid var(--nl-line); white-space:nowrap; }
+.nl-oracle .nl-oracle-table td { padding:5px 10px; border-bottom:1px solid color-mix(in srgb, var(--nl-line) 60%, transparent); vertical-align:top; }
+.nl-oracle .nl-oracle-table td.nl-mono { white-space:nowrap; }
+.nl-oracle .nl-oracle-table tr:last-child td { border-bottom:0; }
+.nl-oracle .nl-oracle-pre { margin:0; padding:9px 11px; font-size:.9em; line-height:1.55; overflow-x:auto; white-space:pre; color:var(--nl-fg);
+  border:1px solid var(--nl-line); border-radius:calc(var(--nl-radius) - 2px); background:var(--nl-bg); }
+
+/* ---- script ------------------------------------------------------------------------------- */
+.nl-oracle .nl-oracle-code { display:flex; align-items:stretch; min-width:0; font-size:.96em; border:1px solid var(--nl-line);
+  border-radius:calc(var(--nl-radius) - 2px); background:var(--nl-bg); overflow:hidden; transition:border-color .12s, box-shadow .12s; }
+.nl-oracle .nl-oracle-code:focus-within { border-color:var(--nl-accent); box-shadow:0 0 0 3px color-mix(in srgb, var(--nl-accent) 22%, transparent); }
+.nl-oracle .nl-oracle-gutter { position:relative; flex:none; width:calc(2ch + 16px); border-right:1px solid var(--nl-line);
+  background:color-mix(in srgb, var(--nl-panel) 60%, var(--nl-bg)); color:var(--nl-dim); user-select:none; }
+.nl-oracle .nl-oracle-gutter-in { position:absolute; inset:0; overflow:hidden; padding:6px 0 48px; line-height:1.55; text-align:right; }
+.nl-oracle .nl-oracle-gl { display:block; padding:0 7px 0 4px; opacity:.75; }
+.nl-oracle .nl-oracle-gl-err { opacity:1; color:var(--nl-bad); font-weight:700; background:color-mix(in srgb, var(--nl-bad) 16%, transparent); }
+.nl-oracle textarea.nl-oracle-code-ta { flex:1 1 auto; min-width:0; min-height:120px; border:0; border-radius:0; background:transparent; box-shadow:none;
+  padding:6px 10px; line-height:1.55; font-size:inherit; }
+.nl-oracle textarea.nl-oracle-code-ta:focus { box-shadow:none; }
+.nl-oracle .nl-oracle-names { display:flex; flex-wrap:wrap; align-items:center; gap:5px; }
+.nl-oracle .nl-oracle-names .nl-label { margin-right:3px; }
+.nl-oracle .nl-oracle-name { font:inherit; font-family:var(--nl-mono); font-size:.88em; color:var(--nl-dim); background:none; cursor:pointer;
+  padding:1px 8px; border-radius:99px; border:1px solid var(--nl-line); }
+.nl-oracle .nl-oracle-name:hover { color:var(--nl-fg); border-color:var(--nl-accent); }
+.nl-oracle .nl-oracle-name.nl-oracle-name-used { color:var(--nl-fg); border-color:color-mix(in srgb, var(--nl-accent) 50%, var(--nl-line));
+  background:color-mix(in srgb, var(--nl-accent) 10%, transparent); }
+.nl-oracle .nl-oracle-msgs { display:flex; flex-direction:column; gap:6px; }
+.nl-oracle .nl-oracle-msgs:empty { display:none; }
+.nl-oracle .nl-oracle-msg { overflow-wrap:anywhere; }
+.nl-oracle .nl-oracle-msg.nl-err { display:flex; align-items:baseline; gap:8px; }
+.nl-oracle .nl-oracle-msg.nl-ok { font-size:.92em; }
+.nl-oracle .nl-oracle-lineref { flex:none; font:inherit; font-family:var(--nl-mono); font-size:.92em; color:var(--nl-bad); cursor:pointer; padding:0 7px;
+  border-radius:99px; border:1px solid color-mix(in srgb, var(--nl-bad) 45%, transparent); background:color-mix(in srgb, var(--nl-bad) 8%, transparent); }
+.nl-oracle .nl-oracle-lineref:hover { background:color-mix(in srgb, var(--nl-bad) 18%, transparent); }
+.nl-oracle .nl-oracle-ref { border:1px solid var(--nl-line); border-radius:calc(var(--nl-radius) - 2px); background:color-mix(in srgb, var(--nl-bg) 55%, transparent); }
+.nl-oracle .nl-oracle-ref summary { cursor:pointer; padding:7px 11px; color:var(--nl-dim); font-weight:600; font-size:.92em; user-select:none; }
+.nl-oracle .nl-oracle-ref summary:hover { color:var(--nl-fg); }
+.nl-oracle .nl-oracle-ref[open] summary { border-bottom:1px solid var(--nl-line); color:var(--nl-fg); }
+.nl-oracle .nl-oracle-ref-b { display:flex; flex-direction:column; gap:7px; padding:10px 11px; }
+.nl-oracle .nl-oracle-ref-row { display:grid; grid-template-columns:minmax(150px, 230px) minmax(0, 1fr); gap:4px 14px; font-size:.92em; }
+.nl-oracle .nl-oracle-ref-row code { color:var(--nl-accent); overflow-wrap:anywhere; }
+.nl-oracle .nl-oracle-ref-row span { color:var(--nl-dim); overflow-wrap:anywhere; }
+
+/* ---- graph -------------------------------------------------------------------------------- */
+.nl-oracle .nl-oracle-graph { overflow:auto; max-height:460px; min-width:0; padding:4px; border:1px solid var(--nl-line);
+  border-radius:calc(var(--nl-radius) - 2px); background:var(--nl-bg); }
+.nl-oracle .nl-oracle-graph > .nl-oracle-empty { border:0; background:none; }
+.nl-oracle .nl-oracle-g { display:block; font-family:var(--nl-mono); }
+.nl-oracle .nl-oracle-g-edge { fill:none; stroke:color-mix(in srgb, var(--nl-dim) 70%, transparent); stroke-width:1.3; }
+.nl-oracle .nl-oracle-g-arrow { fill:color-mix(in srgb, var(--nl-dim) 85%, transparent); stroke:none; }
+.nl-oracle .nl-oracle-g-edge.nl-oracle-g-edge-missing { stroke:var(--nl-bad); stroke-dasharray:4 3; }
+.nl-oracle .nl-oracle-g-arrow.nl-oracle-g-edge-missing { fill:var(--nl-bad); }
+.nl-oracle .nl-oracle-g-node rect { fill:var(--nl-panel); stroke:var(--nl-line); stroke-width:1.2; }
+.nl-oracle .nl-oracle-g-node text { fill:var(--nl-fg); }
+.nl-oracle .nl-oracle-g-name { font-size:12px; font-weight:700; }
+.nl-oracle .nl-oracle-g-node .nl-oracle-g-sub { font-size:10.5px; fill:var(--nl-dim); }
+.nl-oracle .nl-oracle-g-node .nl-oracle-g-val { font-size:10.5px; fill:var(--nl-fg); font-variant-numeric:tabular-nums; }
+.nl-oracle .nl-oracle-g-node .nl-oracle-g-val-live { fill:var(--nl-accent); font-weight:700; }
+.nl-oracle .nl-oracle-g-source rect { fill:color-mix(in srgb, var(--nl-c1) 10%, var(--nl-panel)); stroke:color-mix(in srgb, var(--nl-c1) 60%, var(--nl-line)); }
+.nl-oracle .nl-oracle-g-var rect { fill:var(--nl-panel2); }
+.nl-oracle .nl-oracle-g-oracle rect { fill:color-mix(in srgb, var(--nl-accent) 22%, var(--nl-panel)); stroke:var(--nl-accent); stroke-width:2; }
+.nl-oracle .nl-oracle-g-market rect { fill:color-mix(in srgb, var(--nl-c2) 18%, var(--nl-panel)); stroke:var(--nl-c2); stroke-width:1.6; }
+.nl-oracle .nl-oracle-g-missing rect { fill:color-mix(in srgb, var(--nl-bad) 10%, var(--nl-panel)); stroke:var(--nl-bad); stroke-dasharray:5 3; }
+.nl-oracle .nl-oracle-g-missing .nl-oracle-g-name { fill:var(--nl-bad); }
+.nl-oracle .nl-oracle-g-dot { fill:var(--nl-dim); opacity:.55; }
+.nl-oracle .nl-oracle-g-dot-ok { fill:var(--nl-good); opacity:1; }
+.nl-oracle .nl-oracle-g-dot-loading { fill:var(--nl-warn); opacity:1; }
+.nl-oracle .nl-oracle-g-dot-error { fill:var(--nl-bad); opacity:1; }
+.nl-oracle .nl-oracle-legend { display:flex; flex-wrap:wrap; gap:4px 14px; font-size:.86em; color:var(--nl-dim); }
+.nl-oracle .nl-oracle-key { display:inline-flex; align-items:center; gap:6px; }
+.nl-oracle .nl-oracle-key i { width:12px; height:9px; border-radius:3px; border:1.4px solid var(--nl-line); background:var(--nl-panel2); }
+.nl-oracle .nl-oracle-key-source i { border-color:color-mix(in srgb, var(--nl-c1) 60%, var(--nl-line)); background:color-mix(in srgb, var(--nl-c1) 10%, var(--nl-panel)); }
+.nl-oracle .nl-oracle-key-oracle i { border-color:var(--nl-accent); background:color-mix(in srgb, var(--nl-accent) 22%, var(--nl-panel)); }
+.nl-oracle .nl-oracle-key-market i { border-color:var(--nl-c2); background:color-mix(in srgb, var(--nl-c2) 18%, var(--nl-panel)); }
+.nl-oracle .nl-oracle-key-missing i { border-color:var(--nl-bad); border-style:dashed; background:color-mix(in srgb, var(--nl-bad) 10%, var(--nl-panel)); }
+
+/* ---- chart -------------------------------------------------------------------------------- */
+.nl-oracle .nl-oracle-chartwrap { display:flex; flex-direction:column; gap:var(--nl-gap); min-width:0; }
+.nl-oracle .nl-oracle-kpis { grid-template-columns:repeat(auto-fit, minmax(118px, 1fr)); }
+.nl-oracle .nl-oracle-kpis .nl-kpi b { font-size:1.18em; }
+.nl-oracle .nl-oracle-kpi-wide { grid-column:span 2; }
+.nl-oracle .nl-oracle-charttools { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:8px 14px; }
+.nl-oracle .nl-oracle-chips { display:flex; flex-wrap:wrap; align-items:center; gap:5px; flex:1 1 260px; min-width:0; }
+.nl-oracle .nl-oracle-chips .nl-label { margin-right:3px; }
+.nl-oracle .nl-oracle-chip { --nl-oracle-chip:var(--nl-dim); font:inherit; font-family:var(--nl-mono); font-size:.86em; color:var(--nl-dim); background:none;
+  cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:2px 9px; border-radius:99px; border:1px solid var(--nl-line);
+  max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nl-oracle .nl-oracle-chip i { flex:none; width:9px; height:3px; border-radius:2px; background:var(--nl-line); }
+.nl-oracle .nl-oracle-chip.nl-oracle-chip-source { border-style:dashed; }
+.nl-oracle .nl-oracle-chip:hover { color:var(--nl-fg); border-color:var(--nl-dim); }
+.nl-oracle .nl-oracle-chip:focus-visible { outline:2px solid var(--nl-accent); outline-offset:1px; }
+.nl-oracle .nl-oracle-chip[aria-pressed="true"] { color:var(--nl-fg); border-color:color-mix(in srgb, var(--nl-oracle-chip) 65%, var(--nl-line));
+  background:color-mix(in srgb, var(--nl-oracle-chip) 13%, transparent); }
+.nl-oracle .nl-oracle-chip[aria-pressed="true"] i { background:var(--nl-oracle-chip); }
+
+/* ---- pane widths ------------------------------------------------------------------------------ */
+@container nl-oracle (min-width: 900px) {
+  .nl-oracle .nl-oracle-src-body .nl-grid { grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); }
+  .nl-oracle .nl-oracle-mlist { max-height:228px; }
+  .nl-oracle .nl-oracle-kpis { grid-template-columns:repeat(7, minmax(0, 1fr)); }
+}
+@container nl-oracle (max-width: 620px) {
+  .nl-oracle .nl-oracle-src-nameinput { max-width:none; }
+  .nl-oracle .nl-oracle-src-kind { flex:1 1 130px; }
+  .nl-oracle .nl-oracle-src-chips { order:5; flex-basis:100%; padding-left:30px; }
+  .nl-oracle .nl-oracle-src-summary, .nl-oracle .nl-oracle-src > .nl-err, .nl-oracle .nl-oracle-src > .nl-oracle-src-warn { padding-left:10px; }
+  .nl-oracle .nl-oracle-ref-row { grid-template-columns:minmax(0, 1fr); }
+  .nl-oracle .nl-oracle-charttools { flex-direction:column; }
+  .nl-oracle .nl-oracle-chips { flex-basis:auto; }
+}
+@container nl-oracle (max-width: 440px) {
+  .nl-oracle .nl-oracle-src-head { gap:6px; }
+  .nl-oracle .nl-oracle-src-nameinput { flex-basis:calc(100% - 34px); }
+  .nl-oracle .nl-oracle-src-kind { flex:1 1 100%; order:2; }
+  .nl-oracle .nl-oracle-src-actions { order:3; margin-left:0; width:100%; }
+  .nl-oracle .nl-oracle-src-actions .nl-btn { flex:1 1 0; }
+  .nl-oracle .nl-oracle-src-chips { padding-left:0; }
+  .nl-oracle .nl-oracle-src-body .nl-grid { grid-template-columns:repeat(auto-fill, minmax(124px, 1fr)); }
+  .nl-oracle .nl-oracle-actions .nl-btn { flex:1 1 auto; }
+  .nl-oracle .nl-oracle-actions .nl-oracle-check { margin-left:0; flex-basis:100%; }
+  .nl-oracle .nl-oracle-custom { width:100%; }
+  .nl-oracle .nl-oracle-tpl { padding:9px; }
+  .nl-oracle .nl-oracle-tpl-controls { grid-template-columns:minmax(0, 1fr); }
+  .nl-oracle .nl-oracle-mlist { grid-template-columns:minmax(0, 1fr); }
+  .nl-oracle .nl-oracle-coin { grid-template-columns:minmax(0, 1fr) auto; }
+  .nl-oracle .nl-oracle-coin-bal { text-align:left; }
+  .nl-oracle .nl-oracle-kpis { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .nl-oracle .nl-oracle-empty { padding:18px 12px; }
+  .nl-oracle .nl-seg button { padding-left:8px; padding-right:8px; }
+}
+
+/* a contract source: what its verified ABI offers */
+.nl-oracle .nl-oracle-abi { grid-column:1 / -1; display:flex; flex-direction:column; gap:6px; padding:9px 11px; border-radius:calc(var(--nl-radius) - 4px);
+  border:1px dashed var(--nl-line); background:color-mix(in srgb, var(--nl-accent) 5%, transparent); min-width:0; }
+.nl-oracle .nl-oracle-abi-h { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; min-width:0; }
+.nl-oracle .nl-oracle-abi-pick { display:flex; gap:8px; flex-wrap:wrap; } .nl-oracle .nl-oracle-abi-pick select { flex:1 1 320px; min-width:0; }
+
+/* what the script still needs, and what usually belongs in a crvUSD market */
+.nl-oracle .nl-oracle-help { display:flex; flex-direction:column; gap:8px; }
+.nl-oracle .nl-oracle-help-item { display:flex; flex-direction:column; gap:8px; padding:10px 12px; border-radius:calc(var(--nl-radius) - 4px);
+  border:1px solid color-mix(in srgb, var(--nl-accent) 45%, var(--nl-line)); background:color-mix(in srgb, var(--nl-accent) 8%, transparent); line-height:1.5; }
+.nl-oracle .nl-oracle-help-warn { border-color:color-mix(in srgb, var(--nl-warn) 55%, var(--nl-line)); background:color-mix(in srgb, var(--nl-warn) 8%, transparent); }
+.nl-oracle .nl-oracle-help-act { display:flex; gap:8px; flex-wrap:wrap; align-items:center; } .nl-oracle .nl-oracle-help-act input { flex:1 1 380px; min-width:0; max-width:520px; }
+.nl-oracle .nl-oracle-figures { display:flex; gap:6px 22px; flex-wrap:wrap; align-items:baseline; }
+
+/* chips: the source's name, then what it reads in words */
+.nl-oracle .nl-oracle-chip b { font-weight:600; }
+.nl-oracle .nl-oracle-chip .nl-oracle-chip-what { font-family:var(--nl-sans, inherit); color:var(--nl-dim); font-size:.95em; }
+.nl-oracle .nl-oracle-chip[aria-pressed="true"].nl-oracle-chip-dash i { background:repeating-linear-gradient(90deg, var(--nl-oracle-chip) 0 3px, transparent 3px 5px); }
+/* one thin chart per coin of the collateral's pool, stacked over the main chart on the same time axis */
+.nl-oracle .nl-oracle-ccs { display:flex; flex-direction:column; gap:2px; }
+.nl-oracle .nl-oracle-cc-h { display:flex; align-items:baseline; gap:6px; font-size:.92em; color:var(--nl-dim); padding-left:58px; }
+.nl-oracle .nl-oracle-cc-h b { color:var(--nl-fg); } .nl-oracle .nl-oracle-cc-h .nl-note { margin-left:6px; }
+.nl-oracle .nl-oracle-cc-h i { width:10px; height:3px; border-radius:2px; align-self:center; flex:none; }
+.nl-oracle .nl-oracle-cc .nl-chart-legend { display:none; }
