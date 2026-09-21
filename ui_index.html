@@ -128,7 +128,7 @@
   .arrow-btn:disabled { opacity:.35; cursor:default; background:#21262d; color:#c9d1d9; }
   .runbar { margin:0 0 14px 0; }
   .runbar #go { width:100%; }
-  .runbar #replay_span_wrap, .runbar #replay_rank_wrap { margin-top:8px; }
+  .runbar #replay_src_wrap, .runbar #replay_span_wrap, .runbar #replay_rank_wrap { margin-top:8px; }
   .autorun {
     display:none; align-items:center; gap:8px; margin:6px 0 0 0;
     font-size:12px; color:#c9d1d9; user-select:none; cursor:pointer;
@@ -527,6 +527,12 @@
            window sits with the button because changing it re-runs immediately. -->
       <div class="runbar">
         <button id="go" class="primary" type="submit">Run sim</button>
+        <div id="replay_src_wrap" style="display:none">
+          <label>Replay source</label>
+          <select id="replay_src">
+            <option value="venue" selected>market's venue candles (1-min)</option>
+          </select>
+        </div>
         <div id="replay_rank_wrap">
           <label>Crash to replay</label>
           <select id="replay_rank">
@@ -631,7 +637,7 @@
         <div class="fr"><span class="fl">Mode</span>
           <span class="fi w-l"><select id="crash_mode">
               <option value="linear" selected>linear ramp</option>
-              <option value="replay">replay worst real crash (1-min)</option>
+              <option value="replay">replay worst real crash</option>
             </select></span></div>
         <div class="fr"><span class="fl">Start spot ($)</span>
           <span class="fi w-m"><input id="crash_start_spot" type="number"
@@ -1215,9 +1221,10 @@ const replaySpanS = () => +document.getElementById("replay_span").value || 0;
 function replaySlice() {
   if (!replayShape) return null;
   const secs = replayShape.secs, pct = replayShape.pct;
+  const oracle = replayShape.oracle || null;   // paired datasets only
   const span = replaySpanS();
   const full = secs[secs.length - 1];
-  if (!span || span >= full) return { secs, pct, drop: replayShape.drop };
+  if (!span || span >= full) return { secs, pct, oracle, drop: replayShape.drop };
   // Anchored on the DEEPEST point, opened a third of the span before it. So the
   // window is always one third lead-in and two thirds aftermath, and the low
   // lands at the 1/3 mark whatever length you pick — a 3 h window opens 1 h
@@ -1228,7 +1235,7 @@ function replaySlice() {
   let lo = 0;
   for (let i = 1; i < pct.length; i++) if (pct[i] < pct[lo]) lo = i;
   const t0 = Math.max(0, Math.min(secs[lo] - span / 3, full - span));
-  const out = { secs: [], pct: [] };
+  const out = { secs: [], pct: [], oracle: oracle ? [] : null };
   const base = (() => {
     let b = pct[0];
     for (let i = 0; i < secs.length; i++) { if (secs[i] > t0) break; b = pct[i]; }
@@ -1238,8 +1245,9 @@ function replaySlice() {
     if (secs[i] < t0 || secs[i] > t0 + span) continue;
     out.secs.push(secs[i] - t0);
     out.pct.push(pct[i] / base);
+    if (oracle) out.oracle.push(oracle[i] / base);   // same base: oracle/market ratio kept
   }
-  if (out.secs.length < 2) return { secs, pct, drop: replayShape.drop };
+  if (out.secs.length < 2) return { secs, pct, oracle, drop: replayShape.drop };
   out.drop = Math.min(...out.pct) - 1;
   return out;
 }
@@ -1254,19 +1262,55 @@ function replayPath() {
   return sl.pct.map((f, i) => [off + sl.secs[i], spot * f]);
 }
 
+// The dataset's composed oracle as [[t_seconds_from_sim_start, price], ...],
+// scaled exactly like the price path (same base, same spot), so the engine
+// replays the recorded oracle instead of synthesizing an EMA. Paired
+// datasets only; null otherwise (the venue-EMA path stays in force).
+function oraclePath() {
+  if (!isReplay() || !replayShape || !replayShape.oracle) return null;
+  const spot = +document.getElementById("crash_start_spot").value;
+  const off = simOffsetMin() * 60;
+  const sl = replaySlice();
+  if (!sl.oracle) return null;
+  return sl.oracle.map((f, i) => [off + sl.secs[i], spot * f]);
+}
+
 // Minute-resolution crash windows, fetched (and permanently cached) by the
 // server per venue series: the collateral's worst wick day ± its week, as a %
 // path of the window's first close. First fetch per market takes ~20 s.
 const CRASH_WINDOWS = {};
 const RANK_WORDS = ["worst", "2nd worst", "3rd worst"];
-let crashSeries = null;      // {key, symbol, borrowed} of the picked market's venue
+let crashSeries = null;      // {key, symbol} of the active replay series
+let venueSeries = null;      // the picked market's venue series (kept while a dataset is active)
+// Paired v2 datasets (the S.L./D.L. "data" menu, format llamma-v2-paired-f64-v1)
+// double as replay sources here: the server cuts the dataset's own worst wick
+// day ± its week at the dataset's cadence, and the recorded composed oracle
+// rides along (see oraclePath). key -> {label, meta}.
+const PAIRED_SRC = {};
+const pairedSrc = () => PAIRED_SRC[document.getElementById("replay_src").value] || null;
+fetch("/sldl_sources").then(r => r.json()).then(j => {
+  const sel = document.getElementById("replay_src");
+  for (const s of (j.sources || [])) {
+    if (!s.meta || s.meta.format !== "llamma-v2-paired-f64-v1") continue;
+    PAIRED_SRC[s.key] = { label: s.label, meta: s.meta };
+    const o = document.createElement("option");
+    o.value = s.key;
+    o.textContent = `${s.label} dataset (${Math.round((s.meta.cadence_s || 60) / 60)}-min, ` +
+      `composed oracle)`;
+    sel.appendChild(o);
+  }
+  document.getElementById("replay_src_wrap").style.display =
+    Object.keys(PAIRED_SRC).length ? "" : "none";
+}).catch(() => {});
 async function crashWindowFor(key, symbol, rank = 0, borrowed = "") {
   const ck = `${key}#${rank}#${borrowed}`;
   if (CRASH_WINDOWS[ck]) return CRASH_WINDOWS[ck];
   const note = document.getElementById("replay_note");
   note.style.display = "";
-  note.textContent = `fetching minute candles for ${symbol}'s `
-    + `${RANK_WORDS[rank]} crash (one-time per market, ~20 s)…`;
+  note.textContent = PAIRED_SRC[key]
+    ? `cutting ${symbol}'s ${RANK_WORDS[rank]} crash from the dataset…`
+    : `fetching minute candles for ${symbol}'s `
+      + `${RANK_WORDS[rank]} crash (one-time per market, ~20 s)…`;
   // running mid-fetch would silently replay the PREVIOUS crash — the
   // shape only swaps in when this resolves
   const go = document.getElementById("go");
@@ -1282,7 +1326,11 @@ async function crashWindowFor(key, symbol, rank = 0, borrowed = "") {
     drop: j.path_min_frac - 1,
     fromDay: j.window_from_utc, toDay: j.window_to_utc,
     crashDay: j.crash_day_utc, symbol: j.base_symbol,
-    minute: true, nPoints: j.n_points,
+    minute: !j.cadence_s || j.cadence_s === 60, nPoints: j.n_points,
+    cadence: j.cadence_s || 60,
+    paired: j.source === "paired-v2",
+    oracle: j.oracle_pct_path ? j.oracle_pct_path.map(p => p[1]) : null,
+    datasetFrom: j.dataset_from_utc, datasetTo: j.dataset_to_utc,
     rank: j.rank || 0, crashes: j.crashes || [],
     // where the path came from when not simply the venue's candles
     // (ref_feeds.plan: the collateral's own feed, or venue ratio x feed)
@@ -1358,7 +1406,15 @@ function applyReplayUI(fallbackWhy) {
   const note = document.getElementById("replay_note");
   note.style.display = (!on && fallbackWhy) ? "" : "none";
   if (!on && fallbackWhy) note.textContent = fallbackWhy;
-  if (on && replayShape.feedNote) {
+  if (on && replayShape.paired) {
+    note.style.display = "";
+    note.textContent = `replaying the ${replayShape.symbol} dataset ` +
+      `(${replayShape.cadence / 60}-min rows, ${replayShape.datasetFrom} → ` +
+      `${replayShape.datasetTo}): ${replayShape.crashDay} wick day ± 7 d, ` +
+      `scaled to the start spot. Its composed on-chain oracle rides along ` +
+      `and replaces the venue EMA, so ma_exp_time is not used.`;
+  }
+  if (on && !replayShape.paired && replayShape.feedNote) {
     note.style.display = "";
     note.textContent = replayShape.feedNote;
   }
@@ -1367,8 +1423,10 @@ function applyReplayUI(fallbackWhy) {
 
 function currentParams() {
   const path = replayPath();
+  const opath = oraclePath();
   return {
     ...(path ? { price_path: path } : {}),
+    ...(opath ? { oracle_path: opath } : {}),
     ...marketParams,
     tvl_usd:                 +document.getElementById("tvl_usd").value,
     A_raw:                   +document.getElementById("A_raw").value,
@@ -1386,7 +1444,10 @@ function currentParams() {
     // Horizon is derived from the three legs: flat lead-in, the crash, flat tail.
     // The server only reads horizon_min; end offset is carried for round-tripping.
     horizon_min:             simHorizonMin(),
-    oracle_seed:             +document.getElementById("crash_start_spot").value,
+    // with a recorded oracle the borrower is placed where that oracle
+    // starts; otherwise the EMA is seeded at the start spot as before
+    oracle_seed:             opath ? opath[0][1]
+                             : +document.getElementById("crash_start_spot").value,
     collateral_usd:          +document.getElementById("collateral_usd").value,
     debt_usd:                +document.getElementById("debt_usd").value,
     n_bands:                 +document.getElementById("n_bands").value,
@@ -3601,18 +3662,31 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
     replayShape = null;
     let why = `${m.collateral.symbol} has no venue candles, so the schedule ` +
               `stays a linear −8.1% over 24h.`;
+    venueSeries = null;
     if (m.venue && m.venue.base_addr) {
       const key = `${m.chain}:${m.venue.pool}:${m.venue.base_addr}:${m.venue.quote_addr}`
         + (m.venue.wrapper ? `:${m.venue.wrapper.addr}` : "");
-      crashSeries = { key, symbol: m.collateral.symbol, borrowed: m.borrowed.symbol };
+      // what the market lends rides along: it decides whether the replay
+      // may come from the collateral's own dollar feed (ref_feeds.plan)
+      venueSeries = { key, symbol: m.collateral.symbol, borrowed: m.borrowed.symbol };
+    }
+    // A paired dataset chosen as replay source is market-independent by
+    // design (the shape is the dataset's, the level is this market's start
+    // spot), so it wins over the venue series.
+    const ps = pairedSrc();
+    const series = ps
+      ? { key: document.getElementById("replay_src").value, symbol: ps.label }
+      : venueSeries;
+    if (series) {
+      crashSeries = series;
       document.getElementById("replay_rank").value = "0";
       try {
-        replayShape = await crashWindowFor(key, m.collateral.symbol, 0, m.borrowed.symbol);
+        replayShape = await crashWindowFor(series.key, series.symbol, 0, series.borrowed || "");
         fillRankMenu(replayShape);
       }
       catch (e) {
         replayShape = null;
-        why = `${m.collateral.symbol}: ${String(e.message || e).slice(0, 120)} — ` +
+        why = `${series.symbol}: ${String(e.message || e).slice(0, 120)} — ` +
               `schedule stays a linear −8.1% over 24h.`;
       }
     }
@@ -4453,6 +4527,30 @@ document.getElementById("replay_rank").addEventListener("change", async () => {
     note.textContent = `crash #${rank + 1}: `
       + String(e.message || e).slice(0, 120);
   }
+});
+document.getElementById("replay_src").addEventListener("change", async () => {
+  const ps = pairedSrc();
+  const series = ps
+    ? { key: document.getElementById("replay_src").value, symbol: ps.label }
+    : venueSeries;
+  document.getElementById("replay_rank").value = "0";
+  crashSeries = series;
+  replayShape = null;
+  let why = ps ? null : "pick a market above — its venue candles are the replay path.";
+  if (series) {
+    try {
+      replayShape = await crashWindowFor(series.key, series.symbol, 0, series.borrowed || "");
+      fillRankMenu(replayShape);
+    } catch (e) {
+      replayShape = null;
+      why = `${series.symbol}: ${String(e.message || e).slice(0, 120)} — ` +
+            `schedule stays linear.`;
+    }
+  }
+  document.getElementById("crash_mode").value = replayShape ? "replay" : "linear";
+  applyReplayUI(replayShape ? null : why);
+  if (replayShape)
+    document.getElementById("status").textContent = "replay source changed — press Run sim.";
 });
 document.getElementById("crash_mode").addEventListener("change", () => {
   const note = document.getElementById("replay_note");

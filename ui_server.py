@@ -1344,6 +1344,91 @@ def _paired_v2_sources() -> dict:
     return out
 
 
+_PAIRED_CW_CACHE: dict = {}
+
+
+def _paired_crash_window(key: str, rank: int = 0) -> dict:
+    """Crash window cut from a paired v2 dataset, in the exact shape
+    fetch_crash_window.build_window returns, so the bad-debt sim can replay
+    it like a venue series: the dataset's rank-th worst wick day (deepest
+    daily low vs the previous close, distinct events >= 8 days apart)
+    +-7 days, as a % path of the window's first close at the dataset's own
+    cadence. The dataset's composed oracle rides along over the same rows
+    and the same base (oracle_pct_path), so the sim can hand the engine the
+    recorded oracle instead of synthesizing an EMA from the price path."""
+    import array
+    import fetch_crash_window as fcw
+    src = _paired_v2_sources()[key]
+    m = src["meta"]
+    stamp = (src["market_path"].stat().st_mtime_ns,
+             src["oracle_path"].stat().st_mtime_ns)
+    ck = (key, rank, stamp)
+    if ck in _PAIRED_CW_CACHE:
+        return _PAIRED_CW_CACHE[ck]
+
+    def rows(path: Path, per: int):
+        raw = path.read_bytes()
+        n = struct.unpack_from("<Q", raw, 0)[0]
+        a = array.array("d")
+        a.frombytes(raw[8:8 + n * per * 8])
+        return n, a
+    n, mk = rows(src["market_path"], 5)          # [t, o, h, l, c] per row
+    n_o, orc = rows(src["oracle_path"], 1)       # composed oracle per row
+    if n_o != n:
+        raise ValueError(f"market rows {n} != oracle rows {n_o}")
+    DAY = 86400
+    daily: list = []                             # [t_day, o, h, l, c]
+    for i in range(n):
+        b = i * 5
+        d = int(mk[b]) - int(mk[b]) % DAY
+        if daily and daily[-1][0] == d:
+            r = daily[-1]
+            r[2] = max(r[2], mk[b + 2])
+            r[3] = min(r[3], mk[b + 3])
+            r[4] = mk[b + 4]
+        else:
+            daily.append([d, mk[b + 1], mk[b + 2], mk[b + 3], mk[b + 4]])
+    ws = [w for w in fcw.worst_crash_days(daily, n=3) if w["drop"] < -0.001]
+    if rank >= len(ws):
+        raise ValueError(f"only {len(ws)} distinct crashes on record")
+    w = ws[rank]
+    t0 = w["day"] - fcw.LEAD_DAYS * DAY
+    t1 = w["day"] + (fcw.TAIL_DAYS + 1) * DAY
+    idx = [i for i in range(n) if t0 <= mk[i * 5] < t1]
+    if len(idx) < 100:
+        raise ValueError(f"dataset window too sparse ({len(idx)} rows)")
+    ts0 = mk[idx[0] * 5]
+    p0 = mk[idx[0] * 5 + 4]
+    lows = min(mk[i * 5 + 4] for i in idx)
+    label = str(m.get("label") or key)
+    out = {
+        "key": key, "rank": rank, "source": "paired-v2",
+        "crashes": [{"day_utc": time.strftime("%Y-%m-%d", time.gmtime(x["day"])),
+                     "drop": round(x["drop"], 4)} for x in ws],
+        "base_symbol": label,
+        "cadence_s": int(m["cadence_s"]),
+        "dataset_from_utc": time.strftime("%Y-%m-%d", time.gmtime(int(m["from"]))),
+        "dataset_to_utc": time.strftime("%Y-%m-%d", time.gmtime(int(m["to"]))),
+        "fetched_at": int(time.time()),
+        "window_from": t0, "window_to": t1,
+        "window_from_utc": time.strftime("%Y-%m-%d %H:%M", time.gmtime(int(ts0))),
+        "window_to_utc": time.strftime("%Y-%m-%d %H:%M",
+                                       time.gmtime(int(mk[idx[-1] * 5]))),
+        "crash_day_utc": time.strftime("%Y-%m-%d", time.gmtime(w["day"])),
+        "daily_wick_drop": round(w["drop"], 4),
+        "path_min_frac": round(lows / p0, 4),
+        "n_points": len(idx),
+        # [[seconds_from_window_start, fraction_of_first_close], ...]
+        "pct_path": [[int(mk[i * 5] - ts0), round(mk[i * 5 + 4] / p0, 8)]
+                     for i in idx],
+        # the recorded composed oracle over the same rows, same base
+        "oracle_pct_path": [[int(mk[i * 5] - ts0), round(orc[i] / p0, 8)]
+                            for i in idx],
+    }
+    _PAIRED_CW_CACHE[ck] = out
+    return out
+
+
 def _kl_daily() -> None:
     """Daily top-up of the S.L./D.L. price histories (fetchers/
     update_klines.py: Binance API append + incremental NAV rebuild) at
@@ -2408,6 +2493,11 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 rank = 0
             try:
+                if key in _paired_v2_sources():
+                    # a paired v2 dataset (S.L./D.L. data menu) as replay
+                    # source: cut from the local rows, oracle included
+                    _http_json(self, 200, _paired_crash_window(key, rank))
+                    return
                 import fetch_crash_window
                 # what the market lends decides the source (ref_feeds.plan):
                 # dollars -> the collateral's own deep feed where one is on
