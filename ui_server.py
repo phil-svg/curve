@@ -2288,10 +2288,14 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 imap = json.loads(
                     (HERE / "data" / "impl_map.json").read_text())
-                oc = (imap.get("pools", {}).get(f"{ch}:{pa}") or {}) \
-                    .get("params")
+                rec = imap.get("pools", {}).get(f"{ch}:{pa}") or {}
+                oc = rec.get("params")
                 if oc:
                     h = {**h, "oc": oc}
+                # a two-coin crypto pool's bonding curve, asked of its MATH
+                # contract by the impl-map cycle ("stableswap" = an FXSwap build)
+                if rec.get("curve"):
+                    h = {**h, "curve": rec["curve"]}
             except (OSError, ValueError):
                 pass
             _http_json(self, 200, h)
@@ -2403,7 +2407,9 @@ class Handler(BaseHTTPRequestHandler):
                                 **({"impl": im["impl"],
                                     "verified": im.get("verified", False),
                                     **({"iver": im["version"]}
-                                       if im.get("version") else {})}
+                                       if im.get("version") else {}),
+                                    **({"curve": im["curve"]}
+                                       if im.get("curve") else {})}
                                    if im else {})})
                 _IMPL_CACHE = {"stamp": stamp,
                                "data": {"markets": markets, "pools": pools,

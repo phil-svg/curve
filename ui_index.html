@@ -8281,7 +8281,8 @@ window.loadLpTab = async function () {
             secs(Math.round(oc.ma_time / 0.694)) + ")")
         : pRow("ma half time", secs(last.maht));
       dao = pRow("A (ramp)", pNum(last.a))
-        + pRow("gamma (ramp)", e18(last.gamma))
+        + (H.curve === "stableswap" ? ""      // an fxswap curve ignores gamma
+            : pRow("gamma (ramp)", e18(last.gamma)))
         + pRow("mid fee", fmtPct(pctOf(last.mid_fee)))
         + pRow("out fee", fmtPct(pctOf(last.out_fee)))
         + pRow("fee gamma", e18(last.fee_gamma))
@@ -8289,7 +8290,7 @@ window.loadLpTab = async function () {
         + pRow("adjustment step", e18(last.astep))
         + maRow;
       fixed = pRow("admin fee share", fmtPct(adminNow))
-        + pRow("family", "cryptoswap");
+        + pRow("family", H.curve === "stableswap" ? "fxswap" : "cryptoswap");
     } else {
       dao = pRow("A (ramp)", pNum(last.a))
         + pRow("fee", fmtPct(pctOf(last.fee)))
@@ -8440,7 +8441,8 @@ window.loadLpTab = async function () {
       };
       if (isCrypto) {
         params = step("A", series.A, "#58a6ff")
-          + step("gamma", series.gamma, "#4DB6AC")
+          + (H.curve === "stableswap" ? ""
+              : step("gamma", series.gamma, "#4DB6AC"))
           + step("mid fee %", series.mid, "#ED7D31", { pct: true })
           + step("out fee %", series.out, "#F778BA", { pct: true })
           + step("fee gamma", series.fg, "#A78BFA")
@@ -9046,9 +9048,14 @@ window.loadImplTab = async function loadImplTab() {
         { n: "tricrypto-NG", t: "crypto3", impls: ["tricrypto_ng"],
           d: "new-generation 3-coin cryptoswap",
           f: "pools/src/tricrypto_ng.hpp" },
-        { n: "twocrypto", t: "v2.1.0d", impls: ["twocrypto"],
-          d: "twocrypto v2.1.0d (also the older Yield Basis pools / iREET)",
+        { n: "fxswap", t: "v2.1.0d · v3.0.0", impls: ["fxswap"],
+          d: "two-coin crypto pools on the stableswap curve (their MATH " +
+             "ignores gamma): twocrypto v2.1.0d, also the older Yield " +
+             "Basis pools / iREET",
           f: "pools/src/twocrypto_ng.hpp" },
+        { n: "twocrypto-NG", t: "gamma curve", impls: ["twocrypto"],
+          d: "two-coin cryptoswap on the gamma curve (v2.0.0, v2.1.0, " +
+             "v2.1.1): no engine yet" },
         { n: "shared math", t: "solvers", impls: [],
           d: "invariant + price solvers shared by the crypto engines",
           f: "pools/src/crypto_math.hpp" }] },
@@ -9102,6 +9109,9 @@ window.loadImplTab = async function loadImplTab() {
   let idx = { markets: [], pools: [], tokens: {}, pegkeepers: [], yb: {} };
   try { idx = await fetch("/impl_index").then(r => r.json()); }
   catch (e) { /* search degrades, taxonomy still renders */ }
+  // a two-coin pool whose MATH runs the stableswap curve is an fxswap pool
+  for (const p of idx.pools || [])
+    if (p.impl === "twocrypto" && p.curve === "stableswap") p.impl = "fxswap";
   const nGrp = g => idx.markets.filter(m => m.group === g).length;
   const sym = a => idx.tokens[String(a || "").toLowerCase()] || null;
 
@@ -9117,7 +9127,11 @@ window.loadImplTab = async function loadImplTab() {
     crypto2: ["crypto2 classic", "pools/src/crypto2_classic.hpp"],
     tricrypto2: ["tricrypto2", "pools/src/tricrypto2.hpp"],
     tricrypto_ng: ["tricrypto-NG", "pools/src/tricrypto_ng.hpp"],
-    twocrypto: ["twocrypto", "pools/src/twocrypto_ng.hpp"],
+    // the two-coin builds by the curve their MATH contract runs (asked on
+    // chain, fetch_impl_map.math_curve): stableswap = fxswap, gamma has no
+    // engine yet
+    fxswap: ["fxswap", "pools/src/twocrypto_ng.hpp"],
+    twocrypto: ["twocrypto-NG", null],
     yb_twocrypto: ["YB twocrypto v3", "yieldbasis/twocrypto_yb.hpp"],
   };
   const MPGH = gh("mpolicies/mpolicies.hpp");
@@ -9167,9 +9181,14 @@ window.loadImplTab = async function loadImplTab() {
   const implChip = (impl, verified, iver) => {
     const e = IMPL[impl];
     if (!e) return "";
+    if (!e[1]) return `<span class="impl-vtag" title="no engine yet">${
+      esc(e[0])}${iver ? " " + esc(iver) : ""}${verified ? " ✓" : ""}</span>`;
+    // the v3.0.0 fxswap build is the Yield Basis fork's engine
+    const file = impl === "fxswap" && /^v3/.test(iver || "")
+      ? "yieldbasis/twocrypto_yb.hpp" : e[1];
     return `<a class="impl-vtag" style="color:#7ee787; border-color:#1a2b1e;
-      text-decoration:none" href="${gh(e[1])}" target="_blank"
-      rel="noopener" title="engine: ${esc(e[1])}${verified
+      text-decoration:none" href="${gh(file)}" target="_blank"
+      rel="noopener" title="engine: ${esc(file)}${verified
         ? " · fingerprint verified on-chain" : ""}">${esc(e[0])}${
       iver ? " " + esc(iver) : ""}${verified ? " ✓" : ""}</a>`;
   };

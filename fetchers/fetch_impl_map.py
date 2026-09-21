@@ -26,6 +26,7 @@ HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE / "pylib"))
 sys.path.insert(0, str(HERE / "fetchers"))
 
+from common import sel  # noqa: E402
 from fetch_markets import Rpc  # noqa: E402
 from fetch_lp import YB_FACTORY, http, pegkeepers  # noqa: E402
 
@@ -58,6 +59,36 @@ POLICY_PROBES = [("sigma()", None), ("rate0()", None), ("min_rate()", None),
                  ("ma_rate()", None),
                  ("base_rate()", None),
                  ("parameters()", None)]
+
+
+# ---- which bonding curve a two-coin crypto pool runs ----------------------
+# The MATH contract is hardcoded in each pool build, and the builds differ in
+# the curve itself: the regular twocrypto-ng builds solve the cryptoswap
+# (gamma) invariant, the "FXSwap" builds (v2.1.0d, v3.0.0, the Yield Basis
+# pools) solve the plain stableswap invariant in price_scale space and ignore
+# gamma. Asked of the contract instead of inferred from a version string: the
+# same imbalanced pool at two gammas gives the same D only on the second kind.
+CURVE_SIG = "newton_D(uint256,uint256,uint256[2],uint256)"
+CURVE_ANN = 400_000                     # A = 10, a value every build accepts
+CURVE_XP = (10**24, 2 * 10**24)
+CURVE_GAMMAS = (10**14, 7 * 10**14)
+
+
+def math_curve(rpc, math: str) -> str | None:
+    """'stableswap' | 'gamma' for a twocrypto MATH contract, None when it
+    does not answer (another ABI, a provider hiccup: asked again next run)."""
+    ds = []
+    for g in CURVE_GAMMAS:
+        data = sel(CURVE_SIG) + "".join(
+            hex(x)[2:].rjust(64, "0") for x in (CURVE_ANN, g, *CURVE_XP, 0))
+        try:
+            r = rpc.call(math, data)
+        except Exception:  # noqa: BLE001
+            return None
+        if not r or r == "0x":
+            return None
+        ds.append(int(r, 16))
+    return "stableswap" if ds[0] == ds[1] else "gamma"
 
 
 def classify_pool(m: dict, addr: str, yb_pools: set) -> str:
@@ -157,6 +188,8 @@ def main() -> None:
 
     # ---- pools, chain by chain, one probe-multicall sweep per chain ------
     pools = {}
+    # a MATH contract's curve never changes: verdicts are kept across runs
+    curves: dict[str, str] = dict(prev.get("math_curves") or {})
     for ch, rows in cen.items():
         addrs = [r[0].lower() for r in rows if isinstance(r, list) and r]
         try:
@@ -183,8 +216,21 @@ def main() -> None:
                         v = int(x[:66], 16)
                         if 0 < v < 10**9:
                             oc[key] = v
+                curve = None
+                if impl in ("twocrypto", "yb_twocrypto") and m["MATH()"] \
+                        and int(m["MATH()"], 16):
+                    mk = f"{ch}:0x{m['MATH()'][-40:]}"
+                    if mk not in curves:
+                        try:        # never let this sink the chain's sweep
+                            got = math_curve(rpc, mk.split(":")[1])
+                        except Exception:  # noqa: BLE001
+                            got = None
+                        if got:
+                            curves[mk] = got
+                    curve = curves.get(mk)
                 pools[f"{ch}:{a}"] = {"impl": impl, "verified": True,
                                       **({"version": ver} if ver else {}),
+                                      **({"curve": curve} if curve else {}),
                                       **({"params": oc} if oc else {})}
         except Exception as e:
             print(f"[impl] {ch}: probe sweep failed ({str(e)[:80]}) — "
@@ -264,7 +310,8 @@ def main() -> None:
         pks = prev.get("pegkeepers", [])
 
     out = {"fetched_at": int(time.time()), "pools": pools,
-           "policies": policies, "pegkeepers": pks, "yb": yb}
+           "policies": policies, "pegkeepers": pks, "yb": yb,
+           "math_curves": curves}
     tmp = OUT.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(out))
     tmp.replace(OUT)
