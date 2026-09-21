@@ -2409,8 +2409,13 @@ class Handler(BaseHTTPRequestHandler):
                 rank = 0
             try:
                 import fetch_crash_window
+                # what the market lends decides the source (ref_feeds.plan):
+                # dollars -> the collateral's own deep feed where one is on
+                # disk; anything else keeps the venue ratio
+                lent = (q.get("borrowed") or [""])[0][:24] or None
                 _http_json(self, 200,
-                           fetch_crash_window.build_window(key, rank=rank))
+                           fetch_crash_window.build_window(key, rank=rank,
+                                                           borrowed=lent))
             except Exception as e:
                 _http_json(self, 404, {"error": str(e)})
             return

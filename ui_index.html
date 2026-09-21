@@ -1259,9 +1259,9 @@ function replayPath() {
 // path of the window's first close. First fetch per market takes ~20 s.
 const CRASH_WINDOWS = {};
 const RANK_WORDS = ["worst", "2nd worst", "3rd worst"];
-let crashSeries = null;      // {key, symbol} of the picked market's venue
-async function crashWindowFor(key, symbol, rank = 0) {
-  const ck = `${key}#${rank}`;
+let crashSeries = null;      // {key, symbol, borrowed} of the picked market's venue
+async function crashWindowFor(key, symbol, rank = 0, borrowed = "") {
+  const ck = `${key}#${rank}#${borrowed}`;
   if (CRASH_WINDOWS[ck]) return CRASH_WINDOWS[ck];
   const note = document.getElementById("replay_note");
   note.style.display = "";
@@ -1273,7 +1273,7 @@ async function crashWindowFor(key, symbol, rank = 0) {
   go.disabled = true;
   try {
   const r = await fetch(`/crashwindow?key=${encodeURIComponent(key)}`
-    + `&rank=${rank}`);
+    + `&rank=${rank}` + (borrowed ? `&borrowed=${encodeURIComponent(borrowed)}` : ""));
   const j = await r.json();
   if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
   const shape = {
@@ -1284,6 +1284,9 @@ async function crashWindowFor(key, symbol, rank = 0) {
     crashDay: j.crash_day_utc, symbol: j.base_symbol,
     minute: true, nPoints: j.n_points,
     rank: j.rank || 0, crashes: j.crashes || [],
+    // where the path came from when not simply the venue's candles
+    // (ref_feeds.plan: the collateral's own feed, or venue ratio x feed)
+    feedNote: j.feed_note || "",
   };
   CRASH_WINDOWS[ck] = shape;
   return shape;
@@ -1355,6 +1358,10 @@ function applyReplayUI(fallbackWhy) {
   const note = document.getElementById("replay_note");
   note.style.display = (!on && fallbackWhy) ? "" : "none";
   if (!on && fallbackWhy) note.textContent = fallbackWhy;
+  if (on && replayShape.feedNote) {
+    note.style.display = "";
+    note.textContent = replayShape.feedNote;
+  }
   if (horizonNoteNow) horizonNoteNow();
 }
 
@@ -3597,10 +3604,10 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
     if (m.venue && m.venue.base_addr) {
       const key = `${m.chain}:${m.venue.pool}:${m.venue.base_addr}:${m.venue.quote_addr}`
         + (m.venue.wrapper ? `:${m.venue.wrapper.addr}` : "");
-      crashSeries = { key, symbol: m.collateral.symbol };
+      crashSeries = { key, symbol: m.collateral.symbol, borrowed: m.borrowed.symbol };
       document.getElementById("replay_rank").value = "0";
       try {
-        replayShape = await crashWindowFor(key, m.collateral.symbol, 0);
+        replayShape = await crashWindowFor(key, m.collateral.symbol, 0, m.borrowed.symbol);
         fillRankMenu(replayShape);
       }
       catch (e) {
@@ -4435,7 +4442,7 @@ document.getElementById("replay_rank").addEventListener("change", async () => {
   const rank = +document.getElementById("replay_rank").value || 0;
   try {
     replayShape = await crashWindowFor(crashSeries.key, crashSeries.symbol,
-                                       rank);
+                                       rank, crashSeries.borrowed || "");
     fillRankMenu(replayShape);
     applyReplayUI();
     if (isReplay())
