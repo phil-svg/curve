@@ -1020,6 +1020,7 @@
     #lm_body .lm-clk:hover .lm-open, #lm_body .lmb-row:hover .lm-open,
     #lp_body .lmb-row:hover .lm-open {
       background:#1f6feb; border-color:#1f6feb; color:#fff; }
+    #pk_body a:hover .pk-name { text-decoration:underline; }
     #lm_body .lmb-row, #lp_body .lmb-row { cursor:pointer;
       border-radius:6px; transition:background .08s; }
     #lm_body .lmb-row:hover, #lp_body .lmb-row:hover {
@@ -6142,9 +6143,14 @@ window.loadPegkeeperTab = async function loadPegkeeperTab() {
         : used >= 90 ? "#f85149" : used >= 60 ? "#ED7D31" : "#70AD47";
       const nonCrv = (k.pair || []).filter(t => t.symbol !== "crvUSD");
       h += `<tr${k.active ? "" : ' style="opacity:.45"'}>
-        <td style="text-align:left">${nonCrv.map(t =>
-            tokImg(t.address, "ethereum", 22)).join("")}
-          <b>${esc(stable)}</b>/crvUSD</td>
+        <td style="text-align:left">${k.pool_address
+          ? `<a href="/pools/ethereum/${esc(k.pool_address.toLowerCase())}"
+               title="open the pool page" style="color:inherit;
+               text-decoration:none">${nonCrv.map(t =>
+                 tokImg(t.address, "ethereum", 22)).join("")}
+               <span class="pk-name"><b>${esc(stable)}</b>/crvUSD</span></a>`
+          : `${nonCrv.map(t => tokImg(t.address, "ethereum", 22)).join("")}
+             <b>${esc(stable)}</b>/crvUSD`}</td>
         <td style="text-align:left" title="${esc(k.address)}">
           ${esc(k.address.slice(0, 10))}…</td>
         <td>${k.active ? "✓" : "✗ retired"}</td>
@@ -7683,7 +7689,7 @@ window.loadLpTab = async function () {
     }
     note.style.display = "none";
     // leaderboard over the selected metric (TVL / 24h volume / DAO
-    // revenue per day, 30d average) — same row structure throughout
+    // revenue of the last 24h) — same row structure throughout
     const metric = window.__lpMetric || "rev";
     if (metric === "vol" && !window.__lpVols) await ensureMetric(metric);
     if (metric === "rev" && !window.__lpRevs) await ensureMetric(metric);
@@ -7725,7 +7731,7 @@ window.loadLpTab = async function () {
             height:100%; background:${grad}"></div></div>
         <span style="width:96px; text-align:right; font-weight:600">${
           v == null ? "—" : metric === "rev"
-            ? "$" + Math.round(v).toLocaleString("en-US") + "/d"
+            ? "$" + Math.round(v).toLocaleString("en-US")
             : usd(v)}</span>
         <span style="width:64px; text-align:right; color:#8b949e;
           font-size:11px">${p.n_holders ?? "—"} LPs</span>
@@ -7736,7 +7742,7 @@ window.loadLpTab = async function () {
         ? "bar = share of the busiest pool's 24h volume"
         : metric === "rev"
           ? "bar = share of the top earner's DAO revenue " +
-            "(per day, 30-day average)"
+            "(last 24h)"
           : "bar = TVL share of the largest pool"} · click a row for
         charts, parameters and the LP distribution</div>`;
     else
@@ -7747,7 +7753,7 @@ window.loadLpTab = async function () {
     body.innerHTML = h;
   }
   // metric buttons: volume comes live from the curve API (per chain),
-  // DAO revenue from our own /dao_revenue by_pool (30d avg per day)
+  // DAO revenue from our own /rev24 (the last 24h's fees x admin share)
   // the maps are only kept once a fetch actually succeeded, so a click
   // before the pool list arrived (or a failed request) is retried
   // pools on chains no Curve API covers: their list metrics come from the
@@ -7784,10 +7790,8 @@ window.loadLpTab = async function () {
     if (m === "rev" && !window.__lpRevs && !ensureMetric.busy) {
       ensureMetric.busy = true;
       try {
-        const j = await fetch("/dao_revenue").then(r => r.json());
-        const bp = (j.sources && j.sources.pool_fees || {}).by_pool || {};
-        const revs = {};
-        for (const [k, v] of Object.entries(bp)) revs[k] = (v.d30 || 0) / 30;
+        const j = await fetch("/rev24").then(r => r.json());
+        const revs = { ...(j.pools || {}) };
         await sideInto(revs, "rev");
         window.__lpRevs = revs;
       } catch (_) { /* keep dashes, retried on the next render */ }
@@ -7954,7 +7958,15 @@ window.loadLpTab = async function () {
       avg = `<polyline fill="none" stroke="#e6edf3" stroke-width="1.8"
         opacity="0.9" stroke-linejoin="round"
         points="${xs.map((x, i) => pt(x, sm[i])).join(" ")}"/>`;
-      label = "7d avg " + fy(sm[sm.length - 1]);
+      // the newest day's own value first: the average alone read as "today"
+      const hv = v => money && Math.abs(v) >= 1e3 && Math.abs(v) < 1e6
+        ? "$" + Math.round(v).toLocaleString("en-US") : fy(v);
+      const dl = new Date(xs[xs.length - 1] * 1000);
+      const open = Math.floor(xs[xs.length - 1] / 86400)
+        === Math.floor(Date.now() / 864e5);
+      label = (open ? "today "
+          : `${pMON[dl.getUTCMonth()]} ${dl.getUTCDate()} `) + hv(last)
+        + " · 7d avg " + hv(sm[sm.length - 1]);
     }
     pSpark.last = label;
     pReg[gid] = { xs, ys, lo, hi, W, H, L, R, T, B, fy,

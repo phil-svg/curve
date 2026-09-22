@@ -455,11 +455,11 @@ TVLFIX_RETRY_S = 3 * 86400     # re-attempt an unhealed tvl walk this often
 _PH_DAY = 86400
 
 
-def _ph_get(path: str):
+def _ph_get(path: str, timeout: float = 45):
     import urllib.request as _u
     req = _u.Request("https://prices.curve.finance/v1" + path,
                      headers={"User-Agent": "curve-sim"})
-    with _u.urlopen(req, timeout=45) as r:
+    with _u.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())
 
 
@@ -1034,16 +1034,151 @@ def pool_hist(chain: str, addr: str) -> dict:
         if time.time() - cached.get("fetched_at", 0) >= POOL_HIST_TTL \
                 or not (cached.get("gapcheck") or {}).get("at"):
             _ph_bg(chain, addr)     # refresh behind the response
-        return cached               # a visit never waits on upstream
+        return _ph_open_day(chain, addr, cached)
     return _ph_refresh(chain, addr)      # first-ever visit of a pool
+
+
+# -- the open day ---------------------------------------------------------
+# The cached history is up to POOL_HIST_TTL old. For finished days that is
+# no loss, but the newest row is the day still running: a 6-hour-old
+# reading of it showed 3pool's fees of the day at $1.7k while the day
+# stood at $7k. So a visit re-reads volume and fees of the last two days
+# (yesterday may have been cached mid-day too): one small call, short
+# timeout, memoized — the cache file is served untouched when it fails.
+PH_OPEN_TTL = 600
+_PH_OPEN: dict[str, tuple[float, dict]] = {}
+
+
+def _ph_open_day(chain: str, addr: str, h: dict) -> dict:
+    t = h.get("t") or []
+    now = time.time()
+    if not t or now - h.get("fetched_at", 0) < PH_OPEN_TTL:
+        return h
+    key = f"{chain}_{addr}"
+    memo = _PH_OPEN.get(key)
+    if memo and now - memo[0] < PH_OPEN_TTL:
+        rows = memo[1]
+    else:
+        today = int(now) // _PH_DAY * _PH_DAY
+        try:
+            data = _ph_get(f"/volume/usd/{chain}/{addr}?interval=day"
+                           f"&start={today - _PH_DAY}&end={int(now)}",
+                           timeout=5).get("data") or []
+            rows = {int(r["timestamp"]) // _PH_DAY * _PH_DAY:
+                    (r.get("volume"), r.get("fees")) for r in data
+                    if r.get("timestamp") is not None}
+        except Exception:
+            rows = {}
+        _PH_OPEN[key] = (now, rows)
+    if not rows:
+        return h
+    n = len(t)
+    out = dict(h)
+    cols = [k for k, v in h.items() if isinstance(v, list) and len(v) == n]
+    for k in cols:
+        out[k] = list(h[k])
+    carried = {k for k, _ in _PH_PARAMS} - _PH_NOCARRY
+    for d in sorted(rows):
+        if d > out["t"][-1]:
+            # a day that began after the last build: parameters continue,
+            # everything else waits for the build
+            for k in cols:
+                out[k].append(d if k == "t" else
+                              out[k][-1] if k in carried else None)
+        if d in out["t"][-3:]:
+            i = len(out["t"]) - 1 - out["t"][::-1].index(d)
+            out["vol"][i], out["fees"][i] = rows[d]
+    return out
+
+
+# -- pools list: DAO revenue of the last 24 hours ---------------------------
+# /v1/chains/{chain} lists every pool of a chain with its rolling 24h
+# trading fees (its paging parameters are ignored: the whole chain comes
+# back in one call). Times the pool's current admin share, the newest value
+# of the daily history this server keeps anyway. Pools the listing does not
+# know have no fee data in that API at all and keep their dash.
+REV24_TTL = 600
+REV24_STALE = 3600
+REV24_ADMIN_TTL = 3600
+_REV24 = {"at": 0.0, "pools": {}}
+_REV24_ADMIN = {"at": 0.0, "share": {}}
+_REV24_LOCK = threading.Lock()
+
+
+def _rev24_admin(lp: dict) -> dict:
+    now = time.time()
+    if _REV24_ADMIN["share"] and now - _REV24_ADMIN["at"] < REV24_ADMIN_TTL:
+        return _REV24_ADMIN["share"]
+    share = {}
+    for p in lp.values():
+        ch, a = p["chain"], p["pool"].lower()
+        if ch in SIDE_HIST_CHAINS:
+            continue
+        try:
+            col = json.loads((POOL_HIST_DIR / f"{ch}_{a}.json")
+                             .read_text()).get("admin") or []
+        except (OSError, ValueError):
+            continue
+        last = next((x for x in reversed(col) if x is not None), None)
+        if last is not None:
+            share[f"{ch}:{a}"] = last / 1e10
+    _REV24_ADMIN.update(at=now, share=share)
+    return share
+
+
+def pool_rev24(wait: bool = False) -> dict:
+    """A visit gets what is in memory and, past REV24_TTL, a refresh behind
+    the response; it waits only while there is nothing, or nothing younger
+    than REV24_STALE (the refresh cycle keeps it younger than that)."""
+    age = time.time() - _REV24["at"]
+    if _REV24["pools"] and age < REV24_TTL:
+        return _REV24
+    if _REV24["pools"] and age < REV24_STALE and not wait:
+        if not _REV24_LOCK.locked():
+            threading.Thread(target=pool_rev24, args=(True,),
+                             daemon=True).start()
+        return _REV24
+    with _REV24_LOCK:
+        if _REV24["pools"] and time.time() - _REV24["at"] < REV24_TTL:
+            return _REV24
+        try:
+            lp = json.loads((HERE / "data" / "lp.json").read_text())["pools"]
+        except (OSError, ValueError, KeyError):
+            return _REV24
+        share = _rev24_admin(lp)
+        chains = sorted({k.split(":")[0] for k in share})
+
+        def listing(ch):
+            try:
+                return ch, {p["address"].lower(): p.get("trading_fee_24h")
+                            for p in _ph_get(f"/chains/{ch}", timeout=8)
+                            .get("data") or []}
+            except Exception:
+                return ch, None
+
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        with _TPE(max(1, len(chains))) as ex:
+            fees = dict(ex.map(listing, chains))
+        pools = {}
+        for k, s in share.items():
+            ch, a = k.split(":")
+            if fees.get(ch) is None:
+                # the chain did not answer: its pools keep their last value
+                if k in _REV24["pools"]:
+                    pools[k] = _REV24["pools"][k]
+            elif fees[ch].get(a) is not None:
+                pools[k] = fees[ch][a] * s
+        if pools:
+            _REV24.update(at=time.time(), pools=pools)
+        return _REV24
 
 
 def side_metrics() -> dict:
     """List metrics of the pools whose history is read from the chain
-    (SIDE_HIST_CHAINS), which no Curve API serves: DAO revenue per day
-    (fees x admin share, mean of the last 30 complete days) and, only
-    where it was summed from the pool's own swap events, the volume of the
-    last complete day (the open day when there is no other)."""
+    (SIDE_HIST_CHAINS), which no Curve API serves: DAO revenue (fees x
+    admin share) of the last complete day and, only where it was summed
+    from the pool's own swap events, the volume of that day (the open day
+    when there is no other)."""
     out: dict = {}
     for f in POOL_HIST_DIR.glob("*.json"):
         ch, _, a = f.stem.partition("_")
@@ -1062,12 +1197,12 @@ def side_metrics() -> dict:
         full = slice(0, n - 1) if n > 1 else slice(0, n)
         revs = [x * y / 1e10 for x, y in zip(col("fees")[full],
                                              col("admin")[full])
-                if x is not None and y is not None][-30:]
+                if x is not None and y is not None]
         vols = [v for v, k in zip(col("vol"), col("_swn"))
                 if v is not None and k is not None]
         m = {}
         if revs:
-            m["rev"] = sum(revs) / len(revs)
+            m["rev"] = revs[-1]
         if vols:
             m["vol"] = vols[-2] if len(vols) > 1 else vols[-1]
         if m:
@@ -1626,6 +1761,11 @@ def _do_refresh():
               f"pools in {time.time() - t6:.0f} s")
     except Exception as e:
         print(f"[ui] pool hist warm FAILED: {str(e)[:300]}")
+    # pools list: the last 24h's DAO revenue, so that no visit waits for it
+    try:
+        print(f"[ui] rev24: {len(pool_rev24(wait=True)['pools'])} pools")
+    except Exception as e:
+        print(f"[ui] rev24 FAILED: {str(e)[:300]}")
     # Oracle-graph live values (price/rate/EMA numbers on the LLM flow map)
     # — light multicall pass over the mapped nodes, seconds.
     try:
@@ -2271,6 +2411,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/sidemetrics":
             _http_json(self, 200, side_metrics())
+            return
+        if self.path == "/rev24":
+            # pools list: DAO revenue of the last 24 hours, per pool
+            _http_json(self, 200, pool_rev24())
             return
         if self.path.startswith("/poolhist"):
             # 2y daily pool history, cached server-side — ?m=chain:0xpool

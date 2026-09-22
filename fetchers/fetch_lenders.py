@@ -49,6 +49,41 @@ def creation_block(rpc: Rpc, addr: str, head: int) -> int:
     return lo
 
 
+def log_cap_in(msg: str) -> int | None:
+    """The block-range cap a provider states when it rejects a getLogs
+    range: "max block range: 10000", "exceeds the 500-block limit"."""
+    import re
+    m = (re.search(r"max(?:imum)? block range:?\s*(\d+)", msg)
+         or re.search(r"(\d+)[- ]block (?:limit|range)", msg))
+    return int(m.group(1)) if m and int(m.group(1)) > 1 else None
+
+
+def get_logs_split(rpc: Rpc, flt: dict, frm: int, to: int) -> list:
+    """One getLogs filter over [frm, to], split to the provider's block
+    cap: a cap stated in a rejection is kept on the rpc and used up front
+    from then on, anything else halves the range."""
+    cap = getattr(rpc, "log_cap", None)
+    if cap and to - frm + 1 > cap:
+        out = []
+        for lo in range(frm, to + 1, cap):
+            out += get_logs_split(rpc, flt, lo, min(lo + cap - 1, to))
+        return out
+    try:
+        return rpc.raw("eth_getLogs", [{**flt, "fromBlock": hex(frm),
+                                        "toBlock": hex(to)}])
+    except Exception as e:
+        if to - frm < 2:
+            raise
+        lim = log_cap_in(str(e))
+        if lim:
+            rpc.log_cap = lim
+        sub = lim or (to - frm + 1) // 2
+        out = []
+        for lo in range(frm, to + 1, sub):
+            out += get_logs_split(rpc, flt, lo, min(lo + sub - 1, to))
+        return out
+
+
 def transfer_tos(rpc: Rpc, addrs: list[str], frm: int, to: int,
                  budget: list[int], step: int | None = None,
                  deadline: float | None = None) -> dict[str, set[str]]:
@@ -61,6 +96,11 @@ def transfer_tos(rpc: Rpc, addrs: list[str], frm: int, to: int,
     as complete."""
     if frm > to:
         return {}
+    # a cap the provider stated on an earlier rejection (Dwellir: 500
+    # blocks on the current plan) is used up front — no failing call first
+    cap = getattr(rpc, "log_cap", None)
+    if not step and cap and to - frm + 1 > cap:
+        step = cap
     if step and to - frm + 1 > step:
         out: dict[str, set[str]] = {}
         for lo in range(frm, to + 1, step):
@@ -88,10 +128,10 @@ def transfer_tos(rpc: Rpc, addrs: list[str], frm: int, to: int,
     except Exception as e:
         if to - frm < 2:
             raise
-        import re
-        lim = re.search(r"max(?:imum)? block range:?\s*(\d+)", str(e))
-        sub = (int(lim.group(1)) if lim and int(lim.group(1)) > 1
-               else (to - frm + 1) // 2)
+        lim = log_cap_in(str(e))
+        sub = lim or (to - frm + 1) // 2
+        if lim:
+            rpc.log_cap = lim
         out = {}
         for lo in range(frm, to + 1, sub):
             part = transfer_tos(rpc, addrs, lo,

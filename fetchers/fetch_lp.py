@@ -37,7 +37,7 @@ sys.path.insert(0, str(HERE / "pylib"))
 sys.path.insert(0, str(HERE / "sim"))
 from common import sel  # noqa: E402
 from fetch_markets import Rpc, _num  # noqa: E402
-from fetch_lenders import transfer_tos, creation_block  # noqa: E402
+from fetch_lenders import transfer_tos, creation_block, get_logs_split  # noqa: E402
 from Crypto.Hash import keccak  # noqa: E402
 
 STATE = HERE / "data" / "lp_state.json"
@@ -475,8 +475,12 @@ def parallel_scan(rpc: Rpc, addrs: list[str], frm: int, head: int,
     wins = [(lo, min(lo + step - 1, head))
             for lo in range(frm, head + 1, step)]
     out: dict[str, set] = {}
+    # a window's request budget follows the provider's block cap (500-block
+    # plans need 200 requests per 100k window, not 80)
+    cap = getattr(rpc, "log_cap", None)
+    per = max(80, 2 * (step // cap + 1) + 8) if cap else 80
     def one(w):
-        return transfer_tos(rpc, addrs, w[0], w[1], [80],
+        return transfer_tos(rpc, addrs, w[0], w[1], [per],
                             deadline=deadline)
     with ThreadPoolExecutor(workers) as ex:
         for part in ex.map(one, wins):
@@ -596,10 +600,12 @@ def scan_chain(rpc: Rpc, cst: dict, head: int) -> set[str]:
     touched: set[str] = set()
     addrs = sorted(cst["holders"])
     if addrs:
-        logs = rpc.raw("eth_getLogs", [{
+        # split to the provider's block cap: after a pause longer than the
+        # cap's worth of blocks (Dwellir: 500 = 100 min on mainnet) a single
+        # request is rejected for good, and the chain never caught up again
+        logs = get_logs_split(rpc, {
             "address": addrs,
-            "topics": [[T_TRANSFER, T_STAKED, T_WITHDRAWN]],
-            "fromBlock": hex(frm), "toBlock": hex(head)}])
+            "topics": [[T_TRANSFER, T_STAKED, T_WITHDRAWN]]}, frm, head)
         for lg in logs:
             c = lg["address"].lower()
             for t in lg.get("topics", [])[1:3]:
