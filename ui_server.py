@@ -1416,6 +1416,36 @@ def _http_json(handler: BaseHTTPRequestHandler, status: int, body: dict):
     handler.wfile.write(payload)
 
 
+def _http_file(handler: BaseHTTPRequestHandler, f: Path,
+               ctype: str = "application/json") -> None:
+    """A file as stored, revalidated per request: the ETag is the file's
+    mtime + size, so a browser holding the current copy gets a 304 (one
+    round trip, no body) and a rewritten file is fetched at once. The
+    comparison is by substring — the proxy's compression may decorate the
+    tag (W/ prefix, -gzip / -zstd suffix)."""
+    try:
+        st = f.stat()
+    except OSError:
+        _http_json(handler, 404, {"error": "not built yet — the "
+                                           "refresh cycle writes it"})
+        return
+    tag = f"{st.st_mtime_ns:x}-{st.st_size:x}"
+    if tag in (handler.headers.get("If-None-Match") or ""):
+        handler.send_response(304)
+        handler.send_header("ETag", f'"{tag}"')
+        handler.send_header("Cache-Control", "no-cache")
+        handler.end_headers()
+        return
+    body = f.read_bytes()
+    handler.send_response(200)
+    handler.send_header("Content-Type", ctype)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("ETag", f'"{tag}"')
+    handler.send_header("Cache-Control", "no-cache")
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
 # ---- hourly markets.json refresh -------------------------------------------
 # fetch_markets.py is cheap since the Multicall3 rewrite (~19 s, 18 RPC
 # requests), so the server re-runs it once per hour, anchored to a fixed
@@ -1702,8 +1732,7 @@ def _do_refresh():
         print(f"[ui] llm refreshed in {time.time() - t4:.1f} s")
     except Exception as e:
         print(f"[ui] llm refresh FAILED: {str(e)[:300]}")
-    # Mint Markets tab (prices API only) and scrvUSD tab (prices API + a few
-    # eth_calls for the current rate-setting state).
+    # Mint Markets and scrvUSD tabs (Curve prices API only, no RPC).
     for script, tmo in (("fetch_mint.py", 900), ("fetch_scrvusd.py", 300)):
         t_ = time.time()
         try:
@@ -2224,13 +2253,7 @@ class Handler(BaseHTTPRequestHandler):
         wants_page = "text/html" in (self.headers.get("Accept") or "")
         if self.path.split("?")[0] in ("/", "/index.html") or (
                 head in self.TAB_PATHS and head != "map" and wants_page):
-            body = INDEX_HTML.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
+            _http_file(self, INDEX_HTML, "text/html; charset=utf-8")
             return
         if self.path.startswith("/nlapi/"):
             # new-llamalend tab backend (token lookup, archive sampling, ...)
@@ -2404,24 +2427,14 @@ class Handler(BaseHTTPRequestHandler):
                          "/dao_revenue", "/impl", "/mint"):
             # baddebt from fetch_cleanup.py, lenders from
             # fetch_lenders.py, llm from fetch_llm.py — all on the cycle.
-            f = HERE / "data" / (self.path[1:] + ".json")
-            if not f.exists():
-                _http_json(self, 404, {"error": "not built yet — the "
-                                                "refresh cycle writes it"})
-                return
-            _http_json(self, 200, json.loads(f.read_text()))
+            _http_file(self, HERE / "data" / (self.path[1:] + ".json"))
             return
         if self.path == "/sidemetrics":
             _http_json(self, 200, side_metrics())
             return
         if self.path == "/scrvusd_data":
             # scrvUSD tab (fetch_scrvusd.py); the page itself lives at /scrvusd
-            f = HERE / "data" / "scrvusd.json"
-            if not f.exists():
-                _http_json(self, 404, {"error": "not built yet — the "
-                                                "refresh cycle writes it"})
-                return
-            _http_json(self, 200, json.loads(f.read_text()))
+            _http_file(self, HERE / "data" / "scrvusd.json")
             return
         if self.path == "/rev24":
             # pools list: DAO revenue of the last 24 hours, per pool
@@ -2490,11 +2503,7 @@ class Handler(BaseHTTPRequestHandler):
                     and all(c in "0123456789abcdefx" for c in ctrl)):
                 _http_json(self, 400, {"error": "bad ?m="})
                 return
-            f = HERE / "data" / "mint_hist" / f"{ctrl}.json"
-            if not f.is_file():
-                _http_json(self, 404, {"error": "no history for this market"})
-                return
-            _http_json(self, 200, json.loads(f.read_text()))
+            _http_file(self, HERE / "data" / "mint_hist" / f"{ctrl}.json")
             return
         if self.path == "/impl_index":
             # Implementations tab: one search index over lending markets

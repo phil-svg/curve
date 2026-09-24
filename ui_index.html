@@ -3,6 +3,21 @@
 <head>
 <meta charset="utf-8">
 <title>Curve-Sim</title>
+<script>
+// Mint Markets / scrvUSD links: their data starts downloading here, before
+// the rest of this large page is parsed and before the other tabs' startup
+// requests; the tab code takes the promise over from window.__pre.
+(() => {
+  const pre = window.__pre = {};
+  const get = u => { pre[u] = { at: Date.now(), p: fetch(u)
+    .then(r => r.ok ? r.json() : null).catch(() => null) }; };
+  const seg = location.pathname.toLowerCase().split("/").filter(Boolean);
+  if (seg[0] === "mint-markets") {
+    get("/mint");
+    if (/^0x[0-9a-f]{40}$/.test(seg[1] || "")) get("/minthist?m=" + seg[1]);
+  } else if (seg[0] === "scrvusd") get("/scrvusd_data");
+})();
+</script>
 <!-- Favicon: the LLAMMA llama standing on the green-to-red soft-liquidation
      heat bar (the tables' colour scale). Inlined as a data URI so the page
      stays self-contained and the server never 404s a /favicon.ico request. -->
@@ -9412,6 +9427,34 @@ window.loadImplTab = async function loadImplTab() {
     : "—";
   const CRVUSD = "0xf939e0a03fb07f59a73314e73794be0e57ac1b4e";
 
+  // JSON by URL. A download the page head or the idle prefetch below
+  // already started is taken over while it is under 15 minutes old (the
+  // Mint tab re-polls on that period anyway).
+  const PRE_MAX_MS = 15 * 60 * 1000;
+  const fetchJSON = u => fetch(u).then(r => r.ok ? r.json() : null)
+    .catch(() => null);
+  const getJSON = u => {
+    const e = window.__pre && window.__pre[u];
+    if (e) {
+      delete window.__pre[u];
+      if (Date.now() - e.at < PRE_MAX_MS) return e.p;
+    }
+    return fetchJSON(u);
+  };
+  // once the page has settled, both tabs' data is fetched in the background,
+  // so a click on Mint Markets or scrvUSD draws at once
+  const prefetch = () => {
+    window.__pre = window.__pre || {};
+    for (const [u, done] of [["/mint", window.__mmLoaded],
+                             ["/scrvusd_data", window.__svLoaded]])
+      if (!done && !window.__pre[u])
+        window.__pre[u] = { at: Date.now(), p: fetchJSON(u) };
+  };
+  const idle = () => setTimeout(() => (window.requestIdleCallback
+    || (f => setTimeout(f, 0)))(prefetch), 2500);
+  if (document.readyState === "complete") idle();
+  else window.addEventListener("load", idle, { once: true });
+
   // -- charts: one or more series on a shared axis; the first series is the
   //    main one (gradient fill, end dot, optional 7-day average) -----------
   let seq = 0;
@@ -9647,6 +9690,10 @@ window.loadImplTab = async function loadImplTab() {
       ? segs[1].toLowerCase() : null;
     let D = null, expanded = null;
     const histCache = {};
+    // a market's history + borrowers: one download per market, started as
+    // soon as the pointer is on its row (a failed one is retried next time)
+    const histFor = ctrl => histCache[ctrl] ??= getJSON(`/minthist?m=${ctrl}`)
+      .then(h => { if (!h) delete histCache[ctrl]; return h; });
 
     const name = e => `${e.collateral.symbol}/crvUSD`;
     const since = e => e.created_at ? "since " + monYr(e.created_at) : "";
@@ -9655,8 +9702,7 @@ window.loadImplTab = async function loadImplTab() {
     const rows = () => Object.values((D && D.markets) || {});
 
     async function load() {
-      try { D = await fetch("/mint").then(r => r.ok ? r.json() : null); }
-      catch (_) { D = null; }
+      D = await getJSON("/mint");
     }
 
     // -- landing: totals, weighted borrow rate history, the bar list -------
@@ -9760,6 +9806,8 @@ window.loadImplTab = async function loadImplTab() {
           <span class="lm-open">open ›</span></div>`;
       }).join("");
       for (const el of body.querySelectorAll("[data-key]")) {
+        el.addEventListener("pointerenter", () => histFor(el.dataset.key),
+                            { once: true });
         el.addEventListener("click", () => showMarket(el.dataset.key));
         el.addEventListener("keydown", ev => {
           if (ev.key === "Enter" || ev.key === " ") {
@@ -9808,7 +9856,7 @@ window.loadImplTab = async function loadImplTab() {
         "liquidation discount", "liquidity-mining callback",
         "debt ceiling (lower only)"]
         .map(p => `<div style="color:#8b949e">${p}</div>`).join("");
-      const b = e.borrowers || {};
+      const b = (hist && hist.borrowers) || {};
       const hCol = h => h == null ? "#8b949e" : h < 0 ? "#f85149"
         : h < 5 ? "#ED7D31" : "#70AD47";
       const bRows = (b.rows || []).map((r, i) => `<tr>
@@ -9909,16 +9957,11 @@ window.loadImplTab = async function loadImplTab() {
         </div>
         <div id="mm_mkt"><div class="note">loading…</div></div>`;
       document.getElementById("mm_back").addEventListener("click", showList);
-      if (!(ctrl in histCache)) {
-        try {
-          histCache[ctrl] = await fetch(`/minthist?m=${ctrl}`)
-            .then(r => r.ok ? r.json() : null);
-        } catch (_) { histCache[ctrl] = null; }
-      }
+      const hist = await histFor(ctrl);
       if (expanded !== ctrl) return;
       const root = document.getElementById("mm_mkt");
-      root.innerHTML = marketHtml(e, histCache[ctrl]);
-      wireMarket(root, e, histCache[ctrl]);
+      root.innerHTML = marketHtml(e, hist);
+      wireMarket(root, e, hist);
       root.addEventListener("click", ev => {
         if (ev.target.closest("a")) return;
         const s = ev.target.closest(".lm-sec");
@@ -9967,7 +10010,7 @@ window.loadImplTab = async function loadImplTab() {
     const body = document.getElementById("sv_body");
     let V = null;
     try {
-      V = await fetch("/scrvusd_data").then(r => r.ok ? r.json() : null);
+      V = await getJSON("/scrvusd_data");
     } catch (_) { /* rendered below */ }
     if (!V || !V.yield) {
       body.innerHTML = `<div class="note">dataset not built yet — the refresh
@@ -9996,7 +10039,7 @@ window.loadImplTab = async function loadImplTab() {
     const dayRev = onDays(t, (rev.daily || {}).t || [], (rev.daily || {}).v || [])
       .map(v => v ?? 0);
     let cum = 0;
-    const firstRep = ((rev.reports || [])[0] || {}).t;
+    const firstRep = rev.first_t;
     const cumRev = t.map((x, i) => { cum += dayRev[i];
       return firstRep && x >= firstRep - 86400 ? cum : null; });
     const host = body;

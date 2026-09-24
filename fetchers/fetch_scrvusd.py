@@ -11,7 +11,8 @@ profitUnlockingRate APR it is off by 0.002 points (2026-09-24).
   - /v1/crvusd/savings/revenue      every strategy report (gain / loss),
                                     all pages
 
-Output: data/scrvusd.json.
+Output: data/scrvusd.json, cut to what the page draws (it crosses the
+network on every visit); the per-day cache lives in data/scrvusd_state.json.
 """
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
 OUT = HERE / "data" / "scrvusd.json"
+STATE = HERE / "data" / "scrvusd_state.json"
 API = "https://prices.curve.finance/v1/crvusd/savings"
 LAUNCH = 1727740800            # 2024-10-01, before the first yield row
 WINDOW = 290 * 86400           # the yield endpoint returns <= 300 rows
@@ -101,7 +103,8 @@ def revenue_history() -> dict:
     for r in reports:
         day = r["t"] // 86400 * 86400
         daily[day] = daily.get(day, 0.0) + r["gain"] - r["loss"]
-    return {"reports": reports,
+    return {"first_t": reports[0]["t"] if reports else None,
+            "n_reports": len(reports),
             "total_distributed": (int(total) / 1e18) if total else None,
             "daily": {"t": sorted(daily), "v": [round(daily[t], 2)
                                                  for t in sorted(daily)]}}
@@ -111,27 +114,26 @@ def main() -> None:
     t0 = time.time()
     prev = {}
     try:
-        prev = json.loads(OUT.read_text()).get("yield_days") or {}
+        prev = json.loads(STATE.read_text()).get("yield_days") or {}
     except (OSError, ValueError):
         pass
     yd = yield_history(prev)
     rev = revenue_history()
     ts = [int(t) for t in yd]
+    rnd = lambda v: None if v is None else round(v)
     out = {
         "generated_at": int(time.time()),
-        "yield_days": yd,
         "yield": {"t": ts,
-                  "assets": [yd[str(t)]["a"] for t in ts],
-                  "supply": [yd[str(t)]["s"] for t in ts],
-                  "apy": [yd[str(t)]["y"] for t in ts],
+                  "assets": [rnd(yd[str(t)]["a"]) for t in ts],
+                  "supply": [rnd(yd[str(t)]["s"]) for t in ts],
                   "apr": [round(100 * math.log1p(yd[str(t)]["y"] / 100), 4)
                           if yd[str(t)]["y"] is not None else None
-                          for t in ts],
-                  "price": [yd[str(t)]["p"] for t in ts]},
+                          for t in ts]},
         "revenue": rev,
     }
+    atomic_write(STATE, {"yield_days": yd})
     atomic_write(OUT, out)
-    print(f"[scrvusd] {len(ts)} yield days, {len(rev['reports'])} reports, "
+    print(f"[scrvusd] {len(ts)} yield days, {rev['n_reports']} reports, "
           f"{time.time() - t0:.1f} s")
 
 

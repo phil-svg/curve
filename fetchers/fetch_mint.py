@@ -22,8 +22,10 @@ debt_usd * borrow_apr / 365 (the APR, since interest accrues continuously).
 BTC and ETH prices per day are the WBTC and WETH markets' oracle prices from
 the same snapshots, so they share the day axis of the other series.
 
-Outputs data/mint.json (markets, borrowers, weighted-rate series, totals) and
-data/mint_hist/<controller>.json (daily arrays); state in data/mint_state.json.
+Outputs data/mint.json (markets, weighted-rate series, totals — the landing)
+and data/mint_hist/<controller>.json (a market page: the daily arrays it
+charts plus the largest borrowers); state in data/mint_state.json. Both are
+cut to what the page draws: they cross the network on every visit.
 """
 from __future__ import annotations
 
@@ -179,14 +181,21 @@ def usd_filled(r: dict) -> dict:
     return r
 
 
+# the market page's charts: key -> decimals kept (None: as stored)
+PAGE_KEYS = {"apr": None, "d": 0, "du": 0, "cu": 0, "su": 0, "p": 2,
+             "n": None, "b": 0, "ld": None, "qd": None, "mx": None}
+
+
 def hist_arrays(days: dict) -> dict:
     ts = sorted(int(t) for t in days)
     rows = {t: usd_filled(days[str(t)]) for t in ts}
-    keys = ["apr", "apy", "d", "du", "c", "cu", "s", "su", "p", "ap", "n",
-            "A", "ld", "qd", "mx", "b", "mi", "rd"]
     out = {"t": ts}
-    for k in keys:
-        out[k] = [rows[t].get(k) for t in ts]
+    for k, dp in PAGE_KEYS.items():
+        vals = [rows[t].get(k) for t in ts]
+        if dp is not None:
+            vals = [None if v is None else round(v) if dp == 0
+                    else round(v, dp) for v in vals]
+        out[k] = vals
     return out
 
 
@@ -231,11 +240,11 @@ def main() -> None:
         cst = update_snapshots(st, ctrl, created, budget)
         h = hist_arrays(cst["days"])
         hists[ctrl] = h
-        atomic_write(HIST_DIR / f"{ctrl}.json", h)
         try:
             bor = fetch_borrowers(ctrl)
         except Exception as e:
             bor = {"error": str(e)[:120]}
+        atomic_write(HIST_DIR / f"{ctrl}.json", {**h, "borrowers": bor})
         col = m.get("collateral_token") or {}
         apr = m.get("borrow_apr")
         du = m.get("total_debt_usd") or 0.0
@@ -275,28 +284,26 @@ def main() -> None:
             "dao_rev_day": du * (apr or 0) / 100 / 365,
             "hist_days": len(h["t"]),
             "hist_complete": bool(cst.get("done")),
-            "borrowers": bor,
+            "n_borrowers": bor.get("n"),
         }
 
-    # weighted borrow rate (the bot's definition) — now and per day
+    # weighted borrow rate: now as the bot's APY and as the APR, per day as
+    # the APR (what the page draws)
     num = sum((e["borrow_apy"] or 0) * (e["total_debt"] or 0)
               for e in markets.values())
     num_apr = sum((e["borrow_apr"] or 0) * (e["total_debt"] or 0)
                   for e in markets.values())
     den = sum((e["total_debt"] or 0) for e in markets.values())
     all_days = sorted({t for h in hists.values() for t in h["t"]})
-    w_t, w_v, w_apr, tot_du, tot_rev, tot_cu = [], [], [], [], [], []
+    at = {c: {t: i for i, t in enumerate(h["t"])} for c, h in hists.items()}
+    w_t, w_apr, tot_du, tot_rev, tot_cu = [], [], [], [], []
     for t in all_days:
-        n = dd = na = da = du = rev = cu = 0.0
-        for h in hists.values():
-            try:
-                i = h["t"].index(t)
-            except ValueError:
+        na = da = du = rev = cu = 0.0
+        for c, h in hists.items():
+            i = at[c].get(t)
+            if i is None:
                 continue
-            d, apy, apr = h["d"][i], h["apy"][i], h["apr"][i]
-            if d and apy is not None:
-                n += apy * d
-                dd += d
+            d, apr = h["d"][i], h["apr"][i]
             if d and apr is not None:
                 na += apr * d
                 da += d
@@ -304,12 +311,11 @@ def main() -> None:
             cu += h["cu"][i] or 0
             if h["du"][i] and apr is not None:
                 rev += h["du"][i] * apr / 100 / 365
-        if dd > 0:
+        if da > 0:
             w_t.append(t)
-            w_v.append(round(n / dd, 4))
-            w_apr.append(round(na / da, 4) if da > 0 else None)
+            w_apr.append(round(na / da, 4))
             tot_du.append(round(du))
-            tot_rev.append(round(rev, 2))
+            tot_rev.append(round(rev))
             tot_cu.append(round(cu))
     # BTC / ETH price per day: the WBTC and WETH markets' oracle prices
     def oracle_series(symbol: str) -> list:
@@ -318,7 +324,7 @@ def main() -> None:
         if not h:
             return [None] * len(w_t)
         m = dict(zip(h["t"], h["p"]))
-        return [round(m[t], 2) if m.get(t) else None for t in w_t]
+        return [round(m[t], 1) if m.get(t) else None for t in w_t]
 
     out = {
         "generated_at": int(time.time()),
@@ -331,8 +337,7 @@ def main() -> None:
                                          for e in markets.values()),
                    "loans": sum(e["n_loans"] or 0 for e in markets.values()),
                    "dao_rev_day": sum(e["dao_rev_day"] for e in markets.values())},
-        "series": {"t": w_t, "weighted_apy": w_v, "weighted_apr": w_apr,
-                   "debt_usd": tot_du,
+        "series": {"t": w_t, "weighted_apr": w_apr, "debt_usd": tot_du,
                    "collateral_usd": tot_cu, "dao_rev_day": tot_rev,
                    "btc_usd": oracle_series("WBTC"),
                    "eth_usd": oracle_series("WETH")},
