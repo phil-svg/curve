@@ -1,6 +1,7 @@
 # macOS: resolved via Homebrew. Linux: brew is absent, so override on the
-# command line if headers are not on the default include path, e.g.
-#   make BOOST_INC=/usr/include JSON_INC=/usr/include NATIVE=-march=native
+# command line if headers are not on the default include path, and name the
+# compiler and its spelling of "tune for this CPU" (x86 g++ has no -mcpu), e.g.
+#   make CXX=g++ NATIVE=-march=native BOOST_INC=/usr/include JSON_INC=/usr/local/include
 BOOST_INC   ?= $(shell brew --prefix boost 2>/dev/null)/include
 JSON_INC    ?= $(shell brew --prefix nlohmann-json 2>/dev/null)/include
 NATIVE      ?= -mcpu=native
@@ -10,7 +11,7 @@ CXX      := clang++
 # asserts from the bigint hot path; -flto: cross-TU inlining. None of these
 # can change integer results — verified bit-identical via the parity gate and
 # a full-sweep diff (2026-08-15).
-CXXFLAGS := -std=c++17 -O3 -mcpu=native -DNDEBUG -flto -fno-math-errno -Wall -Wextra \
+CXXFLAGS := -std=c++17 -O3 $(NATIVE) -DNDEBUG -flto -fno-math-errno -Wall -Wextra \
             -I src -I $(BOOST_INC) -I $(JSON_INC)
 
 SRC := src/llama_amm.cpp
