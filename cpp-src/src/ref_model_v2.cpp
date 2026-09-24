@@ -1,6 +1,8 @@
 // ref_model_v2.cpp — C++ port of llamma-simulator_v2's LendingAMM
 // (simulator/amm/lending_amm.py @ 70367aa) plus the per-window `simulate()`
-// of zchf_crvusd/sweep_parameters.py. Double precision, algorithm-identical;
+// of zchf_crvusd/sweep_parameters.py, with upstream's fee fix (f18e123,
+// PR #10): arbitrage trades go to the market price net of the external fee
+// only, the AMM fee being applied once, inside trade_to_price. Double precision, algorithm-identical;
 // Python `**` is mirrored with std::pow so results match bit-for-bit.
 //
 // Division of labour (keeps Python-specific behaviour in Python):
@@ -401,12 +403,18 @@ static double simulate(const std::vector<Candle> &M, const std::vector<double> &
     for (size_t i = start; i < end; i++) {
         double ts = M[i].t;
         amm.set_p_oracle(O[i], ts);
-        double high_t = target(M[i].h * (1.0 - ext_fee), ts, true);
-        double low_t = target(M[i].l * (1.0 + ext_fee), ts, false);
+        // The fee-adjusted targets only test whether a trade pays; the trade
+        // itself goes to the market price net of the external cost, because
+        // trade_to_price applies the AMM fee per band (upstream f18e123:
+        // passing the target in charged the AMM fee twice).
+        double high_x = M[i].h * (1.0 - ext_fee);
+        double low_x = M[i].l * (1.0 + ext_fee);
+        double high_t = target(high_x, ts, true);
+        double low_t = target(low_x, ts, false);
         if (high_t > amm.get_p())
-            if (!amm.trade_to_price(high_t)) return std::nan("");
+            if (!amm.trade_to_price(high_x)) return std::nan("");
         if (low_t < amm.get_p())
-            if (!amm.trade_to_price(low_t)) return std::nan("");
+            if (!amm.trade_to_price(low_x)) return std::nan("");
     }
     return 1.0 - amm.get_all_x() / initial_value;
 }

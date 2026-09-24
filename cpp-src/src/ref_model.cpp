@@ -13,6 +13,10 @@
 //  * find_target_price scans the DEPOSIT band range (min_band..max_band
 //    fixed at deposit time), falling through to a flat-fee target.
 //  * high is computed before low, both before either trade executes.
+//  * NOT preserved: the double AMM fee. The original traded to the
+//    fee-adjusted target, and trade_to_price charged the fee again; trades
+//    now go to the market price net of the external fee (the fix
+//    llamma-simulator_v2 made in f18e123). refsim/ carries the same fix.
 //  * the |band| > 1000 guard aborts the sample and scores it 0.0 (their
 //    `f` wrapper swallows exceptions and returns 0).
 // Input klines: JSON [[t_ms, open, high, low, close, vol], ...].
@@ -354,9 +358,13 @@ static double single_run_idx(const std::vector<Candle> &data,
                                         true, true);
         double low = find_target_price(amm, l * (1.0 + ext_fee),
                                        false, false);
-        if (high > amm.get_p()) amm.trade_to_price(high);
+        // high/low only test whether a trade pays; the trade goes to the
+        // market price net of the external fee, since trade_to_price applies
+        // the AMM fee per band (the original charged it twice; the same fix
+        // as llamma-simulator_v2 f18e123)
+        if (high > amm.get_p()) amm.trade_to_price(h * (1.0 - ext_fee));
         if (amm.failed) return 0.0;
-        if (low < amm.get_p()) amm.trade_to_price(low);
+        if (low < amm.get_p()) amm.trade_to_price(l * (1.0 + ext_fee));
         if (amm.failed) return 0.0;
     }
     double loss = 1.0 - amm.get_all_x() / initial_all_x;

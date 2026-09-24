@@ -132,15 +132,20 @@ class Simulator:
             amm.set_p_oracle(ema)
             # max_price = amm.p_up(amm.max_band)
             # min_price = amm.p_down(amm.min_band)
-            high = find_target_price(high * (1 - self.ext_fee), is_up=True, new=True)
-            low = find_target_price(low * (1 + self.ext_fee), is_up=False, new=False)
+            # fee-adjusted targets only test whether a trade pays; trades go to
+            # the market price net of the external fee, trade_to_price applying
+            # the AMM fee itself (fix as in llamma-simulator_v2 f18e123)
+            high_external = high * (1 - self.ext_fee)
+            low_external = low * (1 + self.ext_fee)
+            high = find_target_price(high_external, is_up=True, new=True)
+            low = find_target_price(low_external, is_up=False, new=False)
             # high = high * (1 - EXT_FEE - fee)
             # low = low * (1 + EXT_FEE + fee)
             # if high > amm.get_p():
             #     print(high, '/', high_, '/', max_price, '; ', low, '/', low_, '/', min_price)
             if high > amm.get_p():
                 try:
-                    amm.trade_to_price(high)
+                    amm.trade_to_price(high_external)
                 except Exception:
                     print(high, low, amm.get_p())
                     raise
@@ -153,7 +158,7 @@ class Simulator:
             #         assert amm.bands_x[n] > 0
 
             if low < amm.get_p():
-                amm.trade_to_price(low)
+                amm.trade_to_price(low_external)
 
             # Not correct for dynamic fees which are too high
             # if low < min_price:

@@ -217,12 +217,16 @@ def simulate(task: tuple[int, float, int, int, int, float, float]) -> float:
 
     for (timestamp, _open, high, low, _close, _volume), oracle in zip(prices, oracles):
         amm.set_p_oracle(oracle, timestamp=timestamp)
-        high_target = target(high * (1 - external_fee), timestamp, True)
-        low_target = target(low * (1 + external_fee), timestamp, False)
+        # the targets only test whether a trade pays; the AMM applies its own
+        # fee inside trade_to_price (upstream fix f18e123)
+        high_external = high * (1 - external_fee)
+        low_external = low * (1 + external_fee)
+        high_target = target(high_external, timestamp, True)
+        low_target = target(low_external, timestamp, False)
         if high_target > amm.get_p():
-            amm.trade_to_price(high_target)
+            amm.trade_to_price(high_external)
         if low_target < amm.get_p():
-            amm.trade_to_price(low_target)
+            amm.trade_to_price(low_external)
     return 1 - amm.get_all_x() / initial_value
 
 

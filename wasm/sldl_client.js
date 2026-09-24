@@ -283,14 +283,22 @@ export function createRunner(deps) {
 // ---- browser wiring --------------------------------------------------------
 let runner = null;
 const factories = {};
+// The engine modules are cached immutable for a year, so their URLs carry
+// the build (sldl_sources client.wasm_v), and the glue's own fetch of the
+// .wasm is pointed at the same version through locateFile.
+let engineV = 0;
+export function versionedFactory(f, v) {
+  return arg => f({ ...arg, locateFile: (p, dir) => `${dir}${p}?v=${v}` });
+}
 function browserFactory(model) {
   const name = model === "v2" ? "RefModelV2" : "RefModelV1";
   const file = model === "v2" ? "ref_model_v2.js" : "ref_model_v1.js";
   if (!factories[model]) factories[model] = new Promise((res, rej) => {
-    if (globalThis[name]) return res(globalThis[name]);
+    const v = engineV;
+    if (globalThis[name]) return res(versionedFactory(globalThis[name], v));
     const s = document.createElement("script");
-    s.src = `/wasm/${file}`;
-    s.onload = () => res(globalThis[name]);
+    s.src = `/wasm/${file}?v=${v}`;
+    s.onload = () => res(versionedFactory(globalThis[name], v));
     s.onerror = () => rej(new Error(`failed to load ${file}`));
     document.head.appendChild(s);
   });
@@ -319,6 +327,7 @@ export function sldlLocalSupported() {
     typeof SharedArrayBuffer !== "undefined" && "WebAssembly" in globalThis;
 }
 export async function sldlLocalRun(params, sourcesPayload, onTick) {
+  engineV = sourcesPayload.client?.wasm_v || 0;
   if (!runner) runner = createRunner({
     fetchBin: browserFetchBin,
     fetchJson: async name => {

@@ -535,12 +535,13 @@ export function toSldlDataset(spec, rt) {
 }
 
 let factoryP = null;
-function engineFactory() {
+// the engine is cached immutable, so its URLs carry the build (wasm_v)
+function engineFactory(mod, v) {
   if (!factoryP) factoryP = new Promise((res, rej) => {
-    if (globalThis.RefModelV2) return res(globalThis.RefModelV2);
+    if (globalThis.RefModelV2) return res(mod.versionedFactory(globalThis.RefModelV2, v));
     const s = document.createElement("script");
-    s.src = "/wasm/ref_model_v2.js";
-    s.onload = () => res(globalThis.RefModelV2);
+    s.src = "/wasm/ref_model_v2.js?v=" + v;
+    s.onload = () => res(mod.versionedFactory(globalThis.RefModelV2, v));
     s.onerror = () => { factoryP = null; rej(new Error("failed to load the wasm engine")); };
     document.head.appendChild(s);
   });
@@ -560,7 +561,7 @@ export async function runSldl(spec, rt, onTick) {
     const ds = toSldlDataset(spec, rt);
     const runner = mod.createRunner({
       fetchBin: async name => name === ds.meta.market_file ? ds.marketBytes : ds.oracleBytes,
-      fetchJson: async () => ({}), factory: () => engineFactory(),
+      fetchJson: async () => ({}), factory: () => engineFactory(mod, (payload.client && payload.client.wasm_v) || 0),
       threads: Math.min(navigator.hardwareConcurrency || 8, 16) });
     const params = { mode: "table", model: "v2", a_min: +s.a_min, a_max: +s.a_max, fee_min: +s.fee_min, fee_max: +s.fee_max,
       grid: +s.grid, method: "exact", bands: +s.bands, tail_pct: +s.tail_pct, loan_days: +s.loan_days,
