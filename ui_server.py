@@ -1654,10 +1654,9 @@ def _do_refresh():
     finally:
         _refresh.update(running=False,
                         last_duration_s=round(time.time() - t0, 1))
-    # Spring-Cleaning rides the same cycle. Incremental after its first
-    # backfill (data/cleanup.json carries scanned_to per market), so this is
-    # seconds, not minutes — but a failure must never take markets down with
-    # it, hence its own try block.
+    # Bad Debt tab dataset (data/baddebt.json): one multicall position scan
+    # over every market, on the same cycle — its own try block, so a failure
+    # never takes markets down with it.
     t1 = time.time()
     try:
         p = subprocess.run([PY, str(HERE / "fetchers" / "fetch_cleanup.py")],
@@ -1692,16 +1691,6 @@ def _do_refresh():
         print(f"[ui] lenders refreshed in {time.time() - t2:.1f} s")
     except Exception as e:
         print(f"[ui] lenders refresh FAILED: {str(e)[:300]}")
-    # Re-render the Spring-Cleaning charts from the fresh markets.json —
-    # the same matplotlib PNGs that live in images/.
-    for script in ("plot_ltv_vs_tvl.py", "plot_discounts_vs_tvl.py"):
-        try:
-            p = subprocess.run([PY, str(HERE / "plots" / script)],
-                               capture_output=True, text=True, timeout=300)
-            if p.returncode != 0:
-                raise RuntimeError((p.stderr or "").strip()[-200:])
-        except Exception as e:
-            print(f"[ui] {script} FAILED: {str(e)[:200]}")
     # LLM tab dataset (Curve prices API only — snapshots, borrowers; no RPC).
     t4 = time.time()
     try:
@@ -1713,6 +1702,19 @@ def _do_refresh():
         print(f"[ui] llm refreshed in {time.time() - t4:.1f} s")
     except Exception as e:
         print(f"[ui] llm refresh FAILED: {str(e)[:300]}")
+    # Mint Markets tab (prices API only) and scrvUSD tab (prices API + a few
+    # eth_calls for the current rate-setting state).
+    for script, tmo in (("fetch_mint.py", 900), ("fetch_scrvusd.py", 300)):
+        t_ = time.time()
+        try:
+            p = subprocess.run([PY, str(HERE / "fetchers" / script)],
+                               capture_output=True, text=True, timeout=tmo)
+            if p.returncode != 0:
+                raise RuntimeError((p.stderr or p.stdout or "").strip()[-300:]
+                                   or f"exit code {p.returncode}")
+            print(f"[ui] {script} refreshed in {time.time() - t_:.1f} s")
+        except Exception as e:
+            print(f"[ui] {script} FAILED: {str(e)[:300]}")
     # DAO revenue by source (pool admin fees + crvUSD mint interest +
     # LlamaLend V2 admin cut) — prices API + the local llm/markets files.
     t5 = time.time()
@@ -2200,13 +2202,13 @@ class Handler(BaseHTTPRequestHandler):
 
     # page deep links only — must not collide with API routes (/yb is the
     # data endpoint, the page path is /yb_)
-    TAB_PATHS = ("home", "sim", "cleaning",
+    TAB_PATHS = ("home", "sim",
                  "bad-debt", "sldl", "util", "pegkeeper", "yb", "lp",
                  "pools", "llm", "lending-markets", "dao-revenue",
                  "implementations", "impl",
-                 "map", "new-llamalend",
+                 "map", "new-llamalend", "mint-markets", "scrvusd",
                  # legacy pre-rename paths still serve the page
-                 "bad-debt-sim", "spring-cleaning", "s.l.-d.l.",
+                 "bad-debt-sim", "s.l.-d.l.",
                  "high-util", "yb_")
 
     def do_GET(self):
@@ -2398,9 +2400,9 @@ class Handler(BaseHTTPRequestHandler):
             # flagged entries listed (5-min memo)
             _http_json(self, 200, pool_gaps())
             return
-        if self.path in ("/cleanup", "/baddebt", "/lenders", "/lp", "/llm",
-                         "/dao_revenue", "/impl"):
-            # cleanup/baddebt from fetch_cleanup.py, lenders from
+        if self.path in ("/baddebt", "/lenders", "/lp", "/llm",
+                         "/dao_revenue", "/impl", "/mint"):
+            # baddebt from fetch_cleanup.py, lenders from
             # fetch_lenders.py, llm from fetch_llm.py — all on the cycle.
             f = HERE / "data" / (self.path[1:] + ".json")
             if not f.exists():
@@ -2411,6 +2413,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/sidemetrics":
             _http_json(self, 200, side_metrics())
+            return
+        if self.path == "/scrvusd_data":
+            # scrvUSD tab (fetch_scrvusd.py); the page itself lives at /scrvusd
+            f = HERE / "data" / "scrvusd.json"
+            if not f.exists():
+                _http_json(self, 404, {"error": "not built yet — the "
+                                                "refresh cycle writes it"})
+                return
+            _http_json(self, 200, json.loads(f.read_text()))
             return
         if self.path == "/rev24":
             # pools list: DAO revenue of the last 24 hours, per pool
@@ -2466,6 +2477,20 @@ class Handler(BaseHTTPRequestHandler):
                 _http_json(self, 400, {"error": "bad ?m="})
                 return
             f = HERE / "data" / "llm_hist" / f"{ch}_{ctrl}.json"
+            if not f.is_file():
+                _http_json(self, 404, {"error": "no history for this market"})
+                return
+            _http_json(self, 200, json.loads(f.read_text()))
+            return
+        if self.path.startswith("/minthist"):
+            # per-market daily history arrays (fetch_mint.py) — ?m=controller
+            q = parse_qs(urlparse(self.path).query)
+            ctrl = (q.get("m") or [""])[0].lower()
+            if not (ctrl.startswith("0x") and len(ctrl) == 42
+                    and all(c in "0123456789abcdefx" for c in ctrl)):
+                _http_json(self, 400, {"error": "bad ?m="})
+                return
+            f = HERE / "data" / "mint_hist" / f"{ctrl}.json"
             if not f.is_file():
                 _http_json(self, 404, {"error": "no history for this market"})
                 return
@@ -2646,30 +2671,6 @@ class Handler(BaseHTTPRequestHandler):
                 _http_json(self, 404, {"error": "no sweep yet — hit Run"})
                 return
             _http_json(self, 200, json.loads(f.read_text()))
-            return
-        if self.path.startswith("/chart/"):
-            # The Spring-Cleaning parameter charts — the SAME matplotlib PNGs
-            # that live in images/, re-rendered by the hourly cycle. Fixed
-            # whitelist: this must never become a generic file server.
-            name = self.path[len("/chart/"):].split("?")[0]
-            if name not in ("max_ltv_vs_market_tvl.png",
-                            "loan_discount_vs_market_tvl.png",
-                            "liquidation_discount_vs_market_tvl.png",
-                            "llamma_a_vs_market_tvl.png",
-                            "amm_fee_vs_market_tvl.png"):
-                self.send_error(404)
-                return
-            f = HERE / "images" / name
-            if not f.exists():
-                self.send_error(404)
-                return
-            body = f.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "image/png")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-cache")
-            self.end_headers()
-            self.wfile.write(body)
             return
         if self.path == "/progress":
             # How far the running engine has got. Absent file = nothing running.

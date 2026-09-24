@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
-"""fetch_cleanup.py — position scan over EVERY market, all chains. Emits two
-datasets from one pass:
-
-  data/cleanup.json   Spring-Cleaning: markets whose max opening LTV (N=4) is
-                      under 60% and that still hold collateral or debt, with
-                      every open position. USD-rounded TVL is NOT the filter —
-                      a market holding 0.47 UwU against $54k of debt rounds to
-                      $0 TVL and must still appear.
+"""fetch_cleanup.py — position scan over EVERY market, all chains, for the
+Bad Debt tab:
 
   data/baddebt.json   Bad Debt: every market (any LTV tier, LLV1 + LLV2, all
                       chains) where some position's debt exceeds its backing
@@ -33,10 +27,8 @@ sys.path.insert(0, str(HERE / "pylib"))
 from fetch_markets import Rpc, _addr  # noqa: E402
 
 MARKETS = HERE / "data" / "markets.json"
-OUT_CLEAN = HERE / "data" / "cleanup.json"
 OUT_BAD = HERE / "data" / "baddebt.json"
 
-MAX_LTV_PCT = 60.0     # Spring-Cleaning candidate threshold
 BAD_MIN_USD = 1.0      # ignore sub-$1 rounding dust
 
 
@@ -108,7 +100,6 @@ def market_head(m: dict, grp: str, ltv) -> dict:
 def main() -> None:
     M = json.loads(MARKETS.read_text())
     rpcs: dict[str, Rpc] = {}
-    clean: dict[str, dict] = {}
     bad: dict[str, dict] = {}
     t_start = time.time()
 
@@ -116,8 +107,7 @@ def main() -> None:
         for m in M["groups"][grp]:
             ltv = max_ltv(m["llamma_A"], m["loan_discount_pct"])
             holds = (m.get("collateral_tokens") or 0) > 0 or (m.get("total_debt") or 0) > 0
-            candidate = (ltv is not None and ltv * 100 < MAX_LTV_PCT and holds)
-            if not holds and not candidate:
+            if not holds:
                 continue                     # empty market, nothing to scan
             rpc = rpcs.setdefault(m["chain"], Rpc(m["chain"]))
             positions = scan_positions(rpc, m)
@@ -125,8 +115,6 @@ def main() -> None:
             uw = [p for p in positions if p["underwater"]
                   and p["shortfall_usd"] >= BAD_MIN_USD]
             bad_usd = round(sum(p["shortfall_usd"] for p in uw), 2)
-            if candidate:
-                clean[key] = dict(market_head(m, grp, ltv), user_rows=positions)
             if uw:
                 bad[key] = dict(market_head(m, grp, ltv),
                                 bad_debt_usd=bad_usd,
@@ -134,26 +122,23 @@ def main() -> None:
                                 n_underwater=len(uw),
                                 worst_shortfall_usd=max(p["shortfall_usd"] for p in uw),
                                 underwater=sorted(uw, key=lambda p: -p["shortfall_usd"]))
-            if candidate or uw:
+            if uw:
                 print(f"{grp} {m['chain']:<9} "
                       f"{m['collateral']['symbol']}/{m['borrowed']['symbol']:<16} "
-                      f"pos={len(positions)} uw={len(uw)} bad=${bad_usd:,.0f}"
-                      f"{'  [cleanup]' if candidate else ''}", flush=True)
+                      f"pos={len(positions)} uw={len(uw)} bad=${bad_usd:,.0f}",
+                      flush=True)
 
     stamp = {"fetched_at": int(time.time()),
              "fetched_at_utc": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())}
-    for path, payload in (
-            (OUT_CLEAN, dict(stamp, criterion=f"max opening LTV < {MAX_LTV_PCT:.0f}% "
-                             "and still holds collateral or debt", markets=clean)),
-            (OUT_BAD, dict(stamp, criterion="any position with debt above backing "
-                           "(y at oracle price + soft-liq x), marked at the AMM oracle",
-                           markets=bad))):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, indent=1))
-        os.replace(tmp, path)
+    payload = dict(stamp, criterion="any position with debt above backing "
+                   "(y at oracle price + soft-liq x), marked at the AMM oracle",
+                   markets=bad)
+    OUT_BAD.parent.mkdir(parents=True, exist_ok=True)
+    tmp = OUT_BAD.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, indent=1))
+    os.replace(tmp, OUT_BAD)
     total = sum(v["bad_debt_usd"] for v in bad.values())
-    print(f"wrote {OUT_CLEAN} ({len(clean)}) + {OUT_BAD} ({len(bad)}, "
+    print(f"wrote {OUT_BAD} ({len(bad)} markets, "
           f"${total:,.0f} total)  {time.time()-t_start:.0f}s")
 
 

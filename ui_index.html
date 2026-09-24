@@ -72,8 +72,8 @@
   /* lending markets: five metric buttons + the version filter need more
      room beside the search box, so they drop into the flow a bit earlier */
   @media (max-width: 1060px) {
-    #lm_controls { flex-wrap:wrap; gap:10px; }
-    #lm_metric, #lm_ver { position:static !important;
+    #lm_controls, #mm_controls { flex-wrap:wrap; gap:10px; }
+    #lm_metric, #lm_ver, #mm_metric, #mm_act { position:static !important;
       transform:none !important; }
   }
   /* the settled design: C2-wide card sidebar with the amber accent */
@@ -392,12 +392,13 @@
   </button>
   <nav class="tabs">
     <button type="button" class="tab" data-view="sim">Bad-Debt-Sim</button>
-    <button type="button" class="tab" data-view="cleaning">Spring-Cleaning</button>
     <button type="button" class="tab" data-view="baddebt">Bad Debt</button>
     <button type="button" class="tab" data-view="sldl">S.L. / D.L.</button>
     <button type="button" class="tab" data-view="pegkeeper">Pegkeeper</button>
     <button type="button" class="tab" data-view="lp">Pools</button>
     <button type="button" class="tab" data-view="llm">Lending Markets</button>
+    <button type="button" class="tab" data-view="mint">Mint Markets</button>
+    <button type="button" class="tab" data-view="scrvusd">scrvUSD</button>
     <button type="button" class="tab" data-view="daorev">DAO Revenue</button>
     <button type="button" class="tab" data-view="impl">Implementations</button>
     <button type="button" class="tab" data-view="yb">yb_</button>
@@ -860,17 +861,6 @@
      market's full price-oracle chain — addresses, node types (pool / vault /
      chainlink / agg / wrapper) and every EMA time found at any layer.
      Data: /markets (fetch_markets.py) + /oracles (fetch_oracles.py). -->
-<!-- Spring-Cleaning: legacy markets (max opening LTV < 60%) still holding
-     collateral or debt, on every chain — who is in them, how underwater, and
-     when each address last touched its loan. Plus the three parameter charts
-     over ALL markets (LLV1 + LLV2, all chains). Auto-refreshes: the server
-     rebuilds /markets and /cleanup hourly, and this view re-pulls both every
-     5 minutes while open. -->
-<div id="view_cleaning" style="display:none">
-  <div class="note" id="cl_note" style="margin-bottom:10px">loading…</div>
-  <div id="cl_charts"></div>
-</div>
-
 <!-- DAO Revenue: what the Curve DAO actually earns, daily, split by source.
      Each source has its own take-rate: pool swap fees pay the DAO the pool's
      admin_fee (100% on 3pool, 0% on Yield-Basis pools, 50% typically) —
@@ -1063,6 +1053,60 @@
   </div>
   <div class="note" id="lm_meta" style="margin-bottom:8px"></div>
   <div id="lm_body">loading…</div>
+</div>
+
+<div id="view_mint" style="display:none">
+  <!-- Mint Markets: the crvUSD mint markets (mint ControllerFactory), with
+       the debt-weighted borrow rate; list + one page per market, built like
+       Lending Markets. Data: fetchers/fetch_mint.py (prices API only). -->
+  <style>
+    #mm_body .lmb-row { cursor:pointer; border-radius:6px;
+      transition:background .08s; }
+    #mm_body .lmb-row:hover { background:#1c2129; }
+    #mm_body .lmb-row:hover b { color:#58a6ff; text-decoration:underline; }
+    #mm_body .lm-open { border:1px solid #58a6ff; color:#58a6ff;
+      border-radius:4px; padding:1px 8px; font-size:10.5px; font-weight:600;
+      white-space:nowrap; }
+    #mm_body .lmb-row:hover .lm-open { background:#1f6feb;
+      border-color:#1f6feb; color:#fff; }
+    #mm_body [id^="sec-"], #sv_body [id^="sec-"] { scroll-margin-top:70px; }
+    #mm_body .lm-sec:hover, #sv_body .lm-sec:hover { filter:brightness(1.35); }
+  </style>
+  <div id="mm_top"></div>
+  <div id="mm_controls" style="position:relative; display:flex;
+              justify-content:center; align-items:center; margin:14px 0">
+    <div class="seg" id="mm_act" title="active = more than $10k of debt"
+         style="display:inline-flex; position:absolute; left:0; top:50%;
+                transform:translateY(-50%)">
+      <button type="button" data-a="1" class="on">active</button>
+      <button type="button" data-a="0">all</button>
+    </div>
+    <input id="mm_search" type="text" spellcheck="false"
+           placeholder="search — collateral / address"
+           title="matches the collateral symbol and any contract address
+                  (controller, AMM, monetary policy, oracle, token)"
+           style="width:min(620px, calc(100vw - 820px)); min-width:240px;
+                  padding:7px 10px; background:#0d1117; color:#e6edf3;
+                  border:1px solid #30363d; border-radius:6px; font-size:12.5px">
+    <div class="seg" id="mm_metric" title="what the bars rank by"
+         style="display:inline-flex; position:absolute; right:0; top:50%;
+                transform:translateY(-50%)">
+      <button type="button" data-m="debt">debt</button>
+      <button type="button" data-m="rate">borrow APR</button>
+      <button type="button" data-m="coll">collateral</button>
+      <button type="button" data-m="loans">loans</button>
+      <button type="button" data-m="ceiling">ceiling used</button>
+      <button type="button" data-m="dao" class="on">daily DAO rev</button>
+    </div>
+  </div>
+  <div id="mm_body">loading…</div>
+</div>
+
+<div id="view_scrvusd" style="display:none">
+  <!-- scrvUSD: the savings vault — APY against the mint markets' weighted
+       borrow rate, deposits, supply, price per share, revenue.
+       Data: fetchers/fetch_scrvusd.py. -->
+  <div id="sv_body">loading…</div>
 </div>
 
 <!-- new-llamalend: free-form LLV2 market workbench. Everything lives in
@@ -3810,8 +3854,8 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
   const pct = (v, dp = 1) => v == null ? "—" : (v * 100).toFixed(dp) + "%";
 
   // -- view switching -------------------------------------------------------
-  const VIEWS = ["home", "sim", "study", "cleaning", "baddebt", "daorev",
-                 "sldl", "pegkeeper", "lp", "llm",
+  const VIEWS = ["home", "sim", "study", "baddebt", "daorev",
+                 "sldl", "pegkeeper", "lp", "llm", "mint", "scrvusd",
                  "impl", "yb", "map", "nl"];
   for (const t of document.querySelectorAll(".tab")) {
     t.addEventListener("click", () => {
@@ -3820,8 +3864,6 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
         $("view_" + v).style.display = t.dataset.view === v ? "" : "none";
       document.documentElement.classList.toggle("at-home",
         t.dataset.view === "home");
-      if (t.dataset.view === "cleaning" && typeof loadCleaningTab === "function"
-          && !window.__clLoaded) { window.__clLoaded = true; loadCleaningTab(); }
       if (t.dataset.view === "daorev" && typeof loadDaoRevTab === "function"
           && !window.__drLoaded) { window.__drLoaded = true; loadDaoRevTab(); }
       if (t.dataset.view === "baddebt" && typeof loadBadDebtTab === "function"
@@ -3852,6 +3894,17 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
           window.__lmShowList();
         }
       }
+      if (t.dataset.view === "mint") {
+        if (typeof loadMintTab === "function" && !window.__mmLoaded) {
+          window.__mmLoaded = true; loadMintTab();
+        } else if (!t.__fromUrl && window.__mmShowList) {
+          // tab click = back to the list, search cleared
+          document.getElementById("mm_search").value = "";
+          window.__mmShowList();
+        }
+      }
+      if (t.dataset.view === "scrvusd" && typeof loadScrvusdTab === "function"
+          && !window.__svLoaded) { window.__svLoaded = true; loadScrvusdTab(); }
       if (t.dataset.view === "nl" && !window.__nlMounted) {
         window.__nlMounted = true;
         import("/nl/app.js?v=" + Date.now())
@@ -3929,15 +3982,16 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
   // ("S.L. / D.L." drops the slash). Matched case-insensitively; the
   // server serves index.html for any of these paths.
   const TAB_PATHS = { home: "", sim: "bad-debt-sim",
-                      cleaning: "cleaning", baddebt: "bad-debt",
+                      baddebt: "bad-debt",
                       sldl: "sldl",
                       pegkeeper: "pegkeeper", lp: "pools",
-                      llm: "lending-markets", daorev: "dao-revenue",
+                      llm: "lending-markets", mint: "mint-markets",
+                      scrvusd: "scrvusd", daorev: "dao-revenue",
                       impl: "implementations",
                       yb: "yb", map: "map", nl: "new-llamalend" };
   // pre-rename bookmarks (/S.L.-D.L., /yb_ …) keep working
   const TAB_ALIASES = { "sim": "sim",
-                        "spring-cleaning": "cleaning", "s.l.-d.l.": "sldl",
+                        "s.l.-d.l.": "sldl",
                         lp: "lp",
                         "high-util": "llm", util: "llm", llm: "llm",
                         impl: "impl",
@@ -4594,42 +4648,6 @@ for (const id of Object.keys(HOVER_GEOM)) attachHover(id);
 document.addEventListener("click", () => {
   document.querySelectorAll(".hb-item.open").forEach(x => x.classList.remove("open"));
 });
-
-// ---- Spring-Cleaning tab ---------------------------------------------------
-// The three parameter charts over EVERY market (LLV1 + LLV2, every chain).
-// Re-pulls every 5 minutes while the app is open; the server re-renders the
-// PNGs on its hourly refresh cycle.
-window.loadCleaningTab = async function () {
-  const note = document.getElementById("cl_note");
-  const esc3 = s => String(s ?? "").replace(/[&<>"]/g,
-    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-
-  async function render() {
-    let mkts;
-    try { mkts = await fetch("/markets").then(r => r.json()); }
-    catch (e) { note.textContent = "failed to load: " + e; return; }
-    // The parameter charts are the matplotlib PNGs from images/ — the exact
-    // charts this view started as — re-rendered server-side each refresh
-    // cycle and served via /chart/. The timestamp busts the browser cache
-    // whenever the underlying markets snapshot changes.
-    const bust = mkts.fetched_at || 0;
-    document.getElementById("cl_charts").innerHTML =
-      ["max_ltv_vs_market_tvl.png",
-       "loan_discount_vs_market_tvl.png",
-       "liquidation_discount_vs_market_tvl.png"]
-      .map(n => `<div style="border:1px solid #21262d; border-radius:5px;
-             background:#0d1117; margin-bottom:16px">
-           <img src="/chart/${n}?t=${bust}" alt="${esc3(n)}"
-             style="display:block; width:100%; max-width:1250px; height:auto"></div>`)
-      .join("");
-
-    note.textContent = "";
-  }
-
-  await render();
-  if (!window.__clTimer)
-    window.__clTimer = setInterval(render, 300_000);
-};
 
 // ---- DAO Revenue tab -------------------------------------------------------
 // Daily revenue by source over the trailing 30 days. The point of the split
@@ -9359,5 +9377,651 @@ window.loadImplTab = async function loadImplTab() {
   render();
 };
 </script>
+<script>
+// ---- Mint Markets + scrvUSD tabs --------------------------------------------
+// crvUSD mint markets (the mint ControllerFactory's controllers) and the
+// scrvUSD savings vault. Data: /mint + /minthist (fetchers/fetch_mint.py,
+// Curve prices API only) and /scrvusd_data (fetchers/fetch_scrvusd.py).
+// Built like the Lending Markets tab: bar list with metric buttons and
+// search, one page per market, range-selectable charts with hover.
+(() => {
+  const esc = s => String(s ?? "").replace(/[&<>"]/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const usd = v => {
+    const a = Math.abs(v ?? 0);
+    if (a >= 1e9) return "$" + (v / 1e9).toFixed(2) + "B";
+    if (a >= 1e6) return "$" + (v / 1e6).toFixed(2) + "M";
+    if (a >= 1e3) return "$" + (v / 1e3).toFixed(0) + "k";
+    return "$" + Math.round(v ?? 0);
+  };
+  const nfmt = v => v == null ? "—"
+    : Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(2) + "M"
+    : Math.abs(v) >= 1e3 ? (v / 1e3).toFixed(1) + "k"
+    : (+v).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const pct = (v, dp = 2) => v == null || !isFinite(v) ? "—" : (+v).toFixed(dp) + "%";
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
+               "Sep", "Oct", "Nov", "Dec"];
+  const day = t => new Date(t * 1000).toISOString().slice(0, 10);
+  const monYr = t => { const d = new Date(t * 1000);
+    return `${MON[d.getUTCMonth()]} '${String(d.getUTCFullYear()).slice(2)}`; };
+  const SCAN = "https://etherscan.io";
+  const short = a => a ? a.slice(0, 8) + "…" + a.slice(-4) : "—";
+  const aLink = (a, label) => a
+    ? `<a href="${SCAN}/address/${esc(a)}" target="_blank" rel="noopener"
+        style="font-family:ui-monospace,monospace">${esc(label || short(a))}</a>`
+    : "—";
+  const CRVUSD = "0xf939e0a03fb07f59a73314e73794be0e57ac1b4e";
+
+  // -- charts: one or more series on a shared axis; the first series is the
+  //    main one (gradient fill, end dot, optional 7-day average) -----------
+  let seq = 0;
+  const reg = {};
+  function chart(t, series, { pct: isPct = false, money = false,
+      price = false, step = false, avg7 = false, w = 560, h = 195 } = {}) {
+    const idx = [];
+    for (let i = 0; i < t.length; i++)
+      if (series.some(s => s.vals[i] != null && isFinite(s.vals[i])))
+        idx.push(i);
+    if (idx.length < 2) { chart.last = "";
+      return `<div class="note">no history in this window</div>`; }
+    const xs = idx.map(i => t[i]);
+    const S = series.map(s => ({ ...s, ys: idx.map(i =>
+      s.vals[i] != null && isFinite(s.vals[i]) ? +s.vals[i] : null) }));
+    const all = S.flatMap(s => s.ys.filter(v => v != null));
+    const W = w, H = h, L = 58, R = 12, T = 16, B = 22;
+    const dataMin = Math.min(...all);
+    let lo = dataMin, hi = Math.max(...all);
+    if (hi === lo) { hi += (Math.abs(hi) || 1) * .05; lo -= (Math.abs(lo) || 1) * .05; }
+    const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+    if (dataMin >= 0 && lo < 0) lo = 0;
+    const X = x => L + (x - xs[0]) / (xs[xs.length - 1] - xs[0]) * (W - L - R);
+    const Y = y => T + (1 - (y - lo) / (hi - lo)) * (H - T - B);
+    const fy = v => isPct ? v.toFixed(Math.abs(hi) < 0.2 ? 3 : 2) + "%"
+      : price ? (money ? "$" : "") + (Math.abs(v) >= 1000
+          ? Math.round(v).toLocaleString("en-US")
+          : v.toFixed(Math.abs(hi) < 2 ? 4 : 2))
+      : money ? (Math.abs(hi) < 1000 ? "$" + v.toFixed(hi - lo < 20 ? 2 : 0)
+          : usd(v)) : nfmt(v);
+    const span = xs[xs.length - 1] - xs[0];
+    const fmtX = ts => { const d = new Date(ts * 1000);
+      return span >= 320 * 86400 ? monYr(ts)
+        : `${MON[d.getUTCMonth()]} ${d.getUTCDate()}`; };
+    let g = "";
+    for (let k = 0; k <= 3; k++) {
+      const v = lo + (hi - lo) * k / 3;
+      g += `<line x1="${L}" y1="${Y(v)}" x2="${W - R}" y2="${Y(v)}"
+             stroke="#1c2128" stroke-dasharray="3 4"/>
+            <text x="${L - 8}" y="${Y(v) + 3.5}" text-anchor="end"
+             fill="#6e7681" font-size="10.5">${fy(v)}</text>`;
+    }
+    for (let k = 0; k <= 4; k++) {
+      const x = xs[0] + span * k / 4;
+      g += `<text x="${X(x)}" y="${H - 6}" text-anchor="middle"
+             fill="#57606a" font-size="10.5">${fmtX(x)}</text>`;
+    }
+    const pt = (x, y) => `${X(x).toFixed(1)},${Y(y).toFixed(1)}`;
+    const segs = ys => {              // polylines, broken where data is missing
+      const out = []; let cur = [], prev = null;
+      for (let i = 0; i < xs.length; i++) {
+        if (ys[i] == null) { if (cur.length) out.push(cur); cur = []; prev = null; continue; }
+        if (step && prev != null) cur.push(pt(xs[i], prev));
+        cur.push(pt(xs[i], ys[i])); prev = ys[i];
+      }
+      if (cur.length) out.push(cur);
+      return out.map(c => c.join(" "));
+    };
+    const gid = "mmg" + (seq++);
+    const base = (H - B + 1).toFixed(1);
+    const main = S[0];
+    const lastIdx = s => { for (let i = s.ys.length - 1; i >= 0; i--)
+      if (s.ys[i] != null) return i; return -1; };
+    let lines = "";
+    S.forEach((s, k) => {
+      for (const p of segs(s.ys)) {
+        if (k === 0 && S.length === 1 && !price) {
+          const f = p.split(" ");
+          lines += `<polygon fill="url(#${gid})" points="${
+            f[0].split(",")[0]},${base} ${p} ${f[f.length - 1].split(",")[0]},${base}"/>`;
+        }
+        lines += `<polyline fill="none" stroke="${s.color}" stroke-width="${
+          k === 0 ? (avg7 ? 1.1 : 1.8) : 1.6}"${k === 0 && avg7
+          ? ' opacity="0.5"' : ""}${s.dash ? ' stroke-dasharray="5 4"' : ""}
+          stroke-linejoin="round" points="${p}"/>`;
+      }
+    });
+    let label;
+    if (avg7) {
+      const sm = main.ys.map((_, i) => {
+        const q = main.ys.slice(Math.max(0, i - 6), i + 1).filter(v => v != null);
+        return q.length ? q.reduce((a, b) => a + b, 0) / q.length : null;
+      });
+      for (const p of segs(sm))
+        lines += `<polyline fill="none" stroke="#e6edf3" stroke-width="1.8"
+          opacity="0.9" stroke-linejoin="round" points="${p}"/>`;
+      const li = lastIdx({ ys: sm });
+      label = "7d avg " + (li >= 0 ? fy(sm[li]) : "—");
+    } else if (S.length > 1) {
+      label = S.map(s => { const i = lastIdx(s);
+        return `<span style="color:${s.color}">${esc(s.name)}</span> ${
+          i >= 0 ? fy(s.ys[i]) : "—"}`; }).join(" · ");
+    } else {
+      const i = lastIdx(main); label = i >= 0 ? fy(main.ys[i]) : "";
+    }
+    chart.last = label;
+    const mi = lastIdx(main);
+    const dot = mi >= 0 ? `
+      <circle cx="${X(xs[mi]).toFixed(1)}" cy="${Y(main.ys[mi]).toFixed(1)}"
+        r="5.5" fill="${main.color}" opacity="0.22"/>
+      <circle cx="${X(xs[mi]).toFixed(1)}" cy="${Y(main.ys[mi]).toFixed(1)}"
+        r="2.4" fill="${main.color}"/>` : "";
+    reg[gid] = { xs, S, lo, hi, W, H, L, R, T, B, fy };
+    return `<svg viewBox="0 0 ${W} ${H}" data-mchart="${gid}"
+        style="width:100%; display:block">
+      <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${main.color}" stop-opacity="0.26"/>
+        <stop offset="100%" stop-color="${main.color}" stop-opacity="0"/>
+      </linearGradient></defs>
+      ${g}${lines}${dot}
+      <g data-hv style="display:none" pointer-events="none">
+        <line data-hvl y1="${T}" y2="${H - B}" stroke="#6e7681"
+          stroke-dasharray="2 3"/>
+        ${S.map((s, k) => `<circle data-hvc="${k}" r="3.2" fill="${s.color}"
+          stroke="#0d1117" stroke-width="1"/>`).join("")}
+        <rect data-hvr fill="#010409" opacity="0.88" rx="4" height="16"
+          y="${T - 12}"/>
+        <text data-hvt fill="#e6edf3" font-size="11" text-anchor="middle"
+          y="${T}"/>
+      </g></svg>`;
+  }
+  // crosshair + "date · value(s)" chip, delegated per page root
+  function wireHover(root) {
+    root.addEventListener("mousemove", ev => {
+      const svg = ev.target.closest("svg[data-mchart]");
+      for (const gv of root.querySelectorAll("svg[data-mchart] g[data-hv]"))
+        if (!svg || gv.ownerSVGElement !== svg) gv.style.display = "none";
+      if (!svg) return;
+      const d = reg[svg.dataset.mchart];
+      const g = svg.querySelector("g[data-hv]");
+      if (!d || !g) return;
+      const r = svg.getBoundingClientRect();
+      const vx = (ev.clientX - r.left) / r.width * d.W;
+      const n = d.xs.length, spanX = d.xs[n - 1] - d.xs[0];
+      const tx0 = d.xs[0] + (vx - d.L) / (d.W - d.L - d.R) * spanX;
+      let i = 0;
+      for (let k = 1; k < n; k++)
+        if (Math.abs(d.xs[k] - tx0) < Math.abs(d.xs[i] - tx0)) i = k;
+      const x = d.L + (d.xs[i] - d.xs[0]) / spanX * (d.W - d.L - d.R);
+      g.style.display = "";
+      const l = g.querySelector("[data-hvl]");
+      l.setAttribute("x1", x); l.setAttribute("x2", x);
+      d.S.forEach((s, k) => {
+        const c = g.querySelector(`[data-hvc="${k}"]`);
+        if (s.ys[i] == null) { c.setAttribute("r", 0); return; }
+        c.setAttribute("r", 3.2);
+        c.setAttribute("cx", x);
+        c.setAttribute("cy", d.T + (1 - (s.ys[i] - d.lo) / (d.hi - d.lo))
+          * (d.H - d.T - d.B));
+      });
+      const dt = new Date(d.xs[i] * 1000);
+      const vals = d.S.map(s => (d.S.length > 1 ? s.name + " " : "")
+        + (s.ys[i] == null ? "—" : d.fy(s.ys[i]))).join(" · ");
+      const label = `${MON[dt.getUTCMonth()]} ${dt.getUTCDate()} '${
+        String(dt.getUTCFullYear()).slice(2)} · ${vals}`;
+      const tw = label.length * 6.3 + 12;
+      const tx = Math.max(d.L + tw / 2, Math.min(d.W - d.R - tw / 2, x));
+      const txt = g.querySelector("[data-hvt]");
+      txt.setAttribute("x", tx); txt.textContent = label;
+      const bg = g.querySelector("[data-hvr]");
+      bg.setAttribute("x", tx - tw / 2); bg.setAttribute("width", tw);
+    });
+    root.addEventListener("mouseleave", () => {
+      for (const gv of root.querySelectorAll("svg[data-mchart] g[data-hv]"))
+        gv.style.display = "none";
+    });
+  }
+  const panel = (slug, title, svg) => `
+    <div id="sec-${slug}" style="border:1px solid #21262d; border-radius:6px;
+        background:#0d1117; padding:8px 10px 4px">
+      <div style="display:flex; align-items:baseline; margin:0 4px 2px">
+        <span class="lm-sec" data-slug="${slug}" style="font-size:12px;
+          color:#e6edf3; cursor:pointer">${title}</span>
+        <span style="margin-left:auto; font-size:12px; color:#8b949e">${
+          chart.last || ""}</span>
+      </div>${svg}</div>`;
+  const grid = inner => `<div style="display:grid; gap:10px; margin-top:8px;
+      grid-template-columns:repeat(2, minmax(0, 1fr))">${inner}</div>`;
+  const box = (title, inner, slug) => `
+    <div${slug ? ` id="sec-${slug}"` : ""} style="border:1px solid #21262d;
+        border-radius:6px; background:#0d1117; padding:10px 14px">
+      <div class="lm-sec"${slug ? ` data-slug="${slug}"` : ""}
+        style="font-size:11px; letter-spacing:.06em; color:#8b949e;
+        text-transform:uppercase; margin-bottom:6px${slug
+          ? "; cursor:pointer" : ""}">${title}</div>
+      <div style="font-size:12px">${inner}</div></div>`;
+  const rangeSeg = `<span class="seg" data-role="range">
+      <button type="button" data-r="all" class="on">all</button>
+      <button type="button" data-r="y">year</button>
+      <button type="button" data-r="m">month</button>
+      <button type="button" data-r="w">week</button></span>`;
+  const RANGES = { all: Infinity, y: 365, m: 30, w: 7 };
+  // draws `items(pick, T)` into `el` for the chosen range; the seg redraws
+  function rangeCharts(segHost, el, t, items) {
+    const draw = key => {
+      const days = RANGES[key] ?? Infinity;
+      const tEnd = t[t.length - 1];
+      const from = days === Infinity ? -Infinity : tEnd - days * 86400;
+      const idx = [];
+      for (let i = 0; i < t.length; i++) if (t[i] >= from) idx.push(i);
+      const pick = arr => idx.map(i => arr[i]);
+      el.innerHTML = grid(items(pick, pick(t)).map(([slug, title, series, o]) =>
+        panel(slug, title, chart(pick(t).length ? pick(t) : [], series,
+                                 { ...o, w: 560, h: 195 }))).join(""));
+    };
+    const seg = segHost.querySelector('.seg[data-role="range"]');
+    if (seg) seg.addEventListener("click", ev => {
+      const btn = ev.target.closest("button");
+      if (!btn) return;
+      for (const o of seg.querySelectorAll("button"))
+        o.classList.toggle("on", o === btn);
+      draw(btn.dataset.r);
+    });
+    draw("all");
+  }
+  // align a (t, v) series onto the day axis `t`
+  const onDays = (t, st, sv) => {
+    const m = new Map(st.map((x, i) => [x, sv[i]]));
+    return t.map(x => m.has(x) ? m.get(x) : null);
+  };
+
+  // ======================= Mint Markets ======================================
+  window.loadMintTab = async function () {
+    const top = document.getElementById("mm_top");
+    const body = document.getElementById("mm_body");
+    const controls = document.getElementById("mm_controls");
+    const GH = "https://github.com/curvefi/curve-stablecoin/blob/master/curve_stablecoin/";
+    const GH_TREE = GH.replace("/blob/", "/tree/");
+    const EDAO_URL = "https://docs.curve.finance/user/dao/emergency-dao";
+    // deep link read before the first await (the tab click rewrites the URL)
+    const segs = location.pathname.split("/").filter(Boolean);
+    const urlKey = segs[0] === "mint-markets" && (segs[1] || "").startsWith("0x")
+      ? segs[1].toLowerCase() : null;
+    let D = null, expanded = null;
+    const histCache = {};
+
+    const name = e => `${e.collateral.symbol}/crvUSD`;
+    const since = e => e.created_at ? "since " + monYr(e.created_at) : "";
+    const ceilUsed = e => e.debt_ceiling > 0
+      ? 100 * (e.total_debt || 0) / e.debt_ceiling : null;
+    const rows = () => Object.values((D && D.markets) || {});
+
+    async function load() {
+      try { D = await fetch("/mint").then(r => r.ok ? r.json() : null); }
+      catch (_) { D = null; }
+    }
+
+    // -- landing: totals, weighted borrow rate history, the bar list -------
+    function renderTop() {
+      if (!D) { top.innerHTML = ""; return; }
+      const s = D.series || {};
+      top.innerHTML = `
+        <div style="border:1px solid #21262d; border-radius:6px;
+            background:#0d1117; padding:10px 14px">
+          <div style="display:flex; align-items:center">
+            <span style="font-size:11px; letter-spacing:.06em; color:#8b949e;
+              text-transform:uppercase">all mint markets — daily history</span>
+            <span style="margin-left:auto">${rangeSeg}</span></div>
+          <div data-chart="top"></div></div>`;
+      if (!s.t || s.t.length < 2) return;
+      rangeCharts(top, top.querySelector('[data-chart="top"]'), s.t, pick => [
+        ["btc-price", "BTC price",
+         [{ vals: pick(s.btc_usd || []), color: "#ED7D31", name: "BTC" }],
+         { price: true, money: true }],
+        ["eth-price", "ETH price",
+         [{ vals: pick(s.eth_usd || []), color: "#4DB6AC", name: "ETH" }],
+         { price: true, money: true }],
+        ["weighted-rate", "weighted borrow APR",
+         [{ vals: pick(s.weighted_apr || []), color: "#58a6ff", name: "APR" }],
+         { pct: true }],
+        ["total-debt", "total debt",
+         [{ vals: pick(s.debt_usd), color: "#A78BFA", name: "debt" }],
+         { money: true }],
+        ["total-collateral", "collateral",
+         [{ vals: pick(s.collateral_usd), color: "#3FB950", name: "coll" }],
+         { money: true }],
+        ["total-dao", "DAO revenue per day",
+         [{ vals: pick(s.dao_rev_day), color: "#e3b341", name: "rev" }],
+         { money: true }]]);
+    }
+
+    const METRICS = {
+      debt: { val: e => e.total_debt_usd || 0, fmt: usd,
+        side: e => pct(e.borrow_apr), grad: "linear-gradient(90deg, #9e4a0388, #ffa657)" },
+      rate: { val: e => e.borrow_apr, fmt: v => pct(v),
+        side: e => usd(e.total_debt_usd), grad: "linear-gradient(90deg, #8e1a1a88, #f85149)" },
+      coll: { val: e => e.collateral_usd || 0, fmt: usd,
+        side: e => usd(e.total_debt_usd) + " debt", grad: "linear-gradient(90deg, #6e1f5088, #F778BA)" },
+      loans: { val: e => e.n_loans || 0, fmt: v => nfmt(v),
+        side: e => usd(e.total_debt_usd), grad: "linear-gradient(90deg, #1f6feb88, #58a6ff)" },
+      ceiling: { val: ceilUsed, fmt: v => pct(v, 1), abs: 100,
+        side: e => usd(e.debt_ceiling) + " cap", grad: "linear-gradient(90deg, #23863688, #7ee787)" },
+      dao: { val: e => e.dao_rev_day, fmt: v => "$" + Math.round(v).toLocaleString("en-US") + "/d",
+        side: e => usd(e.total_debt_usd), grad: "linear-gradient(90deg, #9e6a0388, #e3b341)" },
+    };
+    function filtered() {
+      const active = document.querySelector("#mm_act .on")?.dataset.a !== "0";
+      const q = (document.getElementById("mm_search").value || "").trim().toLowerCase();
+      return rows().filter(e => (!active || (e.total_debt_usd || 0) >= 10e3)
+        && (!q || [name(e), e.collateral.symbol, e.collateral.addr,
+                   e.controller, e.amm, e.policy, e.oracle]
+          .some(v => v && String(v).toLowerCase().includes(q))));
+    }
+    function render() {
+      if (!D || !D.markets) {
+        top.innerHTML = "";
+        body.innerHTML = `<div class="note">dataset not built yet — the
+          refresh cycle runs fetchers/fetch_mint.py</div>`;
+        return;
+      }
+      const metric = window.__mmMetric || "dao";
+      const M = METRICS[metric];
+      const list = filtered();
+      if (!list.length) {
+        body.innerHTML = `<div class="note">no market matches</div>`; return;
+      }
+      const vals = new Map(list.map(e => [e.controller, M.val(e)]));
+      list.sort((a, b) => {
+        const x = vals.get(a.controller), y = vals.get(b.controller);
+        if (x == null && y == null) return (b.total_debt_usd || 0) - (a.total_debt_usd || 0);
+        if (x == null) return 1;
+        if (y == null) return -1;
+        return y - x || (b.total_debt_usd || 0) - (a.total_debt_usd || 0);
+      });
+      const maxV = M.abs || Math.max(1e-9, ...list.map(e => vals.get(e.controller) || 0));
+      body.innerHTML = list.map((e, i) => {
+        const v = vals.get(e.controller);
+        return `<div data-key="${e.controller}" class="lmb-row" tabindex="0"
+            role="link" title="open ${esc(name(e))}" style="display:flex;
+            align-items:center; gap:10px; padding:5px 8px">
+          <span style="width:26px; text-align:right; color:#6e7681;
+            font-size:11px">${i + 1}</span>
+          <span style="flex:none; display:inline-flex">${
+            tokImg(e.collateral.addr, "ethereum", 20)}</span>
+          <span style="width:210px; flex:none; overflow:hidden;
+            text-overflow:ellipsis; white-space:nowrap"><b>${esc(name(e))}</b>
+            <span style="color:#6e7681; font-size:10.5px">${since(e)}</span></span>
+          <div style="flex:1; height:16px; background:#161b22;
+              border-radius:4px; overflow:hidden">
+            <div style="width:${(100 * Math.max(0, v || 0) / maxV).toFixed(2)}%;
+              height:100%; background:${M.grad}"></div></div>
+          <span style="width:92px; text-align:right; font-weight:600">${
+            v == null ? "—" : M.fmt(v)}</span>
+          <span style="width:110px; text-align:right; color:#8b949e;
+            font-size:11.5px">${M.side(e)}</span>
+          <span class="lm-open">open ›</span></div>`;
+      }).join("");
+      for (const el of body.querySelectorAll("[data-key]")) {
+        el.addEventListener("click", () => showMarket(el.dataset.key));
+        el.addEventListener("keydown", ev => {
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault(); showMarket(el.dataset.key);
+          }
+        });
+      }
+    }
+    function showList() {
+      expanded = null;
+      top.style.display = "";
+      controls.style.display = "flex";
+      history.replaceState(null, "", "/mint-markets");
+      render();
+    }
+    wireHover(top);
+    window.__mmShowList = showList;
+
+    // -- one market ---------------------------------------------------------
+    function marketHtml(e, hist) {
+      const cRow = (label, addr, gh) => addr ? `
+        <div style="display:flex; gap:8px; align-items:baseline">
+          <span style="width:118px; flex:none; color:#8b949e">${label}</span>
+          ${aLink(addr)}${gh ? ` <a href="${gh}" target="_blank" rel="noopener"
+            style="color:#8b949e">[github]</a>` : ""}</div>` : "";
+      const pRow = (label, v) => `<div style="display:flex; gap:8px">
+        <span style="width:150px; flex:none; color:#8b949e">${label}</span>
+        <span>${v ?? "—"}</span></div>`;
+      const contracts = cRow("controller", e.controller, GH + "controller.vy")
+        + cRow("AMM (LLAMMA)", e.amm, GH + "AMM.vy")
+        + cRow("monetary policy", e.policy, GH_TREE + "mpolicies")
+        + cRow("price oracle", e.oracle, GH_TREE + "price_oracles")
+        + cRow(esc(e.collateral.symbol), e.collateral.addr)
+        + cRow("factory", e.factory);
+      const dao = pRow("debt ceiling", usd(e.debt_ceiling) + (ceilUsed(e) != null
+          ? ` <span class="note">(${pct(ceilUsed(e), 1)} used)</span>` : ""))
+        + pRow("borrow APR", pct(e.borrow_apr))
+        + pRow("loan discount", pct(e.loan_discount_pct))
+        + pRow("liquidation discount", pct(e.liquidation_discount_pct))
+        + pRow("max LTV", pct(e.max_ltv));
+      const fixed = pRow("A", e.A) + pRow("collateral", esc(e.collateral.symbol))
+        + pRow("created", e.created_at ? day(e.created_at) : "—")
+        + pRow("oracle price", e.price_oracle != null
+            ? "$" + nfmt(e.price_oracle) : "—");
+      const edao = ["AMM fee", "monetary policy", "loan discount",
+        "liquidation discount", "liquidity-mining callback",
+        "debt ceiling (lower only)"]
+        .map(p => `<div style="color:#8b949e">${p}</div>`).join("");
+      const b = e.borrowers || {};
+      const hCol = h => h == null ? "#8b949e" : h < 0 ? "#f85149"
+        : h < 5 ? "#ED7D31" : "#70AD47";
+      const bRows = (b.rows || []).map((r, i) => `<tr>
+          <td style="text-align:right; color:#6e7681">${i + 1}</td>
+          <td style="text-align:left">${aLink(r.a)}</td>
+          <td>${usd(r.du)}</td><td>${usd(r.cu)}</td>
+          <td style="color:${hCol(r.h)}">${r.h == null ? "—" : r.h.toFixed(2) + "%"}</td>
+          <td>${r.sl ? `<span style="color:#ED7D31">soft-liq</span>` : ""}</td>
+          <td>${pct(r.pct, 1)}</td></tr>`).join("");
+      const borrowers = b.error ? `<div class="note">borrowers unavailable (${
+          esc(b.error)})</div>`
+        : `<details><summary class="note" style="cursor:pointer">${
+            b.n ?? "?"} borrowers — the ${Math.min((b.rows || []).length, b.n || 0)}
+            largest by debt</summary>
+          <table class="study" style="font-size:11.5px; margin-top:6px"><tr>
+            <th></th><th style="text-align:left">borrower</th><th>debt</th>
+            <th>collateral</th><th>health</th><th></th><th>of debt</th></tr>
+            ${bRows}</table>
+          <div class="note" style="margin-top:6px">as of ${
+            b.as_of ? day(b.as_of) : "?"}</div></details>`;
+      const histNote = e.hist_days ? "" : `<div class="note">history not yet available</div>`;
+      const charts = hist && hist.t && hist.t.length > 1 ? `
+        <div style="display:flex"><span style="margin-left:auto">${rangeSeg}</span></div>
+        <div data-chart="all"></div>` : histNote;
+      const params = hist && hist.t && hist.t.length > 1
+        ? `<div data-chart="params"></div>` : histNote;
+      return `<div style="display:grid; gap:10px; grid-template-columns:minmax(0, 1fr)">
+        <div style="display:grid; gap:10px;
+            grid-template-columns:repeat(auto-fit, minmax(270px, 1fr))">
+          ${box("contracts", contracts, "contracts")}
+          ${box("DAO-adjustable parameters", dao, "dao")}
+          ${box("fixed parameters", fixed, "fixed")}
+          ${box(`<span style="text-transform:none">eDAO</span>
+              <a href="${EDAO_URL}" target="_blank" rel="noopener"
+              style="text-transform:none; margin-left:6px">docs</a>`, edao, "edao")}
+        </div>
+        ${box("borrowers", borrowers, "borrowers")}
+        ${box("performance — daily history", charts, "history")}
+        ${box("parameters", params, "params")}
+      </div>`;
+    }
+    function wireMarket(root, e, hist) {
+      if (!hist || !hist.t || hist.t.length < 2) return;
+      const sym = e.collateral.symbol;
+      const rev = hist.t.map((_, i) => hist.du[i] != null && hist.apr[i] != null
+        ? hist.du[i] * hist.apr[i] / 100 / 365 : null);
+      const used = hist.t.map((_, i) => hist.d[i] != null && hist.b[i] != null
+        && hist.d[i] + hist.b[i] > 0 ? 100 * hist.d[i] / (hist.d[i] + hist.b[i]) : null);
+      rangeCharts(root, root.querySelector('[data-chart="all"]'), hist.t, pick => [
+        ["borrow-apr", "borrow APR", [
+          { vals: pick(hist.apr), color: "#58a6ff", name: "APR" }],
+          { pct: true }],
+        ["debt", "debt", [{ vals: pick(hist.du), color: "#A78BFA", name: "debt" }],
+          { money: true }],
+        ["collateral", `collateral ${esc(sym)}`, [
+          { vals: pick(hist.cu), color: "#3FB950", name: "coll" }], { money: true }],
+        ["soft-liq", "crvUSD in the bands — collateral converted by soft liquidation", [
+          { vals: pick(hist.su), color: "#4DB6AC", name: "crvUSD" }], { money: true }],
+        ["loans", "open loans", [{ vals: pick(hist.n), color: "#ED7D31", name: "loans" }], {}],
+        ["ceiling", "debt ceiling used", [
+          { vals: pick(used), color: "#DB61A2", name: "used" }], { pct: true }],
+        ["revenue", "DAO revenue per day", [
+          { vals: pick(rev), color: "#e3b341", name: "rev" }], { money: true }],
+        ["price", `${esc(sym)} price — oracle`, [
+          { vals: pick(hist.p), color: "#F778BA", name: "oracle" }], { price: true }]]);
+      const pe = root.querySelector('[data-chart="params"]');
+      if (pe) pe.innerHTML = grid([
+        ["loan-discount", "loan discount %", hist.ld, "#ED7D31"],
+        ["liq-discount", "liquidation discount %", hist.qd, "#F778BA"],
+        ["max-ltv", "max LTV %", hist.mx, "#58a6ff"]]
+        .map(([slug, tt, v, c]) => panel(slug, tt,
+          chart(hist.t, [{ vals: v, color: c, name: tt }],
+                { step: true, pct: true, w: 560, h: 195 }))).join(""));
+      wireHover(root);
+    }
+    async function showMarket(ctrl, section) {
+      const e = D && D.markets && D.markets[ctrl];
+      if (!e) { showList(); return; }
+      expanded = ctrl;
+      top.style.display = "none";
+      controls.style.display = "none";
+      history.replaceState(null, "", `/mint-markets/${ctrl}${section ? "/" + section : ""}`);
+      body.innerHTML = `
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+            margin:2px 0 12px">
+          <a id="mm_back" style="cursor:pointer; color:#58a6ff;
+            font-size:12.5px">← all mint markets</a>
+          <span style="display:inline-flex; align-items:center; flex:none">${
+            tokImg(e.collateral.addr, "ethereum", 22)}${tokImg(CRVUSD, "ethereum", 22)}</span>
+          <b style="font-size:15px">${esc(name(e))}</b>
+          <span style="font-size:11px; color:#e3b341">mint</span>
+          <span style="color:#8b949e; font-size:12px">${since(e)}</span>
+          <span style="margin-left:auto; display:flex; gap:16px; font-size:12.5px">
+            <span>${usd(e.total_debt_usd)} debt</span>
+            <span>${usd(e.collateral_usd)} collateral</span>
+            <span style="color:#8b949e">${pct(e.borrow_apr)} borrow APR</span>
+            <span style="color:#8b949e">${e.n_loans ?? "?"} loans</span></span>
+        </div>
+        <div id="mm_mkt"><div class="note">loading…</div></div>`;
+      document.getElementById("mm_back").addEventListener("click", showList);
+      if (!(ctrl in histCache)) {
+        try {
+          histCache[ctrl] = await fetch(`/minthist?m=${ctrl}`)
+            .then(r => r.ok ? r.json() : null);
+        } catch (_) { histCache[ctrl] = null; }
+      }
+      if (expanded !== ctrl) return;
+      const root = document.getElementById("mm_mkt");
+      root.innerHTML = marketHtml(e, histCache[ctrl]);
+      wireMarket(root, e, histCache[ctrl]);
+      root.addEventListener("click", ev => {
+        if (ev.target.closest("a")) return;
+        const s = ev.target.closest(".lm-sec");
+        if (!s || !s.dataset.slug) return;
+        history.replaceState(null, "", `/mint-markets/${ctrl}/${s.dataset.slug}`);
+        document.getElementById("sec-" + s.dataset.slug)
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      if (section) document.getElementById("sec-" + section)
+        ?.scrollIntoView({ block: "start" });
+    }
+
+    document.getElementById("mm_metric").addEventListener("click", ev => {
+      const btn = ev.target.closest("button");
+      if (!btn) return;
+      for (const o of document.querySelectorAll("#mm_metric button"))
+        o.classList.toggle("on", o === btn);
+      window.__mmMetric = btn.dataset.m;
+      render();
+    });
+    document.getElementById("mm_act").addEventListener("click", ev => {
+      const btn = ev.target.closest("button");
+      if (!btn) return;
+      for (const o of document.querySelectorAll("#mm_act button"))
+        o.classList.toggle("on", o === btn);
+      render();
+    });
+    document.getElementById("mm_search").addEventListener("input", render);
+
+    await load();
+    renderTop();
+    if (urlKey && D && D.markets && D.markets[urlKey])
+      showMarket(urlKey, (segs[2] || "").toLowerCase() || null);
+    else render();
+    if (!window.__mmTimer)
+      window.__mmTimer = setInterval(async () => {
+        if (document.getElementById("view_mint").style.display === "none") return;
+        await load();
+        renderTop();
+        if (!expanded) render();
+      }, 15 * 60 * 1000);
+  };
+
+  // ======================= scrvUSD ===========================================
+  window.loadScrvusdTab = async function () {
+    const body = document.getElementById("sv_body");
+    let V = null;
+    try {
+      V = await fetch("/scrvusd_data").then(r => r.ok ? r.json() : null);
+    } catch (_) { /* rendered below */ }
+    if (!V || !V.yield) {
+      body.innerHTML = `<div class="note">dataset not built yet — the refresh
+        cycle runs fetchers/fetch_scrvusd.py</div>`;
+      return;
+    }
+    const y = V.yield;
+    const rev = V.revenue || {};
+    body.innerHTML = `
+      <div style="display:flex; align-items:center; gap:10px; margin:2px 0 12px">
+        <span style="display:inline-flex">${tokImg(
+          "0x0655977feb2f289a4ab78af67bab0d17aab84367", "ethereum", 22)}</span>
+        <b style="font-size:15px">scrvUSD</b>
+        <span style="color:#8b949e; font-size:12px">savings crvUSD ·
+          ${aLink("0x0655977feb2f289a4ab78af67bab0d17aab84367")}</span></div>
+      ${box("daily history", `<div style="display:flex"><span
+        style="margin-left:auto">${rangeSeg}</span></div>
+        <div data-chart="sv"></div>`, "history")}`;
+    // one day axis for every chart: the yield days, from the first day the
+    // vault held $1M — on the launch days (a few $k to $0.5M deposited) the
+    // projected APY reads 99 %, 428 % and 109 % and flattens every later day
+    const i0 = Math.max(0, y.assets.findIndex(a => (a || 0) >= 1e6));
+    for (const k of ["t", "assets", "supply", "apr"])
+      y[k] = y[k].slice(i0);
+    const t = y.t;
+    const dayRev = onDays(t, (rev.daily || {}).t || [], (rev.daily || {}).v || [])
+      .map(v => v ?? 0);
+    let cum = 0;
+    const firstRep = ((rev.reports || [])[0] || {}).t;
+    const cumRev = t.map((x, i) => { cum += dayRev[i];
+      return firstRep && x >= firstRep - 86400 ? cum : null; });
+    const host = body;
+    rangeCharts(host, body.querySelector('[data-chart="sv"]'), t, pick => [
+      ["apr", "scrvUSD APR", [
+        { vals: pick(y.apr), color: "#58a6ff", name: "scrvUSD" }],
+        { pct: true }],
+      ["assets", "crvUSD deposited", [
+        { vals: pick(y.assets), color: "#3FB950", name: "assets" }], { money: true }],
+      ["supply", "scrvUSD supply", [
+        { vals: pick(y.supply), color: "#A78BFA", name: "supply" }], {}],
+      ["cum-revenue", "revenue distributed, cumulative", [
+        { vals: pick(cumRev), color: "#ED7D31", name: "total" }], { money: true }]]);
+    wireHover(body);
+    body.addEventListener("click", ev => {
+      if (ev.target.closest("a")) return;
+      const s = ev.target.closest(".lm-sec");
+      if (!s || !s.dataset.slug) return;
+      history.replaceState(null, "", `/scrvusd/${s.dataset.slug}`);
+      document.getElementById("sec-" + s.dataset.slug)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+})();
+</script>
+
 </body>
 </html>
