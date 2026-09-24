@@ -182,7 +182,7 @@ def usd_filled(r: dict) -> dict:
 
 
 # the market page's charts: key -> decimals kept (None: as stored)
-PAGE_KEYS = {"apr": None, "d": 0, "du": 0, "cu": 0, "su": 0, "p": 2,
+PAGE_KEYS = {"apr": None, "d": 0, "du": 0, "cu": 0, "p": 2,
              "n": None, "b": 0, "ld": None, "qd": None, "mx": None}
 
 

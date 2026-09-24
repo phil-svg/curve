@@ -9456,11 +9456,17 @@ window.loadImplTab = async function loadImplTab() {
   else window.addEventListener("load", idle, { once: true });
 
   // -- charts: one or more series on a shared axis; the first series is the
-  //    main one (gradient fill, end dot, optional 7-day average) -----------
+  //    main one (gradient fill, end dot, optional 7-day average). `overlay`
+  //    ({vals, color, name}) is a very thin line on its own scale,
+  //    unlabelled ------------------------------------------------------------
   let seq = 0;
   const reg = {};
+  const fPrice = (v, hi) => Math.abs(v) >= 1000
+    ? Math.round(v).toLocaleString("en-US")
+    : v.toFixed(Math.abs(hi) < 2 ? 4 : 2);
   function chart(t, series, { pct: isPct = false, money = false,
-      price = false, step = false, avg7 = false, w = 560, h = 195 } = {}) {
+      price = false, step = false, avg7 = false, overlay = null,
+      w = 560, h = 195 } = {}) {
     const idx = [];
     for (let i = 0; i < t.length; i++)
       if (series.some(s => s.vals[i] != null && isFinite(s.vals[i])))
@@ -9480,15 +9486,27 @@ window.loadImplTab = async function loadImplTab() {
     const X = x => L + (x - xs[0]) / (xs[xs.length - 1] - xs[0]) * (W - L - R);
     const Y = y => T + (1 - (y - lo) / (hi - lo)) * (H - T - B);
     const fy = v => isPct ? v.toFixed(Math.abs(hi) < 0.2 ? 3 : 2) + "%"
-      : price ? (money ? "$" : "") + (Math.abs(v) >= 1000
-          ? Math.round(v).toLocaleString("en-US")
-          : v.toFixed(Math.abs(hi) < 2 ? 4 : 2))
+      : price ? (money ? "$" : "") + fPrice(v, hi)
       : money ? (Math.abs(hi) < 1000 ? "$" + v.toFixed(hi - lo < 20 ? 2 : 0)
           : usd(v)) : nfmt(v);
     const span = xs[xs.length - 1] - xs[0];
     const fmtX = ts => { const d = new Date(ts * 1000);
       return span >= 320 * 86400 ? monYr(ts)
         : `${MON[d.getUTCMonth()]} ${d.getUTCDate()}`; };
+    // the overlay's own scale (drawn without axis labels)
+    let O = null;
+    if (overlay) {
+      const ys = idx.map(i => overlay.vals[i] != null && isFinite(overlay.vals[i])
+        ? +overlay.vals[i] : null);
+      const ov = ys.filter(v => v != null);
+      if (ov.length > 1) {
+        let lo2 = Math.min(...ov), hi2 = Math.max(...ov);
+        if (hi2 === lo2) { hi2 += (Math.abs(hi2) || 1) * .05; lo2 -= (Math.abs(lo2) || 1) * .05; }
+        const pad2 = (hi2 - lo2) * 0.08; lo2 -= pad2; hi2 += pad2;
+        O = { ...overlay, ys, lo: lo2, hi: hi2, fy: v => fPrice(v, hi2) };
+      }
+    }
+    const Y2 = y => T + (1 - (y - O.lo) / (O.hi - O.lo)) * (H - T - B);
     let g = "";
     for (let k = 0; k <= 3; k++) {
       const v = lo + (hi - lo) * k / 3;
@@ -9519,6 +9537,14 @@ window.loadImplTab = async function loadImplTab() {
     const lastIdx = s => { for (let i = s.ys.length - 1; i >= 0; i--)
       if (s.ys[i] != null) return i; return -1; };
     let lines = "";
+    if (O) {                          // under the main series
+      const pts = [];
+      O.ys.forEach((v, i) => { if (v != null)
+        pts.push(`${X(xs[i]).toFixed(1)},${Y2(v).toFixed(1)}`); });
+      lines += `<polyline data-overlay fill="none" stroke="${O.color}"
+        stroke-width="0.6" opacity="0.8" stroke-linejoin="round"
+        points="${pts.join(" ")}"/>`;
+    }
     S.forEach((s, k) => {
       for (const p of segs(s.ys)) {
         if (k === 0 && S.length === 1 && !price) {
@@ -9557,7 +9583,7 @@ window.loadImplTab = async function loadImplTab() {
         r="5.5" fill="${main.color}" opacity="0.22"/>
       <circle cx="${X(xs[mi]).toFixed(1)}" cy="${Y(main.ys[mi]).toFixed(1)}"
         r="2.4" fill="${main.color}"/>` : "";
-    reg[gid] = { xs, S, lo, hi, W, H, L, R, T, B, fy };
+    reg[gid] = { xs, S, lo, hi, W, H, L, R, T, B, fy, O };
     return `<svg viewBox="0 0 ${W} ${H}" data-mchart="${gid}"
         style="width:100%; display:block">
       <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
@@ -9569,7 +9595,9 @@ window.loadImplTab = async function loadImplTab() {
         <line data-hvl y1="${T}" y2="${H - B}" stroke="#6e7681"
           stroke-dasharray="2 3"/>
         ${S.map((s, k) => `<circle data-hvc="${k}" r="3.2" fill="${s.color}"
-          stroke="#0d1117" stroke-width="1"/>`).join("")}
+          stroke="#0d1117" stroke-width="1"/>`).join("")}${O
+          ? `<circle data-hvo r="3.2" fill="${O.color}" stroke="#0d1117"
+          stroke-width="1"/>` : ""}
         <rect data-hvr fill="#010409" opacity="0.88" rx="4" height="16"
           y="${T - 12}"/>
         <text data-hvt fill="#e6edf3" font-size="11" text-anchor="middle"
@@ -9605,9 +9633,21 @@ window.loadImplTab = async function loadImplTab() {
         c.setAttribute("cy", d.T + (1 - (s.ys[i] - d.lo) / (d.hi - d.lo))
           * (d.H - d.T - d.B));
       });
+      const oc = g.querySelector("[data-hvo]");
+      if (oc && d.O) {
+        const v = d.O.ys[i];
+        oc.setAttribute("r", v == null ? 0 : 3.2);
+        if (v != null) {
+          oc.setAttribute("cx", x);
+          oc.setAttribute("cy", d.T + (1 - (v - d.O.lo) / (d.O.hi - d.O.lo))
+            * (d.H - d.T - d.B));
+        }
+      }
       const dt = new Date(d.xs[i] * 1000);
-      const vals = d.S.map(s => (d.S.length > 1 ? s.name + " " : "")
-        + (s.ys[i] == null ? "—" : d.fy(s.ys[i]))).join(" · ");
+      const vals = d.S.map(s => (d.S.length > 1 || d.O ? s.name + " " : "")
+        + (s.ys[i] == null ? "—" : d.fy(s.ys[i]))).join(" · ")
+        + (d.O ? ` · ${d.O.name} ${d.O.ys[i] == null ? "—"
+          : d.O.fy(d.O.ys[i])}` : "");
       const label = `${MON[dt.getUTCMonth()]} ${dt.getUTCDate()} '${
         String(dt.getUTCFullYear()).slice(2)} · ${vals}`;
       const tw = label.length * 6.3 + 12;
@@ -9647,9 +9687,12 @@ window.loadImplTab = async function loadImplTab() {
       <button type="button" data-r="m">month</button>
       <button type="button" data-r="w">week</button></span>`;
   const RANGES = { all: Infinity, y: 365, m: 30, w: 7 };
-  // draws `items(pick, T)` into `el` for the chosen range; the seg redraws
+  // draws `items(pick, T)` into `el` for the chosen range; the seg redraws.
+  // Returns a redraw of the current range (for other toggles).
   function rangeCharts(segHost, el, t, items) {
+    let cur = "all";
     const draw = key => {
+      cur = key;
       const days = RANGES[key] ?? Infinity;
       const tEnd = t[t.length - 1];
       const from = days === Infinity ? -Infinity : tEnd - days * 86400;
@@ -9669,6 +9712,7 @@ window.loadImplTab = async function loadImplTab() {
       draw(btn.dataset.r);
     });
     draw("all");
+    return () => draw(cur);
   }
   // align a (t, v) series onto the day axis `t`
   const onDays = (t, st, sv) => {
@@ -9689,6 +9733,7 @@ window.loadImplTab = async function loadImplTab() {
     const urlKey = segs[0] === "mint-markets" && (segs[1] || "").startsWith("0x")
       ? segs[1].toLowerCase() : null;
     let D = null, expanded = null;
+    let overlayOn = false;            // market pages: "overlay price"
     const histCache = {};
     // a market's history + borrowers: one download per market, started as
     // soon as the pointer is on its row (a failed one is retried next time)
@@ -9719,12 +9764,6 @@ window.loadImplTab = async function loadImplTab() {
           <div data-chart="top"></div></div>`;
       if (!s.t || s.t.length < 2) return;
       rangeCharts(top, top.querySelector('[data-chart="top"]'), s.t, pick => [
-        ["btc-price", "BTC price",
-         [{ vals: pick(s.btc_usd || []), color: "#ED7D31", name: "BTC" }],
-         { price: true, money: true }],
-        ["eth-price", "ETH price",
-         [{ vals: pick(s.eth_usd || []), color: "#4DB6AC", name: "ETH" }],
-         { price: true, money: true }],
         ["weighted-rate", "weighted borrow APR",
          [{ vals: pick(s.weighted_apr || []), color: "#58a6ff", name: "APR" }],
          { pct: true }],
@@ -9736,7 +9775,13 @@ window.loadImplTab = async function loadImplTab() {
          { money: true }],
         ["total-dao", "DAO revenue per day",
          [{ vals: pick(s.dao_rev_day), color: "#e3b341", name: "rev" }],
-         { money: true }]]);
+         { money: true }],
+        ["btc-price", "BTC price",
+         [{ vals: pick(s.btc_usd || []), color: "#ED7D31", name: "BTC" }],
+         { price: true, money: true }],
+        ["eth-price", "ETH price",
+         [{ vals: pick(s.eth_usd || []), color: "#4DB6AC", name: "ETH" }],
+         { price: true, money: true }]]);
     }
 
     const METRICS = {
@@ -9879,7 +9924,12 @@ window.loadImplTab = async function loadImplTab() {
             b.as_of ? day(b.as_of) : "?"}</div></details>`;
       const histNote = e.hist_days ? "" : `<div class="note">history not yet available</div>`;
       const charts = hist && hist.t && hist.t.length > 1 ? `
-        <div style="display:flex"><span style="margin-left:auto">${rangeSeg}</span></div>
+        <div style="display:flex; align-items:center; gap:14px">
+          <span style="margin-left:auto; display:inline-flex; align-items:center;
+              gap:6px"><span style="font-size:11px; color:#8b949e">overlay
+            price</span><span class="seg" data-role="overlay"><button
+            type="button"${overlayOn ? ' class="on"' : ""}>${
+            overlayOn ? "on" : "off"}</button></span></span>${rangeSeg}</div>
         <div data-chart="all"></div>` : histNote;
       const params = hist && hist.t && hist.t.length > 1
         ? `<div data-chart="params"></div>` : histNote;
@@ -9905,23 +9955,36 @@ window.loadImplTab = async function loadImplTab() {
         ? hist.du[i] * hist.apr[i] / 100 / 365 : null);
       const used = hist.t.map((_, i) => hist.d[i] != null && hist.b[i] != null
         && hist.d[i] + hist.b[i] > 0 ? 100 * hist.d[i] / (hist.d[i] + hist.b[i]) : null);
-      rangeCharts(root, root.querySelector('[data-chart="all"]'), hist.t, pick => [
+      // "overlay price": the collateral's oracle price on a second axis in
+      // every chart but the price chart itself
+      const ov = pick => overlayOn
+        ? { overlay: { vals: pick(hist.p), color: "#e6edf3", name: "price" } } : {};
+      const redraw = rangeCharts(root, root.querySelector('[data-chart="all"]'),
+        hist.t, pick => [
         ["borrow-apr", "borrow APR", [
           { vals: pick(hist.apr), color: "#58a6ff", name: "APR" }],
-          { pct: true }],
+          { pct: true, ...ov(pick) }],
         ["debt", "debt", [{ vals: pick(hist.du), color: "#A78BFA", name: "debt" }],
-          { money: true }],
+          { money: true, ...ov(pick) }],
         ["collateral", `collateral ${esc(sym)}`, [
-          { vals: pick(hist.cu), color: "#3FB950", name: "coll" }], { money: true }],
-        ["soft-liq", "crvUSD in the bands — collateral converted by soft liquidation", [
-          { vals: pick(hist.su), color: "#4DB6AC", name: "crvUSD" }], { money: true }],
-        ["loans", "open loans", [{ vals: pick(hist.n), color: "#ED7D31", name: "loans" }], {}],
+          { vals: pick(hist.cu), color: "#3FB950", name: "coll" }],
+          { money: true, ...ov(pick) }],
+        ["loans", "open loans", [{ vals: pick(hist.n), color: "#ED7D31", name: "loans" }],
+          { ...ov(pick) }],
         ["ceiling", "debt ceiling used", [
-          { vals: pick(used), color: "#DB61A2", name: "used" }], { pct: true }],
+          { vals: pick(used), color: "#DB61A2", name: "used" }], { pct: true, ...ov(pick) }],
         ["revenue", "DAO revenue per day", [
-          { vals: pick(rev), color: "#e3b341", name: "rev" }], { money: true }],
+          { vals: pick(rev), color: "#e3b341", name: "rev" }], { money: true, ...ov(pick) }],
         ["price", `${esc(sym)} price — oracle`, [
           { vals: pick(hist.p), color: "#F778BA", name: "oracle" }], { price: true }]]);
+      // one button: "off" <-> "on"
+      const obtn = root.querySelector('.seg[data-role="overlay"] button');
+      if (obtn) obtn.addEventListener("click", () => {
+        overlayOn = !overlayOn;
+        obtn.textContent = overlayOn ? "on" : "off";
+        obtn.classList.toggle("on", overlayOn);
+        redraw();
+      });
       const pe = root.querySelector('[data-chart="params"]');
       if (pe) pe.innerHTML = grid([
         ["loan-discount", "loan discount %", hist.ld, "#ED7D31"],
