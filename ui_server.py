@@ -1190,12 +1190,53 @@ def pool_last24(key: str) -> dict | None:
             "at": r["at"]}
 
 
+SIDE_TTL = 600
+_SIDE = {"at": 0.0, "out": {}}
+_LP_REC = {"tag": None, "pools": {}}
+
+
+def lp_record(key: str) -> dict | None:
+    """One pool's record of the pools-tab dataset (name, coins, TVL, tracked
+    holders), for its page. data/lp.json is parsed once per rewrite."""
+    f = HERE / "data" / "lp.json"
+    try:
+        st = f.stat()
+        tag = (st.st_mtime_ns, st.st_size)
+        if _LP_REC["tag"] != tag:
+            _LP_REC.update(tag=tag, pools=json.loads(f.read_text())
+                           .get("pools") or {})
+    except (OSError, ValueError):
+        return None
+    return _LP_REC["pools"].get(key)
+
+
+def lp_tokidx() -> tuple[bytes, str]:
+    """[[SYMBOL, address, chain], ...]: the first pool coin per symbol, in
+    the pools list's order (the order the page used to walk it in), with a
+    tag that changes when data/lp.json is rewritten."""
+    lp_record("")
+    tag = _LP_REC["tag"]
+    if _LP_REC.get("tok_tag") != tag or "tok" not in _LP_REC:
+        seen: dict = {}
+        for p in _LP_REC["pools"].values():
+            for c in p.get("coins") or []:
+                s_, a = c.get("s"), c.get("a")
+                if s_ and a and s_.upper() not in seen:
+                    seen[s_.upper()] = [s_.upper(), a, p.get("chain")]
+        _LP_REC.update(tok_tag=tag, tok=json.dumps(
+            list(seen.values()), separators=(",", ":")).encode())
+    return _LP_REC["tok"], (f"{tag[0]:x}-{tag[1]:x}-t" if tag else "0")
+
+
 def side_metrics() -> dict:
     """List metrics of the pools whose history is read from the chain
     (SIDE_HIST_CHAINS), which no Curve API serves: DAO revenue (fees x
     admin share) of the last complete day and, only where it was summed
     from the pool's own swap events, the volume of that day (the open day
-    when there is no other)."""
+    when there is no other). Kept for SIDE_TTL: every call reads those
+    pools' history files again."""
+    if _SIDE["out"] and time.time() - _SIDE["at"] < SIDE_TTL:
+        return _SIDE["out"]
     out: dict = {}
     for f in POOL_HIST_DIR.glob("*.json"):
         ch, _, a = f.stem.partition("_")
@@ -1224,6 +1265,7 @@ def side_metrics() -> dict:
             m["vol"] = vols[-2] if len(vols) > 1 else vols[-1]
         if m:
             out[f"{ch}:{a}"] = m
+    _SIDE.update(at=time.time(), out=out)
     return out
 
 
@@ -1294,44 +1336,71 @@ def _ph_startup_sweep() -> None:
 # flagged-pools summary for the pools tab and monitoring (5-min memo).
 # Sidechain-archive files carry no upstream gapcheck; they get the two
 # local passes read-only (axis + series holes), marked local_only.
+# A history file's verdict is kept until the file is rewritten (_PG_FILE):
+# a rebuild reads only those, not all ~100 MB of histories every time.
 _PG_MEMO: dict = {"at": 0.0, "data": None}
+_PG_FILE: dict = {}
+_PG_LOCK = threading.Lock()
+
+
+def _pg_verdict(f: Path, ch: str, a: str):
+    """One history file's entry for the summary: (counts as checked, its
+    flagged row or None)."""
+    try:
+        c = json.loads(f.read_text())
+    except (OSError, ValueError):
+        return False, {"chain": ch, "addr": a, "err": "unreadable"}
+    gc = c.get("gapcheck")
+    if gc is None:
+        axis, holes = _gc_axis(c), _gc_holes(c)
+        gc = {"ok": not axis and not holes,
+              "axis_missing": len(axis),
+              "holes": {k: len(v) for k, v in holes.items()},
+              "pct": _gc_pct(c, axis, holes),
+              "confirmed": False, "local_only": True}
+    if gc.get("ok"):
+        return True, None
+    return True, {
+        "chain": ch, "addr": a,
+        "axis_missing": gc.get("axis_missing", 0),
+        "holes": gc.get("holes", {}),
+        "pct": gc.get("pct", 0),
+        "first": gc.get("first"), "last": gc.get("last"),
+        "confirmed": bool(gc.get("confirmed")),
+        "local_only": bool(gc.get("local_only"))}
 
 
 def pool_gaps() -> dict:
     if time.time() - _PG_MEMO["at"] < 300 and _PG_MEMO["data"]:
         return _PG_MEMO["data"]
-    flagged, checked = [], 0
-    for f in sorted(POOL_HIST_DIR.glob("*.json")):
-        ch, _, a = f.stem.partition("_")
-        if not a.startswith("0x"):
-            continue
-        try:
-            c = json.loads(f.read_text())
-        except (OSError, ValueError):
-            flagged.append({"chain": ch, "addr": a, "err": "unreadable"})
-            continue
-        gc = c.get("gapcheck")
-        if gc is None:
-            axis, holes = _gc_axis(c), _gc_holes(c)
-            gc = {"ok": not axis and not holes,
-                  "axis_missing": len(axis),
-                  "holes": {k: len(v) for k, v in holes.items()},
-                  "pct": _gc_pct(c, axis, holes),
-                  "confirmed": False, "local_only": True}
-        checked += 1
-        if not gc.get("ok"):
-            flagged.append({
-                "chain": ch, "addr": a,
-                "axis_missing": gc.get("axis_missing", 0),
-                "holes": gc.get("holes", {}),
-                "pct": gc.get("pct", 0),
-                "first": gc.get("first"), "last": gc.get("last"),
-                "confirmed": bool(gc.get("confirmed")),
-                "local_only": bool(gc.get("local_only"))})
-    out = {"at": int(time.time()), "checked": checked,
-           "n_flagged": len(flagged), "flagged": flagged}
-    _PG_MEMO.update(at=time.time(), data=out)
-    return out
+    with _PG_LOCK:
+        if time.time() - _PG_MEMO["at"] < 300 and _PG_MEMO["data"]:
+            return _PG_MEMO["data"]
+        flagged, checked, live = [], 0, set()
+        for f in sorted(POOL_HIST_DIR.glob("*.json")):
+            ch, _, a = f.stem.partition("_")
+            if not a.startswith("0x"):
+                continue
+            try:
+                st = f.stat()
+                tag = (st.st_mtime_ns, st.st_size)
+            except OSError:
+                tag = None
+            live.add(f.name)
+            memo = _PG_FILE.get(f.name)
+            if memo is None or tag is None or memo[0] != tag:
+                memo = (tag, _pg_verdict(f, ch, a))
+                _PG_FILE[f.name] = memo
+            ok, row = memo[1]
+            checked += ok
+            if row:
+                flagged.append(row)
+        for name in set(_PG_FILE) - live:
+            del _PG_FILE[name]
+        out = {"at": int(time.time()), "checked": checked,
+               "n_flagged": len(flagged), "flagged": flagged}
+        _PG_MEMO.update(at=time.time(), data=out)
+        return out
 
 
 
@@ -1431,6 +1500,25 @@ def _http_json(handler: BaseHTTPRequestHandler, status: int, body: dict):
     handler.send_header("Cache-Control", "no-store")
     handler.end_headers()
     handler.wfile.write(payload)
+
+
+def _http_tagged(handler: BaseHTTPRequestHandler, body: bytes, tag: str,
+                 ctype: str = "application/json") -> None:
+    """A body built in memory, revalidated like a stored file (_http_file):
+    a browser holding the copy with this tag gets a 304."""
+    if tag in (handler.headers.get("If-None-Match") or ""):
+        handler.send_response(304)
+        handler.send_header("ETag", f'"{tag}"')
+        handler.send_header("Cache-Control", "no-cache")
+        handler.end_headers()
+        return
+    handler.send_response(200)
+    handler.send_header("Content-Type", ctype)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("ETag", f'"{tag}"')
+    handler.send_header("Cache-Control", "no-cache")
+    handler.end_headers()
+    handler.wfile.write(body)
 
 
 def _http_file(handler: BaseHTTPRequestHandler, f: Path,
@@ -2268,8 +2356,10 @@ class Handler(BaseHTTPRequestHandler):
         # reads them. /map/* stays with the bundle handler below.
         head = seg.split("/")[0]
         wants_page = "text/html" in (self.headers.get("Accept") or "")
+        # (the Map tab's own link is exactly /map; /map/... is its bundle)
         if self.path.split("?")[0] in ("/", "/index.html") or (
-                head in self.TAB_PATHS and head != "map" and wants_page):
+                head in self.TAB_PATHS and wants_page
+                and (head != "map" or self.path.split("?")[0] == "/map")):
             _http_file(self, INDEX_HTML, "text/html; charset=utf-8")
             return
         if self.path.startswith("/nlapi/"):
@@ -2420,11 +2510,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/markets":
             # Snapshot written by fetch_markets.py; the server refreshes it
-            # hourly (see _refresher) and the write is atomic.
+            # hourly (see _refresher) and the write is atomic. As stored,
+            # with an ETag: every page asks for it.
             if not MARKETS_FILE.exists():
                 _http_json(self, 404, {"error": "run fetchers/fetch_markets.py first"})
                 return
-            _http_json(self, 200, json.loads(MARKETS_FILE.read_text()))
+            _http_file(self, MARKETS_FILE)
             return
         if self.path == "/oracles":
             # Oracle-graph snapshot from fetch_oracles.py (not auto-refreshed:
@@ -2433,7 +2524,12 @@ class Handler(BaseHTTPRequestHandler):
             if not f.exists():
                 _http_json(self, 404, {"error": "run fetchers/fetch_oracles.py first"})
                 return
-            _http_json(self, 200, json.loads(f.read_text()))
+            _http_file(self, f)
+            return
+        if self.path == "/tokidx":
+            # token symbol -> address and chain for the logos, from the pools
+            # list's coins: what every tab needs of that 1.3 MB file
+            _http_tagged(self, *lp_tokidx())
             return
         if self.path.startswith("/poolgaps"):
             # gap triple-check summary: every cached pool's verdict,
@@ -2474,6 +2570,12 @@ class Handler(BaseHTTPRequestHandler):
             d24 = pool_last24(f"{ch}:{pa}")
             if d24:
                 h = {**h, "d24": d24}
+            # the pool's record of the pools list (name, coins, TVL,
+            # holders): a direct link draws from this one call, without
+            # waiting for the whole list
+            rec = lp_record(f"{ch}:{pa}")
+            if rec:
+                h = {**h, "lp": rec}
             # EMA-time parameters exist only on-chain (the prices API has
             # no field for them) — the impl-map cycle probes them
             try:

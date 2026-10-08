@@ -4,9 +4,52 @@
 <meta charset="utf-8">
 <title>Curve-Sim</title>
 <script>
-// Mint Markets / scrvUSD links: their data starts downloading here, before
-// the rest of this large page is parsed and before the other tabs' startup
-// requests; the tab code takes the promise over from window.__pre.
+// One download per file. Several parts of this page ask for the same files
+// at start (the markets snapshot up to three times over); a caller within
+// RE_MS of the first shares its download and parses its own copy. A link's
+// own tab data starts downloading here too, before the rest of this large
+// page is parsed.
+(() => {
+  const dl = {}, RE_MS = 8000;
+  const one = u => {
+    const e = dl[u];
+    if (e && Date.now() - e.at < RE_MS) return e.p;
+    const p = fetch(u).then(async r => ({ ok: r.ok, t: await r.text() }));
+    const drop = () => { if (dl[u] && dl[u].p === p) delete dl[u]; };
+    dl[u] = { at: Date.now(), p };
+    p.then(() => setTimeout(drop, RE_MS), drop);
+    return p;
+  };
+  // as fetch(u).then(r => r.json()): parsed whatever the status
+  window.__json = u => one(u).then(x => JSON.parse(x.t));
+  // as fetch(u).then(r => r.ok ? r.json() : null).catch(() => null)
+  window.__jsonOk = u => one(u).then(x => x.ok ? JSON.parse(x.t) : null)
+    .catch(() => null);
+  // fn runs once the tab `view` is the one shown: now, or when it is opened
+  window.__viewQ = {};
+  window.__whenView = (view, fn) => {
+    const on = document.querySelector(".tab.on");
+    if (on && on.dataset.view === view) fn();
+    else (window.__viewQ[view] = window.__viewQ[view] || []).push(fn);
+  };
+
+  const seg0 = location.pathname.toLowerCase().split("/").filter(Boolean);
+  const TAB = {
+    "bad-debt": ["/baddebt", "/lenders"],
+    "sldl": ["/sldl"], "s.l.-d.l.": ["/sldl"],
+    "pegkeeper": ["/pegkeeper"],
+    "lending-markets": ["/llm", "/oracles", "/lp", "/baddebt"],
+    "dao-revenue": ["/dao_revenue"],
+    "implementations": ["/impl_index"], "impl": ["/impl_index"] };
+  // every tab: the token logos' index and the markets snapshot
+  for (const u of ["/markets", "/tokidx", ...(TAB[seg0[0]] || [])]) one(u);
+  if (seg0[0] === "lending-markets" && seg0[1]
+      && (seg0[2] || "").startsWith("0x"))
+    one("/llmhist?m=" + seg0[1] + ":" + seg0[2]);
+})();
+// Mint Markets / scrvUSD / Pools links: their data starts downloading here,
+// before the rest of this large page is parsed and before the other tabs'
+// startup requests; the tab code takes the promise over from window.__pre.
 (() => {
   const pre = window.__pre = {};
   const get = u => { pre[u] = { at: Date.now(), p: fetch(u)
@@ -16,6 +59,11 @@
     get("/mint");
     if (/^0x[0-9a-f]{40}$/.test(seg[1] || "")) get("/minthist?m=" + seg[1]);
   } else if (seg[0] === "scrvusd") get("/scrvusd_data");
+  else if (seg[0] === "pools" || seg[0] === "lp") {
+    if (seg[1] && (seg[2] || "").startsWith("0x"))
+      get("/poolhist?m=" + seg[1] + ":" + seg[2]);
+    else { get("/lp"); get("/rev24"); get("/sidemetrics"); }
+  }
 })();
 </script>
 <!-- Favicon: the LLAMMA llama standing on the green-to-red soft-liquidation
@@ -1354,7 +1402,7 @@ let venueSeries = null;      // the picked market's venue series (kept while a d
 // rides along (see oraclePath). key -> {label, meta}.
 const PAIRED_SRC = {};
 const pairedSrc = () => PAIRED_SRC[document.getElementById("replay_src").value] || null;
-fetch("/sldl_sources").then(r => r.json()).then(j => {
+window.__json("/sldl_sources").then(j => {
   const sel = document.getElementById("replay_src");
   for (const s of (j.sources || [])) {
     if (!s.meta || s.meta.format !== "llamma-v2-paired-f64-v1") continue;
@@ -3772,16 +3820,20 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
   }
   ver.addEventListener("change", refill);
   list.addEventListener("change", apply);
-  fetch("/markets").then(r => r.json()).then(j => {
+  window.__json("/markets").then(j => {
     if (j && j.groups) {
       data = j; refill();
-      // land on a real market instead of an empty form: LLV1 reUSD
-      const sel = document.getElementById("mkt_list");
-      if (!sel.value) {
-        const opt = [...sel.options].find(o => /reUSD/i.test(o.textContent));
-        if (opt) { sel.value = opt.value;
-          sel.dispatchEvent(new Event("change")); }
-      }
+      // land on a real market instead of an empty form: LLV1 reUSD. Done
+      // when this tab is the one shown — the selection asks the server for
+      // the debt caps and the crash window, which no other tab needs.
+      window.__whenView("sim", () => {
+        const sel = document.getElementById("mkt_list");
+        if (!sel.value) {
+          const opt = [...sel.options].find(o => /reUSD/i.test(o.textContent));
+          if (opt) { sel.value = opt.value;
+            sel.dispatchEvent(new Event("change")); }
+        }
+      });
     }
     else note.textContent = "no snapshot — run fetch_markets.py";
   }).catch(() => { note.textContent = "no snapshot — run fetch_markets.py"; });
@@ -3879,6 +3931,7 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
         $("view_" + v).style.display = t.dataset.view === v ? "" : "none";
       document.documentElement.classList.toggle("at-home",
         t.dataset.view === "home");
+      for (const f of (window.__viewQ[t.dataset.view] || []).splice(0)) f();
       if (t.dataset.view === "daorev" && typeof loadDaoRevTab === "function"
           && !window.__drLoaded) { window.__drLoaded = true; loadDaoRevTab(); }
       if (t.dataset.view === "baddebt" && typeof loadBadDebtTab === "function"
@@ -4032,18 +4085,16 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
     + tokImg(m.borrowed && m.borrowed.addr, m.chain, size);
   window.__tokReady = (async () => {
     try {
-      const [mk, lp] = await Promise.all([
-        fetch("/markets").then(r => r.json()).catch(() => null),
-        fetch("/lp").then(r => r.json()).catch(() => null)]);
+      const [mk, tk] = await Promise.all([
+        window.__jsonOk("/markets"), window.__jsonOk("/tokidx")]);
       for (const lst of Object.values((mk && mk.groups) || {}))
         for (const m of lst)
           for (const t of [m.collateral, m.borrowed])
             if (t && t.symbol && t.addr && !window.__tokIdx[t.symbol.toUpperCase()])
               window.__tokIdx[t.symbol.toUpperCase()] = { addr: t.addr, chain: m.chain };
-      for (const p of Object.values((lp && lp.pools) || {}))
-        for (const c of (p.coins || []))
-          if (c.s && c.a && !window.__tokIdx[c.s.toUpperCase()])
-            window.__tokIdx[c.s.toUpperCase()] = { addr: c.a, chain: p.chain };
+      // the pools list's coins, first pool per symbol (/tokidx)
+      for (const [sym, addr, chain] of tk || [])
+        if (!window.__tokIdx[sym]) window.__tokIdx[sym] = { addr, chain };
     } catch (_) {}
   })();
 
@@ -4656,7 +4707,7 @@ document.getElementById("crash_mode").addEventListener("change", () => {
 });
 
 installArrows();
-loadOnchain();
+window.__whenView("sim", loadOnchain);
 
 for (const id of Object.keys(HOVER_GEOM)) attachHover(id);
 // Click-away closes any open health-bar explainer.
@@ -4729,7 +4780,7 @@ window.loadDaoRevTab = async function () {
     let d;
     if (drCache) { d = drCache; }
     else {
-      try { d = await fetch("/dao_revenue").then(r => r.json()); }
+      try { d = await window.__json("/dao_revenue"); }
       catch (e) { note.textContent = "failed to load: " + e; return; }
       drCache = d;
     }
@@ -5237,9 +5288,9 @@ window.loadBadDebtTab = async function () {
     let bd, mkts, lend;
     try {
       [bd, mkts, lend] = await Promise.all([
-        fetch("/baddebt").then(r => r.json()),
-        fetch("/markets").then(r => r.json()).catch(() => null),
-        fetch("/lenders").then(r => r.json()).catch(() => null),
+        window.__json("/baddebt"),
+        window.__json("/markets").catch(() => null),
+        window.__json("/lenders").catch(() => null),
       ]);
     } catch (e) { note.textContent = "failed to load: " + e; return; }
     if (!bd || !bd.markets) {
@@ -5470,7 +5521,7 @@ window.loadSldlTab = async function loadSldlTab() {
         mdl.value === "v2" ? 3603 : 1200;
     }
   }
-  fetch("/sldl_sources").then(r => r.json()).then(j => {
+  window.__json("/sldl_sources").then(j => {
     window.__sldlSources = j;      // full payload for the local wasm runner
     const src = document.getElementById("sldl_src");
     const cur = src.value;
@@ -5741,7 +5792,7 @@ window.loadSldlTab = async function loadSldlTab() {
   });
 
   try {
-    const d = await fetch("/sldl").then(r => r.json());
+    const d = await window.__json("/sldl");
     if (d.error) throw new Error(d.error);
     renderTable(d);
   } catch (e) {
@@ -6157,7 +6208,7 @@ window.loadPegkeeperTab = async function loadPegkeeperTab() {
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const usd = v => v == null ? "—" : "$" + Math.round(v).toLocaleString();
   try {
-    const d = await fetch("/pegkeeper").then(r => r.json());
+    const d = await window.__json("/pegkeeper");
     if (d.error) throw new Error(d.error);
     const ks = (d.keepers || []).slice()
       .sort((a, b) => (b.active - a.active)
@@ -6267,15 +6318,13 @@ window.loadLlmTab = async function () {
 
   let llm = null, mkts = null, oras = null, lps = null, bds = null;
   const histCache = {};
+  const histPre = {};       // a market link's history, in flight
   let expanded = null;
 
   async function loadAll() {
-    [llm, mkts, oras, lps, bds] = await Promise.all([
-      fetch("/llm").then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch("/markets").then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch("/oracles").then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch("/lp").then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch("/baddebt").then(r => r.ok ? r.json() : null).catch(() => null)]);
+    [llm, mkts, oras, lps, bds] = await Promise.all(
+      ["/llm", "/markets", "/oracles", "/lp", "/baddebt"]
+        .map(u => window.__jsonOk(u)));
   }
   const mktByKey = () => {
     const out = {};
@@ -7185,9 +7234,10 @@ window.loadLlmTab = async function () {
     document.getElementById("lm_back").addEventListener("click", showList);
     if (!(key in histCache) && e.hist_days) {
       try {
-        histCache[key] = await fetch(`/llmhist?m=${key}`)
-          .then(r => r.ok ? r.json() : null);
+        histCache[key] = await (histPre[key] || fetch(`/llmhist?m=${key}`)
+          .then(r => r.ok ? r.json() : null));
       } catch (_) { histCache[key] = null; }
+      delete histPre[key];
     }
     if (expanded !== key) return;       // user navigated away meanwhile
     const root = document.getElementById("lm_mkt");
@@ -7397,6 +7447,9 @@ window.loadLlmTab = async function () {
   const urlKey = (segs[0] === "lending-markets" || segs[0] === "llm")
       && segs[1] && segs[2]
     ? `${segs[1].toLowerCase()}:${segs[2].toLowerCase()}` : null;
+  // (the page head started it; without that it starts here, still next to
+  // the tab's files instead of after them)
+  if (urlKey) histPre[urlKey] = window.__jsonOk(`/llmhist?m=${urlKey}`);
   await loadAll();
   if (urlKey && llm && llm.markets && llm.markets[urlKey])
     showMarket(urlKey, (segs[3] || "").toLowerCase() || null);
@@ -7416,18 +7469,27 @@ window.loadLlmTab = async function () {
 window.loadLpTab = async function () {
   const note = document.getElementById("lp_note");
   const body = document.getElementById("lp_body");
-  // deep-link fast path: start the history fetch NOW, in parallel with
-  // /lp, so a direct /pools/<chain>/<addr> URL renders in one round-trip
+  // a download the page head already started for this link (it resolves
+  // to null when it failed); taken over once, while it is fresh
+  const preTake = u => {
+    const e = window.__pre && window.__pre[u];
+    if (!e) return null;
+    delete window.__pre[u];
+    return Date.now() - e.at < 60_000 ? e.p : null;
+  };
+  const phGet = k => preTake(`/poolhist?m=${k}`) || fetch(`/poolhist?m=${k}`)
+    .then(r => r.ok ? r.json() : null).catch(() => null);
+  // a pool's history by "chain:addr", in flight or just arrived: a direct
+  // /pools/<chain>/<addr> link (one round trip, the page's only wait) and
+  // the row under the pointer in the list
   const phPre = {};
-  {
+  const deepKey = (() => {
     const segs = location.pathname.split("/").filter(Boolean);
-    if ((segs[0] === "pools" || segs[0] === "lp")
-        && segs[1] && (segs[2] || "").startsWith("0x")) {
-      const k = `${segs[1].toLowerCase()}:${segs[2].toLowerCase()}`;
-      phPre[k] = fetch(`/poolhist?m=${k}`)
-        .then(r => r.ok ? r.json() : null).catch(() => null);
-    }
-  }
+    return (segs[0] === "pools" || segs[0] === "lp")
+        && segs[1] && (segs[2] || "").startsWith("0x")
+      ? `${segs[1].toLowerCase()}:${segs[2].toLowerCase()}` : null;
+  })();
+  if (deepKey) phPre[deepKey] = phGet(deepKey);
   // gap triple-check verdicts (server-side: axis / series-holes /
   // upstream-confirm) — flagged pools get a badge in the list
   let gapFlags = null;
@@ -7445,6 +7507,7 @@ window.loadLpTab = async function () {
        (p.chain || "ethereum") === "ethereum" ? "assets"
          : "assets-" + esc(p.chain)}/${esc(c.a)}.png"
        title="${esc(c.s)}" onerror="this.style.display='none'"
+       loading="lazy" decoding="async" width="22" height="22"
        style="width:22px; height:22px; border-radius:50%;
               border:1.5px solid #161b22; background:#0d1117;
               margin-left:${i ? -6 : 0}px; vertical-align:middle">`)
@@ -7550,70 +7613,6 @@ window.loadLpTab = async function () {
   }
 
   let lpCache = null;
-  // pool -> the lending markets that use it, and HOW: as the pool their
-  // price oracle reads (oracles.json chains), as the exit-liquidity venue
-  // (biggest collateral pool, markets.json), or both
-  let lpAssoc = null;       // Map "chain:pool" -> [{g,label,tvl,ctrl,amm,chain,oracle,exit}]
-  Promise.all([fetch("/markets").then(r => r.json()),
-               fetch("/oracles").then(r => r.json()).catch(() => null),
-               fetch("/llm").then(r => r.ok ? r.json() : null)
-                 .catch(() => null)])
-    .then(([mk, oc, lm]) => {
-      const byCtrl = {}, assoc = new Map();
-      for (const [g, lst] of Object.entries(mk.groups || {}))
-        for (const m of lst)
-          byCtrl[`${m.chain}:${m.controller.toLowerCase()}`] = { g,
-            label: `${m.collateral.symbol}/${m.borrowed.symbol}`,
-            tvl: m.market_tvl_usd || 0, amm: (m.amm || "").toLowerCase(),
-            ctrl: m.controller.toLowerCase(), chain: m.chain,
-            venue: m.venue && m.venue.pool
-              ? m.venue.pool.toLowerCase() : null };
-      const touch = (poolKey, ck, kind) => {
-        const meta = byCtrl[ck];
-        if (!meta) return;
-        let lst = assoc.get(poolKey);
-        if (!lst) assoc.set(poolKey, lst = []);
-        let e = lst.find(x => x.ctrl === meta.ctrl);
-        if (!e) lst.push(e = { ...meta, oracle: false, exit: false });
-        e[kind] = true;
-      };
-      for (const [ck, meta] of Object.entries(byCtrl))
-        if (meta.venue)
-          touch(`${meta.chain}:${meta.venue}`, ck, "exit");
-      // full exit-liquidity set (census pools >= $50k holding the
-      // collateral or its underlying — same list the market pages show)
-      for (const [ck, e] of Object.entries((lm && lm.markets) || {})) {
-        const chain = ck.split(":")[0];
-        for (const xp of (e.exit_pools || []))
-          touch(`${chain}:${xp.a}`, ck, "exit");
-      }
-      for (const [ck, m] of Object.entries((oc && oc.markets) || {}))
-        for (const [na, n] of Object.entries(m.nodes || {}))
-          if (n.type === "pool")
-            touch(`${m.chain}:${na.toLowerCase()}`, ck, "oracle");
-      lpAssoc = assoc;
-      render(false);
-    }).catch(() => {});
-  const lpType = () =>
-    document.querySelector("#lp_type .on")?.dataset.t || "both";
-  function kindOk(e, t) {
-    return t === "oracle" ? e.oracle : t === "exit" ? e.exit
-      : (e.oracle || e.exit);
-  }
-  // the associations that pass the current version + role selectors
-  function poolAssoc(p) {
-    if (!lpAssoc) return [];
-    const f = document.querySelector("#lp_filter .on")?.dataset.f || "";
-    const t = lpType();
-    return (lpAssoc.get(`${p.chain}:${p.pool}`) || []).filter(e =>
-      kindOk(e, t)
-      && (f === "" || f === "mkts" || e.g.toLowerCase().endsWith(f)));
-  }
-  function segShow(p) {
-    const f = document.querySelector("#lp_filter .on")?.dataset.f || "";
-    if (!f || !lpAssoc) return true;
-    return poolAssoc(p).length > 0;
-  }
   function lpQuery() {
     return (document.getElementById("lp_search").value || "")
       .trim().toLowerCase();
@@ -7713,9 +7712,16 @@ window.loadLpTab = async function () {
 
   async function render(refetch = true) {
     let d = lpCache;
+    // the revenue the list ranks by downloads next to the list itself,
+    // not after it
+    if ((window.__lpMetric || "rev") === "rev" && !window.__lpRevs)
+      ensureMetric("rev");
     if (refetch || !d) {
-      try { d = await fetch("/lp").then(r => r.json()); lpCache = d; }
-      catch (e) { note.style.display = ""; 
+      try {
+        const pre = preTake("/lp");
+        d = (pre && await pre) || await fetch("/lp").then(r => r.json());
+        lpCache = d;
+      } catch (e) { note.style.display = "";
         note.textContent = "failed to load: " + e; return; }
     }
     if (!d || !d.pools) {
@@ -7796,17 +7802,25 @@ window.loadLpTab = async function () {
   // pools on chains no Curve API covers: their list metrics come from the
   // history the server reads from the chain (/sidemetrics), never over an
   // API value
+  const sideGet = () => window.__lpSide || (window.__lpSide =
+    (async () => {
+      const pre = preTake("/sidemetrics");
+      return (pre && await pre)
+        || await fetch("/sidemetrics").then(r => r.json());
+    })().catch(e => { window.__lpSide = null; throw e; }));
   async function sideInto(map, key) {
     try {
-      window.__lpSide = window.__lpSide
-        || await fetch("/sidemetrics").then(r => r.json());
-      for (const [k, v] of Object.entries(window.__lpSide))
+      for (const [k, v] of Object.entries(await sideGet()))
         if (map[k] == null && v[key] != null) map[k] = v[key];
     } catch (_) { /* those rows keep their dash */ }
   }
-  async function ensureMetric(m) {
-    if (m === "vol" && !window.__lpVols && lpCache && !ensureMetric.busy) {
-      ensureMetric.busy = true;
+  // one download per metric at a time: a second caller waits for the one
+  // in flight instead of drawing the list without its numbers
+  const metricRun = {};
+  const ensureMetric = m => metricRun[m]
+    || (metricRun[m] = loadMetric(m).finally(() => { delete metricRun[m]; }));
+  async function loadMetric(m) {
+    if (m === "vol" && !window.__lpVols && lpCache) {
       const vols = {};
       let ok = false;
       const chains = [...new Set(Object.values(lpCache.pools)
@@ -7821,18 +7835,18 @@ window.loadLpTab = async function () {
         } catch (_) { /* chain without volume data */ }
       }));
       await sideInto(vols, "vol");
-      ensureMetric.busy = false;
       if (ok) window.__lpVols = vols;
     }
-    if (m === "rev" && !window.__lpRevs && !ensureMetric.busy) {
-      ensureMetric.busy = true;
+    if (m === "rev" && !window.__lpRevs) {
       try {
-        const j = await fetch("/rev24").then(r => r.json());
+        sideGet().catch(() => {});       // in flight next to /rev24
+        const pre = preTake("/rev24");
+        const j = (pre && await pre)
+          || await fetch("/rev24").then(r => r.json());
         const revs = { ...(j.pools || {}) };
         await sideInto(revs, "rev");
         window.__lpRevs = revs;
       } catch (_) { /* keep dashes, retried on the next render */ }
-      ensureMetric.busy = false;
     }
   }
   document.querySelectorAll("#lp_metric button").forEach(b =>
@@ -8153,7 +8167,7 @@ window.loadLpTab = async function () {
     history.replaceState(null, "", `/pools/${ch}/${addr}`);
     document.getElementById("lp_controls").style.display = "none";
     note.style.display = "none";
-    const p = lpCache && lpCache.pools && lpCache.pools[`${ch}:${addr}`];
+    let p = lpCache && lpCache.pools && lpCache.pools[`${ch}:${addr}`];
     const label = p ? p.label : addr.slice(0, 10) + "…";
     const scan = P_SCAN[ch] || "https://etherscan.io";
     body.innerHTML = `
@@ -8161,14 +8175,15 @@ window.loadLpTab = async function () {
           margin:2px 0 12px">
         <a id="lp_back" style="cursor:pointer; color:#58a6ff;
           font-size:12.5px">← all pools</a>
-        <span style="display:inline-flex; align-items:center; flex:none">
+        <span id="lp_pool_ic"
+          style="display:inline-flex; align-items:center; flex:none">
           ${p ? coinIcons(p) : ""}</span>
-        <b style="font-size:15px">${esc(label)}</b>
+        <b id="lp_pool_name" style="font-size:15px">${esc(label)}</b>
         <span style="color:#8b949e; font-size:12px">${esc(ch)}</span>
         <a href="${scan}/address/${esc(addr)}" target="_blank" rel="noopener"
           style="font-family:ui-monospace,monospace; font-size:11.5px">${
           addr.slice(0, 8)}…${addr.slice(-4)}</a>
-        <span style="margin-left:auto; font-size:12.5px">${
+        <span id="lp_pool_tvl" style="margin-left:auto; font-size:12.5px">${
           p ? usd(p.tvl) + " TVL" : ""}</span>
       </div>
       <div id="lp_pool_body"><div class="note">loading…</div></div>`;
@@ -8176,12 +8191,20 @@ window.loadLpTab = async function () {
 
     // one server call: 2y of daily history, joined + cached server-side
     // (a deep link already has this in flight — see phPre above)
-    const H = await (phPre[`${ch}:${addr}`]
-      || fetch(`/poolhist?m=${ch}:${addr}`)
-        .then(r => r.ok ? r.json() : null).catch(() => null));
+    const H = await (phPre[`${ch}:${addr}`] || phGet(`${ch}:${addr}`));
     delete phPre[`${ch}:${addr}`];
     const root = document.getElementById("lp_pool_body");
-    if (!root) return;                       // user navigated away
+    // the user navigated away, or opened another pool meanwhile
+    if (!root || lpOpen !== `${ch}:${addr}`) return;
+    if (!p && H && H.lp) {
+      // a direct link: the list is not here yet, the pool's own record
+      // came with its history
+      p = H.lp;
+      document.getElementById("lp_pool_ic").innerHTML = coinIcons(p);
+      document.getElementById("lp_pool_name").textContent = p.label;
+      document.getElementById("lp_pool_tvl").textContent =
+        usd(p.tvl) + " TVL";
+    }
     if (!H || H.error || !(H.t || []).length) {
       // the history API covers a fixed chain set — say so instead of
       // implying the pool itself is at fault
@@ -8612,16 +8635,31 @@ window.loadLpTab = async function () {
     }
   });
 
+  // the row the pointer rests on starts its history download, so the click
+  // that follows draws at once (a pointer only passing over starts none)
+  let hovT = null;
+  body.addEventListener("mouseover", e => {
+    const op = e.target.closest(".lp-pool-open");
+    const k = op && op.dataset.k;
+    clearTimeout(hovT);
+    if (!k || phPre[k]) return;
+    hovT = setTimeout(() => {
+      for (const o of Object.keys(phPre)) delete phPre[o];   // keep one
+      phPre[k] = phGet(k);
+    }, 80);
+  });
+
   const render0 = render;
   render = (...a) => { if (!lpOpen) return render0(...a); };
-  await render();
-  // deep link: /pools/<chain>/<address> opens the pool page directly
-  {
-    const segs = location.pathname.split("/").filter(Boolean);
-    if ((segs[0] === "pools" || segs[0] === "lp")
-        && segs[1] && (segs[2] || "").startsWith("0x"))
-      showPool(segs[1].toLowerCase(), segs[2].toLowerCase());
-  }
+  // deep link: /pools/<chain>/<address> opens the pool page directly, from
+  // its history call alone; the list (for "← all pools") loads behind it
+  if (deepKey) {
+    const [ch, a] = deepKey.split(":");
+    showPool(ch, a);
+    fetch("/lp").then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && d.pools && !lpCache) lpCache = d; })
+      .catch(() => {});
+  } else await render();
   setInterval(render, 300_000);
 };
 
@@ -9173,7 +9211,7 @@ window.loadImplTab = async function loadImplTab() {
           f: "pegkeeper/src/pegkeeper.hpp" }] }];
 
   let idx = { markets: [], pools: [], tokens: {}, pegkeepers: [], yb: {} };
-  try { idx = await fetch("/impl_index").then(r => r.json()); }
+  try { idx = await window.__json("/impl_index"); }
   catch (e) { /* search degrades, taxonomy still renders */ }
   // a two-coin pool whose MATH runs the stableswap curve is an fxswap pool
   for (const p of idx.pools || [])
