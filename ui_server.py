@@ -3201,6 +3201,10 @@ def main():
     # fetchers spawned by the refresh cycle reach back into this server
     # (px fallback) — tell them which port it is
     os.environ["CURVE_SIM_PORT"] = str(args.port)
+    # A page asks for ten or more files at once and the proxy in front opens
+    # one connection per request. The default accept queue holds 5: the
+    # kernel dropped the rest, and each of those waited out a 1 s retry.
+    ThreadingHTTPServer.request_queue_size = 128
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"[ui] serving  http://{args.host}:{args.port}/")
     print(f"[ui] scratch  {SCRATCH}")
