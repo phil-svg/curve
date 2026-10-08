@@ -1100,7 +1100,7 @@ def _ph_open_day(chain: str, addr: str, h: dict) -> dict:
 REV24_TTL = 600
 REV24_STALE = 3600
 REV24_ADMIN_TTL = 3600
-_REV24 = {"at": 0.0, "pools": {}}
+_REV24 = {"at": 0.0, "pools": {}, "fees": {}, "vol": {}}
 _REV24_ADMIN = {"at": 0.0, "share": {}}
 _REV24_LOCK = threading.Lock()
 
@@ -1150,7 +1150,8 @@ def pool_rev24(wait: bool = False) -> dict:
 
         def listing(ch):
             try:
-                return ch, {p["address"].lower(): p.get("trading_fee_24h")
+                return ch, {p["address"].lower(): (p.get("trading_fee_24h"),
+                                                   p.get("trading_volume_24h"))
                             for p in _ph_get(f"/chains/{ch}", timeout=8)
                             .get("data") or []}
             except Exception:
@@ -1158,19 +1159,35 @@ def pool_rev24(wait: bool = False) -> dict:
 
         from concurrent.futures import ThreadPoolExecutor as _TPE
         with _TPE(max(1, len(chains))) as ex:
-            fees = dict(ex.map(listing, chains))
-        pools = {}
+            day = dict(ex.map(listing, chains))
+        pools, fees, vol = {}, {}, {}
         for k, s in share.items():
             ch, a = k.split(":")
-            if fees.get(ch) is None:
+            if day.get(ch) is None:
                 # the chain did not answer: its pools keep their last value
-                if k in _REV24["pools"]:
-                    pools[k] = _REV24["pools"][k]
-            elif fees[ch].get(a) is not None:
-                pools[k] = fees[ch][a] * s
+                for new, old in ((pools, "pools"), (fees, "fees"),
+                                 (vol, "vol")):
+                    if k in _REV24[old]:
+                        new[k] = _REV24[old][k]
+                continue
+            f24, v24 = day[ch].get(a) or (None, None)
+            if f24 is not None:
+                pools[k], fees[k] = f24 * s, f24
+            if v24 is not None:
+                vol[k] = v24
         if pools:
-            _REV24.update(at=time.time(), pools=pools)
+            _REV24.update(at=time.time(), pools=pools, fees=fees, vol=vol)
         return _REV24
+
+
+def pool_last24(key: str) -> dict | None:
+    """One pool's trading fees and volume of the last 24 hours (the same
+    rolling figures the pools list ranks by), for its page."""
+    r = pool_rev24()
+    if key not in r["fees"] and key not in r["vol"]:
+        return None
+    return {"fees": r["fees"].get(key), "vol": r["vol"].get(key),
+            "at": r["at"]}
 
 
 def side_metrics() -> dict:
@@ -2438,7 +2455,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/rev24":
             # pools list: DAO revenue of the last 24 hours, per pool
-            _http_json(self, 200, pool_rev24())
+            r24 = pool_rev24()
+            _http_json(self, 200, {"at": r24["at"], "pools": r24["pools"]})
             return
         if self.path.startswith("/poolhist"):
             # 2y daily pool history, cached server-side — ?m=chain:0xpool
@@ -2451,6 +2469,11 @@ class Handler(BaseHTTPRequestHandler):
                 _http_json(self, 400, {"error": "bad ?m="})
                 return
             h = pool_hist(ch, pa)
+            # the last 24 hours, rolling: the page's newest value in the
+            # fee / revenue / volume charts (the open day alone is partial)
+            d24 = pool_last24(f"{ch}:{pa}")
+            if d24:
+                h = {**h, "d24": d24}
             # EMA-time parameters exist only on-chain (the prices API has
             # no field for them) — the impl-map cycle probes them
             try:

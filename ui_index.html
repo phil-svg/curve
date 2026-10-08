@@ -7902,15 +7902,23 @@ window.loadLpTab = async function () {
   const pReg = {};
   // same chart as the lending-market pages: gradient area, month x-axis,
   // hover crosshair, optional 7d average / step mode
+  // l24: the value over the last 24 hours, rolling. It stands in for the
+  // open day's own point (a day a few hours old read as a slow day, in
+  // the line, the label and the 7d average alike).
   function pSpark(t, vals, { pct = false, money = false, price = false,
       color = "#58a6ff", avg7 = false, step = false,
-      extra = null, names = null,
+      extra = null, names = null, l24 = null,
       w = 560, h = 190 } = {}) {
     const xs = [], ys = [], es = [];
     for (let i = 0; i < t.length; i++)
       if (vals[i] != null && isFinite(vals[i])) { xs.push(t[i]); ys.push(+vals[i]);
         es.push(extra && extra.vals[i] != null && isFinite(extra.vals[i])
           ? +extra.vals[i] : null); }
+    const has24 = l24 != null && isFinite(l24);
+    const openDay = xs.length > 0 && Math.floor(xs[xs.length - 1] / 86400)
+      === Math.floor(Date.now() / 864e5);
+    const as24 = has24 && openDay && xs.length > 1;
+    if (as24) ys[ys.length - 1] = +l24;
     if (xs.length === 1) {
       // a pool's first day: one value cannot make a line, so it is said
       const v = ys[0], dd = new Date(xs[0] * 1000);
@@ -7999,16 +8007,16 @@ window.loadLpTab = async function () {
       const hv = v => money && Math.abs(v) >= 1e3 && Math.abs(v) < 1e6
         ? "$" + Math.round(v).toLocaleString("en-US") : fy(v);
       const dl = new Date(xs[xs.length - 1] * 1000);
-      const open = Math.floor(xs[xs.length - 1] / 86400)
-        === Math.floor(Date.now() / 864e5);
-      label = (open ? "today "
-          : `${pMON[dl.getUTCMonth()]} ${dl.getUTCDate()} `) + hv(last)
+      label = (has24 ? "last 24h " + hv(+l24)
+          : (openDay ? "today so far "
+            : `${pMON[dl.getUTCMonth()]} ${dl.getUTCDate()} `) + hv(last))
         + " · 7d avg " + hv(sm[sm.length - 1]);
     }
     pSpark.last = label;
     pReg[gid] = { xs, ys, lo, hi, W, H, L, R, T, B, fy,
       es: extra ? es : null, names,
-      fx: i => { const dd = new Date(xs[i] * 1000);
+      fx: i => { if (as24 && i === xs.length - 1) return "last 24h";
+        const dd = new Date(xs[i] * 1000);
         return `${pMON[dd.getUTCMonth()]} ${dd.getUTCDate()} '${
           String(dd.getUTCFullYear()).slice(2)}`; } };
     // gap-aware polylines: null values and >7-day holes split segments
@@ -8398,6 +8406,15 @@ window.loadLpTab = async function () {
         <span style="margin-left:auto; font-size:12px; color:#8b949e">${
           pSpark.last}</span></div>${svg}</div>`;
     const CUT = { all: 1095, y: 365, m: 30, w: 7 };
+    // the last 24 hours, rolling (the figures the pools list ranks by):
+    // fees over the newest TVL, fees x the admin share, volume
+    const d24 = H.d24 || {}, tvlNow = lastOf(H.tvl);
+    const l24 = {
+      apr: d24.fees != null && tvlNow > 0
+        ? d24.fees / tvlNow * 365 * 100 : null,
+      rev: d24.fees != null && last.admin_fee != null
+        ? d24.fees * f10(last.admin_fee) : null,
+      vol: d24.vol != null ? d24.vol : null };
     const drawCharts = range => {
       curRange = range;
       const n = Math.min(T.length, CUT[range] || 1e9);
@@ -8405,13 +8422,13 @@ window.loadLpTab = async function () {
       const cutS = a => a.slice(-n);
       let perf =
         panel("base APR (LPs + DAO)", pSpark(t, cutS(series.apr),
-          { pct: true, avg7: true, color: "#58a6ff" }))
+          { pct: true, avg7: true, color: "#58a6ff", l24: l24.apr }))
         + panel("TVL", pSpark(t, cutS(series.tvl),
           { money: true, color: "#3FB950" }))
         + panel("DAO revenue / day", pSpark(t, cutS(series.rev),
-          { money: true, avg7: true, color: "#e3b341" }))
+          { money: true, avg7: true, color: "#e3b341", l24: l24.rev }))
         + panel("volume", pSpark(t, cutS(series.vol),
-          { money: true, avg7: true, color: "#A78BFA" }));
+          { money: true, avg7: true, color: "#A78BFA", l24: l24.vol }));
       if (nPx > 0) {
         const ps2 = cutS(pxArr(H.pscale, priceCoin));
         const po2 = cutS(pxArr(H.poracle, priceCoin));
