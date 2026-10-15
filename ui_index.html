@@ -1101,7 +1101,8 @@
                   background:#0d1117; color:#e6edf3; border:1px solid #30363d;
                   border-radius:6px; font-size:12.5px">
     <!-- the dust filter stays in the DOM (the list logic reads it) but is
-         not shown: 10k hides the empty test markets -->
+         not shown: 10k hides the empty test markets; a market launched in
+         the last 30 days is listed whatever its TVL -->
     <input id="lm_mintvl" type="number" value="10000" step="1000" min="0"
            style="display:none">
     <div class="seg" id="lm_metric" title="what the bars rank by"
@@ -7276,6 +7277,11 @@ window.loadLlmTab = async function () {
               m.collateral.symbol, m.borrowed.addr, m.borrowed.symbol]
         .some(v => v && String(v).toLowerCase().includes(q));
     };
+    // a launch starts near empty: it is listed for its first 30 days
+    const isNew = m => {
+      const c = ((llm && llm.markets[m.key]) || {}).created_at;
+      return c && Date.now() / 1000 - c < 30 * 86400;
+    };
     const all = [];
     for (const [g, lst] of Object.entries((mkts && mkts.groups) || {}))
       for (const m of lst)
@@ -7283,7 +7289,7 @@ window.loadLlmTab = async function () {
                    key: `${m.chain}:${m.controller.toLowerCase()}` });
     return all
       .filter(m => !ver || m.ver === ver)
-      .filter(m => (m.market_tvl_usd || 0) >= minTvl || q)
+      .filter(m => (m.market_tvl_usd || 0) >= minTvl || q || isNew(m))
       .filter(hits)
       .sort((a2, b2) => (b2.market_tvl_usd ?? 0) - (a2.market_tvl_usd ?? 0)
           || (b2.utilization_pct ?? -1) - (a2.utilization_pct ?? -1));
