@@ -32,7 +32,9 @@ Output: data/oracles.json
       root, amm_ma: {...}, nodes: { "<addr>": {type, label, ma: {...},
       refs: {getter: addr}, meta: {...}} } } } }
 
-    python3 fetch_oracles.py
+    python3 fetch_oracles.py          # every market
+    python3 fetch_oracles.py --new    # only markets not in the file yet
+                                      # (the refresh cycle: new launches)
 """
 from __future__ import annotations
 
@@ -501,9 +503,20 @@ def refresh_values() -> None:
           f"({sum(len(s) for s in per_chain.values())} nodes)")
 
 
-def main() -> None:
+def main(only_new: bool = False) -> None:
     M = json.loads(MARKETS.read_text())
-    out: dict = {}
+    prev: dict = {}
+    if only_new:
+        try:
+            prev = json.loads(OUT.read_text())
+        except (OSError, ValueError):
+            prev = {}
+        have = set(prev.get("markets") or {})
+        if all(f"{m['chain']}:{m['controller']}" in have
+               for grp in ("LLV1", "LLV2") for m in M["groups"][grp]):
+            print("no new markets")
+            return
+    out: dict = dict(prev.get("markets") or {})
     rpcs: dict[str, Rpc] = {}
     caches: dict[str, dict] = {}
     try:
@@ -517,6 +530,8 @@ def main() -> None:
             rpc = rpcs.setdefault(chain, Rpc(chain))
             cache = caches.setdefault(chain, {})
             key = f"{chain}:{m['controller']}"
+            if only_new and key in out:
+                continue
             amm = m["amm"]
             root = None
             r = rpc.q(amm, "price_oracle_contract()")
@@ -549,11 +564,11 @@ def main() -> None:
     ttmp.write_text(json.dumps(tcache, indent=0))
     os.replace(ttmp, TITLES)
     tmp = OUT.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps({
-        "fetched_at": int(time.time()),
-        "fetched_at_utc": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
-        "markets": out,
-    }, indent=1))
+    head = ({k: v for k, v in prev.items() if k != "markets"} if only_new
+            else {"fetched_at": int(time.time()),
+                  "fetched_at_utc": time.strftime("%Y-%m-%d %H:%M UTC",
+                                                  time.gmtime())})
+    tmp.write_text(json.dumps({**head, "markets": out}, indent=1))
     os.replace(tmp, OUT)
     print(f"wrote {OUT}  ({len(out)} markets, {time.time()-t0:.0f}s)")
 
@@ -562,4 +577,4 @@ if __name__ == "__main__":
     if "--values" in sys.argv:
         refresh_values()
     else:
-        main()
+        main(only_new="--new" in sys.argv)

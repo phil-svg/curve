@@ -17,6 +17,7 @@ import argparse
 import bisect
 import hashlib
 import json
+import zlib
 import os
 import re
 import subprocess
@@ -1211,21 +1212,47 @@ def lp_record(key: str) -> dict | None:
 
 
 def lp_tokidx() -> tuple[bytes, str]:
-    """[[SYMBOL, address, chain], ...]: the first pool coin per symbol, in
-    the pools list's order (the order the page used to walk it in), with a
-    tag that changes when data/lp.json is rewritten."""
+    """{"sym": [[SYMBOL, address, chain], ...], "lp": {"chain:addr":
+    [coin, ...]}}. sym: the first pool coin per symbol, in the pools list's
+    order (the order the page used to walk it in). lp: the coins of every
+    market collateral that is itself a Curve pool's LP token — no logo
+    exists for those, the page draws its coins'. The tag changes when
+    lp.json, markets.json or census.json is rewritten."""
     lp_record("")
-    tag = _LP_REC["tag"]
-    if _LP_REC.get("tok_tag") != tag or "tok" not in _LP_REC:
+    stamp = [_LP_REC["tag"]]
+    for f in (MARKETS_FILE, HERE / "data" / "census.json"):
+        try:
+            st = f.stat()
+            stamp.append((st.st_mtime_ns, st.st_size))
+        except OSError:
+            stamp.append(None)
+    if _LP_REC.get("tok_tag") != stamp or "tok" not in _LP_REC:
         seen: dict = {}
         for p in _LP_REC["pools"].values():
             for c in p.get("coins") or []:
                 s_, a = c.get("s"), c.get("a")
                 if s_ and a and s_.upper() not in seen:
                     seen[s_.upper()] = [s_.upper(), a, p.get("chain")]
-        _LP_REC.update(tok_tag=tag, tok=json.dumps(
-            list(seen.values()), separators=(",", ":")).encode())
-    return _LP_REC["tok"], (f"{tag[0]:x}-{tag[1]:x}-t" if tag else "0")
+        lpc: dict = {}
+        try:
+            colls = {(m["chain"], m["collateral"]["addr"].lower())
+                     for g in json.loads(MARKETS_FILE.read_text())["groups"]
+                     .values() for m in g}
+            cen = json.loads((HERE / "data" / "census.json")
+                             .read_text())["pools"]
+            for ch, rows in cen.items():
+                for r in rows:
+                    if isinstance(r, list) and len(r) > 3 \
+                            and (ch, str(r[0]).lower()) in colls:
+                        lpc[f"{ch}:{str(r[0]).lower()}"] = \
+                            [str(c).lower() for c in r[3]]
+        except (OSError, ValueError, KeyError):
+            pass
+        _LP_REC.update(tok_tag=stamp, tok=json.dumps(
+            {"sym": list(seen.values()), "lp": lpc},
+            separators=(",", ":")).encode())
+    h = zlib.crc32(json.dumps(stamp).encode())
+    return _LP_REC["tok"], f"{h:08x}-t2"
 
 
 def side_metrics() -> dict:
@@ -1789,6 +1816,19 @@ def _do_refresh():
     finally:
         _refresh.update(running=False,
                         last_duration_s=round(time.time() - t0, 1))
+    # Oracle graph of a newly launched market (data/oracles.json is a one-off
+    # scan; --new walks only markets it does not have, nothing otherwise).
+    # Before fetch_llm: its exit pools read the vault nodes of that graph.
+    try:
+        p = subprocess.run([PY, str(HERE / "fetchers" / "fetch_oracles.py"),
+                            "--new"],
+                           capture_output=True, text=True, timeout=600)
+        if p.returncode != 0:
+            raise RuntimeError((p.stderr or p.stdout or "").strip()[-200:])
+        if "no new markets" not in p.stdout:
+            print("[ui] oracle graph: new markets scanned")
+    except Exception as e:
+        print(f"[ui] oracle graph (new markets) FAILED: {str(e)[:200]}")
     # Bad Debt tab dataset (data/baddebt.json): one multicall position scan
     # over every market, on the same cycle — its own try block, so a failure
     # never takes markets down with it.

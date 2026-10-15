@@ -4067,15 +4067,42 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
                         "yb_": "yb" };
   // ---- token logos (curve-assets CDN), shared by every tab ---------------
   window.__tokIdx = {};
+  const logoSrc = (addr, chain) => "https://cdn.jsdelivr.net/gh/curvefi/" +
+    "curve-assets/images/" + ((!chain || chain === "ethereum") ? "assets"
+      : "assets-" + chain) + "/" + String(addr).toLowerCase() + ".png";
   window.tokImg = (addr, chain, size = 19) => {
     if (!addr) return "";
-    const dir = (!chain || chain === "ethereum") ? "assets"
-      : "assets-" + chain;
-    return `<img src="https://cdn.jsdelivr.net/gh/curvefi/curve-assets/images/${dir}/${String(addr).toLowerCase()}.png"
-      onerror="this.style.display='none'"
+    return `<img src="${logoSrc(addr, chain)}"
+      data-a="${String(addr).toLowerCase()}" data-ch="${chain || "ethereum"}"
+      data-sz="${size}" onerror="window.__logoMiss(this)"
       style="width:${size}px; height:${size}px; border-radius:50%;
              vertical-align:-3px; background:#0d1117;
              margin-right:3px">`;
+  };
+  // no logo on the CDN: an LP token (a Curve pool's) shows its pool's
+  // first two coins, overlapped, in the same square; anything else hides
+  window.__lpCoins = null;
+  window.__logoMiss = img => {
+    img.onerror = null;
+    const swap = () => {
+      const cs = (window.__lpCoins || {})[`${img.dataset.ch}:${img.dataset.a}`];
+      if (!cs || !cs.length || !img.isConnected) {
+        img.style.display = "none"; return; }
+      const sz = +img.dataset.sz || 19, s2 = Math.round(sz * 0.68);
+      const one = (a, pos) => `<img src="${logoSrc(a, img.dataset.ch)}"
+        onerror="this.style.display='none'" style="position:absolute; ${pos};
+        width:${s2}px; height:${s2}px; border-radius:50%;
+        background:#0d1117">`;
+      const box = document.createElement("span");
+      box.style.cssText = `display:inline-block; position:relative;
+        width:${sz}px; height:${sz}px; vertical-align:-3px;
+        margin-right:3px`;
+      box.innerHTML = one(cs[0], "left:0; top:0")
+        + (cs[1] ? one(cs[1], "right:0; bottom:0") : "");
+      img.replaceWith(box);
+    };
+    if (window.__lpCoins) swap();
+    else (window.__tokReady || Promise.resolve()).then(swap, swap);
   };
   window.symImg = (sym, chain, size = 19) => {
     const e = window.__tokIdx[String(sym || "").toUpperCase()];
@@ -4093,10 +4120,13 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
           for (const t of [m.collateral, m.borrowed])
             if (t && t.symbol && t.addr && !window.__tokIdx[t.symbol.toUpperCase()])
               window.__tokIdx[t.symbol.toUpperCase()] = { addr: t.addr, chain: m.chain };
-      // the pools list's coins, first pool per symbol (/tokidx)
-      for (const [sym, addr, chain] of tk || [])
+      // the pools list's coins, first pool per symbol, and the coins of
+      // every collateral that is a pool's LP token (/tokidx)
+      for (const [sym, addr, chain] of (Array.isArray(tk) ? tk
+          : (tk && tk.sym) || []))
         if (!window.__tokIdx[sym]) window.__tokIdx[sym] = { addr, chain };
-    } catch (_) {}
+      window.__lpCoins = (tk && !Array.isArray(tk) && tk.lp) || {};
+    } catch (_) { window.__lpCoins = window.__lpCoins || {}; }
   })();
 
   // The tab loaders (loadYbTab etc.) are defined in later script blocks,

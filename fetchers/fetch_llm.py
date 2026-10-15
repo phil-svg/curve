@@ -405,8 +405,10 @@ def borrower_view(rows, count, n_loans, coll_usd_price, borrowed_usd_price,
 
 def exit_pools_map(mkts: dict) -> dict:
     """key -> [{a, n, tvl}]: every Curve pool >= $50k holding the market's
-    collateral or its vault-underlying (census written by fetch_lp),
-    TVL-sorted — the LLM tab's exit-liquidity list."""
+    collateral or its underlying (census written by fetch_lp), TVL-sorted —
+    the LLM tab's exit-liquidity list. Underlying = a vault's asset, or the
+    coins of the pool whose LP token the collateral is (a liquidator redeems
+    the LP and sells those; its own pool holds them, so it is listed too)."""
     try:
         census = json.loads((DATA / "census.json").read_text())["pools"]
     except (OSError, ValueError, KeyError):
@@ -426,9 +428,14 @@ def exit_pools_map(mkts: dict) -> dict:
                     for g, r in (n.get("refs") or {}).items():
                         if g in ("asset", "underlying"):
                             toks.add(r.lower())
+            coll = m["collateral"]["addr"].lower()
+            for a, nm, tvl, coins in census.get(ch, []):
+                if a.lower() == coll:          # the collateral is this LP
+                    toks.update(c.lower() for c in coins)
             rows = [{"a": a, "n": nm, "tvl": tvl, "c": coins[:4]}
                     for a, nm, tvl, coins in census.get(ch, [])
-                    if tvl >= 50_000 and any(c in toks for c in coins)]
+                    if tvl >= 50_000 and any(c.lower() in toks
+                                             for c in coins)]
             rows.sort(key=lambda r: -r["tvl"])
             out[key] = rows
     return out
