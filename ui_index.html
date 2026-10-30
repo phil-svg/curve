@@ -930,9 +930,10 @@
      counted at 100% of that take, including the ~10% slice routed onward to
      the treasury (a routing of revenue, not a reduction of it); crvUSD mint
      markets have no lenders so 100% of interest is DAO revenue; LlamaLend V2
-     takes admin_percentage (10%) of borrower interest while V1 takes none;
-     pegkeepers keep 100% of the profit they extract defending the crvUSD
-     peg (claimed as LP tokens, booked on the claim day). Built by
+     takes admin_percentage (10%) of borrower interest while V1 takes none,
+     the DAO earns there only as a lender of crvUSD it minted itself (booked
+     when paid); pegkeepers keep 100% of the profit they extract defending
+     the crvUSD peg (claimed as LP tokens, booked on the claim day). Built by
      fetch_dao_revenue.py on the refresh cycle. -->
 <div id="view_daorev" style="display:none">
   <div class="note" id="dr_note" style="margin-bottom:10px">loading…</div>
@@ -4753,8 +4754,9 @@ document.addEventListener("click", () => {
 // at 100% of that take — the ~10% slice routed onward to the treasury is
 // included, being a routing of DAO revenue rather than a reduction of it;
 // crvUSD mint markets pay 100% of interest (no lenders to share with),
-// LlamaLend V2 pays admin_percentage (10%) of interest and V1 pays nothing,
-// and pegkeepers pay 100% of the peg-defense profit they claim (bursty by
+// LlamaLend V2 pays admin_percentage (10%) of interest, V1 pays nothing but
+// the profit on crvUSD the DAO mints and lends there itself, and pegkeepers
+// pay 100% of the peg-defense profit they claim (bursty by
 // nature — profit is booked on the day it is claimed, not as it accrues).
 window.loadDaoRevTab = async function () {
   const note = document.getElementById("dr_note");
@@ -4778,7 +4780,8 @@ window.loadDaoRevTab = async function () {
   //   s  one muted sub-line
   const tip = o => ` data-tip="${esc6(JSON.stringify(o))}"`;
   const SHORT = { pool_fees: "pools", mint_interest: "crvUSD mint",
-                  lend_v2_interest: "LlamaLend V2", pegkeeper: "pegkeeper" };
+                  lend_v2_interest: "LlamaLend V2",
+                  lend_dao_profit: "LlamaLend V1", pegkeeper: "pegkeeper" };
   const SRC = [
     { k: "pool_fees", label: "pool swap fees", color: "#58a6ff",
       short: "the pool's admin_fee: 100% 3pool, 0% Yield-Basis, 50% typical"
@@ -4790,12 +4793,18 @@ window.loadDaoRevTab = async function () {
     { k: "mint_interest", label: "crvUSD mint interest", color: "#e3b341",
       short: "100% of interest — a mint market has no lenders",
       rule: "100% of interest — a mint market has no lenders to share "
-          + "with. Yield Basis and Resupply borrow outside the mint "
-          + "factory, so they are not DAO revenue" },
+          + "with. Yield Basis borrows outside the mint factory, so it is "
+          + "not DAO revenue" },
     { k: "lend_v2_interest", label: "LlamaLend V2 interest", color: "#A78BFA",
       short: "admin_percentage — 10% of borrower interest (V1 takes none)",
       rule: "admin_percentage — 10% of borrower interest. V1 lend markets "
-          + "take no cut, so they contribute nothing" },
+          + "take no cut" },
+    { k: "lend_dao_profit", label: "LlamaLend V1 lending profit",
+      color: "#39C5CF",
+      short: "crvUSD the DAO mints and lends in a V1 vault, booked when paid",
+      rule: "the DAO's own share of borrower interest where it lends crvUSD "
+          + "it minted into a V1 vault — paid to the Fee Splitter in lumps, "
+          + "so it is booked on the day it arrives" },
     { k: "pegkeeper", label: "pegkeeper profit", color: "#3FB950",
       short: "100% of peg-defense profit, booked on the day it is claimed",
       rule: "100% of the profit pegkeepers extract minting/burning crvUSD "
@@ -4878,6 +4887,8 @@ window.loadDaoRevTab = async function () {
               short: "crvUSD mint" },
       lend: { hue: 258, sat: 62, label: "LlamaLend V2 interest",
               short: "LlamaLend V2" },
+      v1: { hue: 184, sat: 60, label: "LlamaLend V1 lending profit",
+            short: "LlamaLend V1" },
       peg: { hue: 137, sat: 55, label: "pegkeeper profit",
              short: "pegkeeper" } };
     const contrib = [];
@@ -4900,6 +4911,13 @@ window.loadDaoRevTab = async function () {
                                 key: nm, val: v });
     }
     for (const [nm, arr] of Object.entries(
+        ((d.sources || {}).lend_dao_profit || {}).by_market || {})) {
+      const v = cut(arr).reduce((a, b) => a + (b || 0), 0);
+      if (v > 0) contrib.push({ name: nm.split("|")[0], kind: "v1",
+                                chain: (nm.split("|")[1] || "").split(":")[0],
+                                key: nm, val: v });
+    }
+    for (const [nm, arr] of Object.entries(
         ((d.sources || {}).pegkeeper || {}).by_market || {})) {
       const v = cut(arr).reduce((a, b) => a + (b || 0), 0);
       if (v > 0) contrib.push({ name: nm.split("|")[0] + " pegkeeper",
@@ -4910,6 +4928,7 @@ window.loadDaoRevTab = async function () {
     // collateral. The pie has no legend, so these ride in the tooltip.
     const mintCoins = ((d.sources || {}).mint_interest || {}).coins || {};
     const lendCoins = ((d.sources || {}).lend_v2_interest || {}).coins || {};
+    const v1Coins = ((d.sources || {}).lend_dao_profit || {}).coins || {};
     const pegCoins = ((d.sources || {}).pegkeeper || {}).coins || {};
     const tokUrl = (addr, chain) => "https://cdn.jsdelivr.net/gh/curvefi/"
       + "curve-assets/images/"
@@ -4920,7 +4939,8 @@ window.loadDaoRevTab = async function () {
       if (c.kind === "pool")
         return (c.coins || []).map(t => tokUrl(t, c.chain));
       const a = c.kind === "mint" ? mintCoins[c.key]
-        : c.kind === "peg" ? pegCoins[c.key] : lendCoins[c.key];
+        : c.kind === "peg" ? pegCoins[c.key]
+        : c.kind === "v1" ? v1Coins[c.key] : lendCoins[c.key];
       return a ? [tokUrl(a, c.chain || "ethereum")] : [];
     };
     contrib.sort((a, b) => b.val - a.val);
@@ -4929,11 +4949,12 @@ window.loadDaoRevTab = async function () {
     contrib.forEach(c => { famTot[c.kind] = (famTot[c.kind] || 0) + c.val; });
     // the app's three source hues, one per family — same hex everywhere
     const FAMC = { pool: "#58a6ff", mint: "#e3b341", lend: "#A78BFA",
-                   peg: "#3FB950" };
+                   v1: "#39C5CF", peg: "#3FB950" };
 
     // ---- composition: one 100% strip for the source split, then the ----
     // ---- top contributors as ranked bars — no 100-slice pie ------------
-    const kinds = ["pool", "mint", "lend", "peg"].filter(k => famTot[k] > 0);
+    const kinds = ["pool", "mint", "lend", "v1", "peg"]
+      .filter(k => famTot[k] > 0);
     const strip = kinds.map((k, ki) => {
       const fr = (famTot[k] || 0) / cTot;
       const pct = (fr * 100).toFixed(1) + "%";
@@ -5116,6 +5137,8 @@ window.loadDaoRevTab = async function () {
         rows: prowsAll, all: prowsAll.length, isPool: true },
       { t: "LlamaLend V2 interest", c: "#A78BFA", short: "LlamaLend",
         rows: rowsOf("lend_v2_interest", "by_market") },
+      { t: "LlamaLend V1 lending profit", c: "#39C5CF", short: "LlamaLend V1",
+        rows: rowsOf("lend_dao_profit", "by_market") },
       { t: "crvUSD mint interest", c: "#e3b341", short: "crvUSD mint",
         rows: rowsOf("mint_interest", "by_market") },
       { t: "pegkeeper profit", c: "#3FB950", short: "pegkeeper",
@@ -6711,6 +6734,8 @@ window.loadLlmTab = async function () {
       (isV2 ? pRow("DAO fee share", m && m.admin_fee_share_pct != null
         ? `${m.admin_fee_share_pct.toFixed(0)}% of borrow interest`
         : null) : "") +
+      (e.dao_lender ? pRow("DAO lending", `${usd(e.dao_lender.minted)} minted, ${
+        e.dao_lender.share_pct.toFixed(1)}% of the vault`) : "") +
       pRow("monetary policy", e.policy
         ? aLink(ch, e.policy) : null);
 
@@ -6860,9 +6885,15 @@ window.loadLlmTab = async function () {
     const priceVals = hist.pu.some(v => v != null) ? hist.pu : hist.p;
     const feeShare = (m && m.admin_fee_share_pct != null
       ? m.admin_fee_share_pct : 10) / 100;
+    // a v1 vault pays the DAO only for what it lends there itself: its
+    // minted crvUSD over all that is supplied, day by day
+    const dl = e.dao_lender;
+    const mintedAt = t => (dl.tl.filter(q => q[0] <= t).pop() || [0, 0])[1];
+    const shareAt = i => !dl ? feeShare
+      : hist.a[i] ? Math.min(1, mintedAt(hist.t[i]) / hist.a[i]) : 0;
     const revVals = hist.t.map((_, i) =>
       hist.du[i] != null && hist.ba[i] != null
-        ? hist.du[i] * hist.ba[i] / 100 / 365 * feeShare : null);
+        ? hist.du[i] * hist.ba[i] / 100 / 365 * shareAt(i) : null);
     const tvlVals = hist.t.map((_, i) =>
       (hist.au[i] ?? 0) + (hist.cu[i] ?? 0));
     // idle = supplied but not borrowed (assets − debt), what lenders have
@@ -6899,7 +6930,7 @@ window.loadLlmTab = async function () {
          { money: true, color: "#c9d1d9" }],
         ["collateral", `collateral ${collSym}`, pick(hist.cu),
          { money: true, color: "#F778BA" }]];
-      if (isV2) items.push(
+      if (isV2 || dl) items.push(
         ["revenue", "daily DAO revenue — 7-day average in white",
          pick(revVals),
          { money: true, color: "#ED7D31", avg7: true }]);
@@ -7342,10 +7373,12 @@ window.loadLlmTab = async function () {
       l = b * m.utilization_pct / 100 * (1 - (m.admin_fee_share_pct || 0) / 100);
     return { b, l };
   };
-  // DAO revenue per day = debt × borrow APR × admin share (v2 vaults; v1
-  // lending vaults keep no admin share, so they show a dash)
+  // DAO revenue per day = debt × borrow APR × the DAO's share: the admin
+  // cut on v2 vaults; v1 vaults keep none, so there it is what the DAO
+  // lends itself (dao_lender) and the others show a dash
   const daoDaily = m => {
-    const share = m.admin_fee_share_pct;
+    const dl = ((llm.markets || {})[m.key] || {}).dao_lender;
+    const share = m.admin_fee_share_pct ?? (dl ? dl.share_pct : null);
     const b = ratesOf(m).b;
     if (share == null || !(share > 0) || b == null) return null;
     return (m.total_debt_usd || 0) * b / 100 / 365 * share / 100;

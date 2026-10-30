@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """DAO revenue by source, daily, over a trailing window.
 
-Three sources, each with its own split rule — the whole point of the tab is
+Five sources, each with its own split rule — the whole point of the tab is
 that these are NOT the same fraction of the headline number:
 
   pool swap fees   the DAO's cut of trading+liquidity fees. The cut is the
@@ -16,9 +16,9 @@ that these are NOT the same fraction of the headline number:
   crvUSD mint      interest paid on crvUSD minted against collateral. There
                    are no lenders in a mint market, so 100% of the interest
                    is DAO revenue. Only the 9 controllers of the mint
-                   ControllerFactory count -- Yield Basis and Resupply
-                   (sreUSD) borrow crvUSD outside that factory, so they
-                   never appear here and their interest is not DAO revenue.
+                   ControllerFactory count -- Yield Basis borrows crvUSD
+                   outside that factory, so it never appears here and its
+                   interest is not DAO revenue.
                    daily = total_debt_usd * rate / 365   (rate is decimal APR;
                    validated against /v1/dao/fees/crvusd/weekly: our estimate
                    $5,960/wk vs $5,950-6,439/wk actually collected on WBTC.)
@@ -26,8 +26,14 @@ that these are NOT the same fraction of the headline number:
   LlamaLend V2     lend markets take an admin cut of borrower interest --
                    Controller.admin_percentage(), 10% on every V2 market
                    today. V1 lend markets have no such cut (the getter does
-                   not exist), so 100% of their interest goes to lenders and
-                   they contribute nothing here.
+                   not exist), so 100% of their interest goes to lenders.
+
+  LlamaLend V1     where the DAO is one of those lenders: it mints crvUSD
+                   into a V1 vault through a CurveLendOperator (sreUSD/crvUSD,
+                   96% of the vault on 30 Oct 2026) and what its shares earn
+                   reaches the Fee Splitter through withdraw_profit(). Read
+                   from chain by fetch_llm.py and booked when paid, so this
+                   series is bursty like the pegkeeper's.
 
   pegkeeper        a PegKeeper mints crvUSD into its pool above peg and
                    withdraws+burns below; the value extracted doing that is
@@ -47,7 +53,8 @@ same way as the pools list's last 24 h. /v1/chains/fees takes any window, so
 the newest EXACT periods are asked for directly; older ones are split from
 the UTC days, which never change and are cached in dao_revenue_state.json (a
 cold start is ~365 calls, every later run is 1-2 plus EXACT). The lending
-leg reads the local llm_hist / markets datasets, so it costs no network.
+legs read the local llm / llm_hist / markets datasets, so they cost no
+network.
 """
 from __future__ import annotations
 
@@ -688,6 +695,42 @@ def lend_interest(days: list[int]) -> dict:
             "coins": coins}
 
 
+def lend_dao_profit(days: list[int]) -> dict:
+    """What the V1 vaults the DAO lends into paid it, each payout on its own
+    timestamp. crvUSD counts as dollars, as the interest legs do."""
+    try:
+        llm = json.loads((HERE / "data" / "llm.json").read_text())
+    except OSError:
+        return {"total": [None] * len(days), "by_market": {}}
+    try:
+        mk = json.loads((HERE / "data" / "markets.json").read_text())
+        colad = {f"{m['chain']}:{m['controller'].lower()}":
+                 (m.get("collateral") or {}).get("addr") or ""
+                 for lst in mk["groups"].values() for m in lst}
+    except (OSError, KeyError):
+        colad = {}
+    by_market: dict[str, list] = {}
+    coins: dict[str, str] = {}
+    totals: dict[int, float] = {}
+    start, end = days[0], days[-1] + DAY
+    for key, m in (llm.get("markets") or {}).items():
+        dl = m.get("dao_lender")
+        if not dl:
+            continue
+        per: dict[int, float] = {}
+        for ts, amt in dl.get("paid") or []:
+            if start <= ts < end:
+                d = start + (ts - start) // DAY * DAY
+                per[d] = per.get(d, 0.0) + amt
+                totals[d] = totals.get(d, 0.0) + amt
+        mk_key = f"{m.get('name', '?')}|{key}"
+        coins[mk_key] = colad.get(key, "")
+        by_market[mk_key] = [per.get(d) for d in days]
+    print(f"[dao-rev] lending V1 profit: {len(by_market)} markets", flush=True)
+    return {"total": [totals.get(d) for d in days], "by_market": by_market,
+            "coins": coins}
+
+
 def main() -> None:
     t0 = time.time()
     # 24 h periods ending at the last full hour
@@ -703,6 +746,7 @@ def main() -> None:
             "pool_fees": pool_fees(days, st),
             "mint_interest": mint_interest(days),
             "lend_v2_interest": lend_interest(days),
+            "lend_dao_profit": lend_dao_profit(days),
             "pegkeeper": pegkeeper_profit(days),
         },
     }

@@ -21,6 +21,7 @@ RPC. Per market (the LLV1/LLV2 set already in data/markets.json):
     markets across ethereum, arbitrum, optimism, fraxtal and sonic.
   - parameter timeline derived from the daily snapshots (a change in
     loan/liquidation discount or A shows up as a day-boundary step)
+  - what the DAO itself lends into a V1 vault, from the chain (dao_lending)
 
 Outputs:  data/llm.json            summary + borrowers + timelines
           data/llm_hist/<chain>_<controller>.json   daily series arrays
@@ -165,6 +166,84 @@ def fee_timelines(groups: dict, created: dict, st: dict) -> dict:
             if not pts and cur is not None:
                 pts.append([t0 or int(time.time()) - 86400, cur])
             out[key] = {"points": pts}
+    return out
+
+
+# ---- DAO lending (a V1 vault the DAO is a lender in) ------------------------
+# The DAO mints crvUSD through LEND_MINTER into one CurveLendOperator per
+# vault. The operator deposits it and keeps the shares; what they are worth
+# above the minted amount reaches the Fee Splitter through withdraw_profit().
+# So the DAO earns as a lender, not through an admin cut. Tenderly's free
+# gateway answers these logs from the first block in one call (the keyed RPC
+# caps getLogs at 500 blocks) and stamps each with its blockTimestamp, so
+# nothing is kept between runs: a handful of small calls per cycle, and a
+# failed run keeps the last answer.
+LEND_MINTER = "0xd99391df68cdb38a89828a6d51f3976e3e76afff"
+LEND_MINTER_BLOCK = 23_593_650
+TENDERLY = "https://mainnet.gateway.tenderly.co"
+
+
+def _tenderly(method: str, params: list):
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method,
+                       "params": params}).encode()
+    req = urllib.request.Request(TENDERLY, body, {
+        "Content-Type": "application/json", "User-Agent": "curve-sim"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        resp = json.loads(r.read())
+    if "error" in resp:
+        raise RuntimeError(str(resp["error"]))
+    return resp["result"]
+
+
+def dao_lending() -> dict:
+    """vault -> {"minted", "share_pct", "tl": [[ts, minted], ...],
+    "paid": [[ts, crvUSD], ...]} for every vault the DAO lends into."""
+    from common import sel
+    added = _topic("AddMarket(address,address)")
+    borrow = _topic("Borrow(address,address,uint256)")
+    reduced = _topic("MintedAmountReduced(uint256)")
+    profit = _topic("Profit(uint256)")
+
+    def logs(addr, topics):
+        return sorted(_tenderly("eth_getLogs", [{
+            "address": addr, "topics": [topics],
+            "fromBlock": hex(LEND_MINTER_BLOCK), "toBlock": "latest"}]),
+            key=lambda x: (int(x["blockNumber"], 16),
+                           int(x["logIndex"], 16)))
+
+    def stamp(lg):
+        return int(lg["blockTimestamp"], 16), int(lg["data"], 16) / 1e18
+
+    ops, moves, paid = {}, {}, {}
+    for lg in logs(LEND_MINTER, [added, borrow]):
+        vault, op = ("0x" + t[-40:] for t in lg["topics"][1:3])
+        ops[op] = vault
+        if lg["topics"][0] == borrow:
+            ts, amt = stamp(lg)
+            moves.setdefault(vault, []).append((ts, amt))
+    for lg in logs(list(ops), [reduced, profit]):
+        vault = ops[lg["address"].lower()]
+        ts, amt = stamp(lg)
+        if lg["topics"][0] == profit:
+            paid.setdefault(vault, []).append([ts, round(amt, 2)])
+        else:
+            moves.setdefault(vault, []).append((ts, -amt))
+    live = {vault: op for op, vault in ops.items()}  # the newest one holds
+    out = {}
+    for vault, mv in moves.items():
+        tl, left = {}, 0.0
+        for ts, amt in sorted(mv):
+            left += amt
+            tl[ts] = round(left, 2)
+        shares = int(_tenderly("eth_call", [{
+            "to": vault, "data": sel("balanceOf(address)")
+            + "0" * 24 + live[vault][2:]}, "latest"]), 16)
+        supply = int(_tenderly("eth_call", [{
+            "to": vault, "data": sel("totalSupply()")}, "latest"]), 16)
+        out[vault] = {"minted": round(left, 2),
+                      "share_pct": round(shares / supply * 100, 2),
+                      "tl": sorted(tl.items()),
+                      "paid": paid.get(vault, [])}
     return out
 
 
@@ -456,6 +535,13 @@ def main() -> None:
                     pass
     fee_tl = fee_timelines(mkts["groups"], created, st)
     expools = exit_pools_map(mkts)
+    try:
+        dao_lend = dao_lending()
+    except Exception as e:
+        print(f"[llm] dao lending read failed: {str(e)[:120]}")
+        dao_lend = {v.get("vault"): v["dao_lender"] for v in
+                    load_json(OUT, {}).get("markets", {}).values()
+                    if v.get("dao_lender")}
     HIST_DIR.mkdir(parents=True, exist_ok=True)
     budget = [BACKFILL_BUDGET]
     out = {"generated_at": int(time.time()), "markets": {}}
@@ -502,6 +588,8 @@ def main() -> None:
                           "lend_apr": row.get("lend_apr")},
             }
             entry["exit_pools"] = expools.get(key) or []
+            if entry["vault"] in dao_lend:
+                entry["dao_lender"] = dao_lend[entry["vault"]]
             entry["fee_tl"] = fee_tl.get(key)
             pts = (entry["fee_tl"] or {}).get("points") or []
             for i in range(1, len(pts)):
