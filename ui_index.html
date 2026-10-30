@@ -5002,7 +5002,8 @@ window.loadDaoRevTab = async function () {
     const bucket = span > 120 ? 7 : 1;
     const bDays = [], bVals = SRC.map(() => []);
     for (let i = 0; i < days.length; i += bucket) {
-      bDays.push(days[i]);
+      bDays.push(days[i] + 86400);     // each bar is dated by its end: the
+                                       // newest is the 24 h ending now
       series.forEach((s, si) => {
         let a = 0;
         for (let j = i; j < Math.min(i + bucket, days.length); j++)

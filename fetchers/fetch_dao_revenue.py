@@ -40,11 +40,14 @@ that these are NOT the same fraction of the headline number:
                    is not booked to any day -- so the series is bursty by
                    nature, matching how the income actually arrives.
 
-Keeps a 365-day daily series so the tab can toggle 30d / 1y without
-refetching. Completed days never change, so chain-fee days are cached in
-dao_revenue_state.json and only new days are fetched (a cold start is ~365
-calls, every later run is 1-2). The lending leg reads the local llm_hist /
-markets datasets, so it costs no network at all.
+Keeps 365 periods of 24 hours so the tab can toggle 30d / 1y without
+refetching. The periods end NOW (the last full hour), not at UTC midnight:
+the 30d and 1y figures are the last 30 x 24 h and 365 x 24 h, and read the
+same way as the pools list's last 24 h. /v1/chains/fees takes any window, so
+the newest EXACT periods are asked for directly; older ones are split from
+the UTC days, which never change and are cached in dao_revenue_state.json (a
+cold start is ~365 calls, every later run is 1-2 plus EXACT). The lending
+leg reads the local llm_hist / markets datasets, so it costs no network.
 """
 from __future__ import annotations
 
@@ -53,6 +56,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -66,10 +70,16 @@ CURVE_API = "https://api.curve.finance/api"
 UA = {"User-Agent": "curve-sim"}
 DAYS = 365          # full window kept in the file; the UI slices 30d / 1y
 DAY = 86400
+HOUR = 3600
+EXACT = 31          # newest periods read directly, older ones from UTC days
 MAX_ROWS = 100      # crvUSD snapshot rows per call — the API's hard cap
 POOL_ROWS = 300     # pool volume/snapshot rows per call — same idea
-POOL_TTL = 12 * 3600  # per-pool leaderboard costs thousands of calls; rebuild
-                      # at most this often and serve the cache in between
+POOL_TTL = 24 * 3600  # the per-pool sweep costs thousands of calls and only
+                      # finds new earners: every run refreshes the pools that
+                      # earned lately (lb_refresh), this one starts daily
+LB_BUDGET_S = 400   # sweep seconds per run (the refresh cycle kills this
+                    # step at 600 s); what is left resumes next run
+LB_ACTIVE_DAYS = 40 # a pool with fees this recently is refreshed every run
 
 # /v1/chains/fees reported EVERY fee field at exactly half its true value for
 # days up to 2026-03-01 inclusive, and correctly from 2026-03-02 on. The
@@ -93,6 +103,11 @@ def get(path: str, tries: int = 3):
             req = urllib.request.Request(API + path, headers=UA)
             with urllib.request.urlopen(req, timeout=60) as r:
                 return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            if e.code == 404:       # a pool or chain the API does not have:
+                return None         # thousands in a sweep, no point retrying
+            last = e
+            time.sleep(1.0)
         except Exception as e:      # transient API hiccup
             last = e
             time.sleep(1.0)
@@ -122,6 +137,27 @@ def day_starts(n: int) -> list[int]:
     return [today - i * DAY for i in range(n, 0, -1)]
 
 
+def spread(per: dict[int, float], days: list[int],
+           carry: bool = False) -> dict[int, float]:
+    """Values per UTC day -> the 24 h periods in `days`: a period straddles
+    two UTC days and takes each by its share of the hours. carry: the newest
+    value goes on into days not reported yet (interest accrues, fees do not);
+    only for a series reported up to the last few days, so that a closed
+    market does not accrue forever."""
+    last = max(per) if per else None
+    if last is None or days[-1] + DAY - last > 3 * DAY:
+        carry = False
+    out: dict[int, float] = {}
+    for s in days:
+        d = s // DAY * DAY
+        f = (s - d) / DAY
+        a = per[last] if carry and d > last else per.get(d)
+        b = per[last] if carry and d + DAY > last else per.get(d + DAY)
+        if a is not None or b is not None:
+            out[s] = (a or 0.0) * (1 - f) + (b or 0.0) * f
+    return out
+
+
 def load_state() -> dict:
     try:
         return json.loads(STATE.read_text())
@@ -133,6 +169,17 @@ def save_state(st: dict) -> None:
     tmp = STATE.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(st))
     os.replace(tmp, STATE)
+
+
+def fee_row(r: dict) -> dict:
+    agg = r.get("aggregated") or {}
+    rows = [c for c in (r.get("chains") or []) if c.get("chain")]
+    return {"dao": agg.get("fees_to_dao") or 0.0,
+            "lp": agg.get("fees_to_lp") or 0.0,
+            "tre": agg.get("fees_to_treasury") or 0.0,
+            "ch": {c["chain"]: c.get("fees_to_dao") or 0.0 for c in rows},
+            "cht": {c["chain"]: c.get("fees_to_treasury") or 0.0
+                    for c in rows}}
 
 
 def pool_fees(days: list[int], st: dict) -> dict:
@@ -149,39 +196,29 @@ def pool_fees(days: list[int], st: dict) -> dict:
     # cached before the schema carried per-chain treasury ("cht") are
     # refetched once.
     cache: dict = st.setdefault("pool_days", {})
-    want = [d for d in days
+    utc = day_starts(DAYS)
+    want = [d for d in utc
             if str(d) not in cache or "cht" not in cache[str(d)]]
-    if days and str(days[-1]) in cache and days[-1] not in want:
-        want.append(days[-1])
+    if str(utc[-1]) in cache and utc[-1] not in want:
+        want.append(utc[-1])
 
     def one(d: int):
         return d, get(f"/v1/chains/fees?start={d}&end={d + DAY}")
 
     if want:
         print(f"[dao-rev] pool fees: fetching {len(want)} uncached days "
-              f"({len(days) - len(want)} from cache)", flush=True)
+              f"({len(utc) - len(want)} from cache)", flush=True)
         with ThreadPoolExecutor(8) as ex:
             for d, r in ex.map(one, want):
-                if not r:
-                    continue
-                agg = r.get("aggregated") or {}
-                rows = [c for c in (r.get("chains") or []) if c.get("chain")]
-                cache[str(d)] = {
-                    "dao": agg.get("fees_to_dao") or 0.0,
-                    "lp": agg.get("fees_to_lp") or 0.0,
-                    "tre": agg.get("fees_to_treasury") or 0.0,
-                    "ch": {c["chain"]: c.get("fees_to_dao") or 0.0
-                           for c in rows},
-                    "cht": {c["chain"]: c.get("fees_to_treasury") or 0.0
-                            for c in rows},
-                }
+                if r:
+                    cache[str(d)] = fee_row(r)
     else:
         print("[dao-rev] pool fees: all days cached", flush=True)
 
     totals, lp, treasury = {}, {}, {}
     by_chain: dict[str, dict[int, float]] = {}
     n_fixed = 0
-    for d in days:
+    for d in utc:
         e = cache.get(str(d))
         if not e:
             continue
@@ -192,10 +229,22 @@ def pool_fees(days: list[int], st: dict) -> dict:
         cht = e.get("cht") or {}
         for ch, v in (e.get("ch") or {}).items():
             by_chain.setdefault(ch, {})[d] = (v + (cht.get(ch) or 0.0)) * k
-    print(f"[dao-rev] pool fees: {len(totals)}/{len(days)} days, "
+    print(f"[dao-rev] pool fees: {len(totals)}/{len(utc)} days, "
           f"{len(by_chain)} chains, treasury slice included"
           + (f", {n_fixed} corrected for the pre-{time.strftime('%Y-%m-%d', time.gmtime(HALVED_UNTIL))}"
              f" upstream halving" if n_fixed else ""), flush=True)
+    # UTC days -> the periods ending now; the newest ones read directly
+    totals, lp, treasury = (spread(x, days) for x in (totals, lp, treasury))
+    by_chain = {c: spread(v, days) for c, v in by_chain.items()}
+    with ThreadPoolExecutor(8) as ex:
+        for s, r in ex.map(one, days[-EXACT:]):
+            if not r:
+                continue
+            e = fee_row(r)
+            totals[s] = e["dao"] + e["tre"]
+            lp[s], treasury[s] = e["lp"], e["tre"]
+            for c, v in by_chain.items():
+                v[s] = (e["ch"].get(c) or 0.0) + (e["cht"].get(c) or 0.0)
     return {"total": [totals.get(d) for d in days],
             "to_lp": [lp.get(d) for d in days],
             "to_treasury": [treasury.get(d) for d in days],
@@ -208,7 +257,7 @@ def mint_interest(days: list[int]) -> dict:
     """100% of interest on crvUSD minted in the 9 factory mint markets."""
     lst = get("/v1/crvusd/markets/ethereum?fetch_on_chain=false&per_page=50")
     rows = (lst or {}).get("data") or []
-    start, end = days[0], days[-1] + DAY
+    start, end = days[0] // DAY * DAY, days[-1] + DAY
 
     def one(m):
         ctrl = m.get("address")
@@ -245,10 +294,10 @@ def mint_interest(days: list[int]) -> dict:
         for ctrl, sym, cadr, per in ex.map(one, rows):
             key = f"{sym}|{ctrl}"
             coins[key] = cadr
+            per = spread(per, days, carry=True)
             by_market[key] = [per.get(d) for d in days]
             for d, v in per.items():
-                if d in set(days):
-                    totals[d] = totals.get(d, 0.0) + v
+                totals[d] = totals.get(d, 0.0) + v
     print(f"[dao-rev] mint interest: {len(by_market)} markets", flush=True)
     return {"total": [totals.get(d) for d in days], "by_market": by_market,
             "coins": coins}
@@ -267,7 +316,6 @@ def pegkeeper_profit(days: list[int]) -> dict:
     lst = get("/v1/crvusd/pegkeepers/ethereum")
     keepers = (lst or {}).get("keepers") or []
     start = days[0]
-    dayset = set(days)
 
     def one(k):
         if not (k.get("total_profit") or 0) > 0:
@@ -319,10 +367,10 @@ def pegkeeper_profit(days: list[int]) -> dict:
             for e in evs:
                 if e["timestamp"] < start:
                     continue
-                d = int(e["timestamp"]) // DAY * DAY
+                d = start + (int(e["timestamp"]) - start) // DAY * DAY
                 lp = max(0.0, (e.get("profit") or 0.0) - prev)
                 prev = e.get("profit") or prev
-                if d in dayset and lp > 0:
+                if d <= days[-1] and lp > 0:
                     per[d] = per.get(d, 0.0) + lp
             names[pool] = k.get("pool") or pool
             other = [c for c in (k.get("pair") or [])
@@ -339,7 +387,8 @@ def pegkeeper_profit(days: list[int]) -> dict:
         vp = vps(pool)
         usd_per = {}
         for d, lp in per.items():
-            v = lp * (vp.get(d) or (vp[max(vp)] if vp else 1.0))
+            v = lp * (vp.get(d // DAY * DAY)
+                      or (vp[max(vp)] if vp else 1.0))
             usd_per[d] = v
             totals[d] = totals.get(d, 0.0) + v
         key = f"{names[pool]}|{pool}"
@@ -352,7 +401,8 @@ def pegkeeper_profit(days: list[int]) -> dict:
             "coins": out_coins}
 
 
-def pool_leaderboard(days: list[int], st: dict, force: bool = False) -> dict:
+def pool_leaderboard(days: list[int], st: dict, force: bool = False,
+                     deadline: float = float("inf")) -> dict:
     """DAO swap-fee revenue per POOL, across every chain.
 
     /v1/chains/fees only aggregates by chain, so the per-pool split has to be
@@ -378,13 +428,28 @@ def pool_leaderboard(days: list[int], st: dict, force: bool = False) -> dict:
       registries and asking about each pool recovers $19k (bsc) and $65k
       (base) of 30-day fees that listing alone would miss.
     """
-    cache = st.get("pool_lb") or {}
-    age = time.time() - (st.get("pools_at") or 0)
-    if cache and not force and age < POOL_TTL:
-        print(f"[dao-rev] pool leaderboard: cached "
-              f"({age / 3600:.1f}h old, {len(cache)} pools)", flush=True)
-        return cache
+    lb_sweep(days, st, force, deadline)
+    lb_refresh(days, st)
+    # the last 30 x 24 h and 365 x 24 h: whole UTC days, today's so far, and
+    # the oldest day by its share of the hours
+    def rolling(r: dict, lo: int) -> float:
+        first = lo // DAY * DAY
+        return sum(v * (1 - (lo - first) / DAY) if int(d) == first else v
+                   for d, v in r.items() if int(d) >= first)
 
+    out = {}
+    for key, e in (st.get("pool_lb") or {}).items():
+        if "r" not in e:                 # built before the rows were kept
+            out[key] = e
+            continue
+        tot365 = rolling(e["r"], days[0])
+        if tot365 > 0.005:
+            out[key] = {"n": e["n"], "c": e["c"], "k": e["k"],
+                        "d30": rolling(e["r"], days[-30]), "d365": tot365}
+    return out
+
+
+def lb_universe() -> list:
     try:
         cen = json.loads((HERE / "data" / "census.json").read_text())["pools"]
     except (OSError, KeyError, ValueError):
@@ -422,14 +487,17 @@ def pool_leaderboard(days: list[int], st: dict, force: bool = False) -> dict:
           f"{len(plat.get('platforms') or {})} chains ({n_census} from "
           f"census, {len(targets) - n_census} added from the registries)",
           flush=True)
-    start, end = days[0], days[-1] + DAY
-    d30 = set(days[-30:])
-    dayset = set(days)
+    return targets
+
+
+def lb_pool(t, start: int, end: int):
+    """One pool's DAO fees per UTC day, today's so far included."""
+    ch, addr, label, coins = t
     # A pool's admin_fee is the whole protocol take, and since the headline
     # counts the whole take too (fees_to_dao plus the ~10% treasury slice),
     # fees x admin_fee is directly the right quantity — no share scaling.
 
-    def windows(fetch):
+    def windows_between(fetch, lo, hi):
         """Walk the range backwards.
 
         The endpoints cap at POOL_ROWS ROWS, which is not POOL_ROWS days:
@@ -438,9 +506,6 @@ def pool_leaderboard(days: list[int], st: dict, force: bool = False) -> dict:
         by the oldest row actually returned, not by the width of the window
         asked for, or the walk skips the 250 days in between.
         """
-        return windows_between(fetch, start, end)
-
-    def windows_between(fetch, lo, hi):
         out = []
         w_end = hi
         while w_end > lo:
@@ -459,59 +524,109 @@ def pool_leaderboard(days: list[int], st: dict, force: bool = False) -> dict:
                 break                    # no progress possible
         return out
 
-    def one(t):
-        ch, addr, label, coins = t
-        vol = windows(lambda a, b: ((get(
-            f"/v1/volume/usd/{ch}/{addr}?interval=day&start={a}&end={b}")
-            or {}).get("data") or []))
-        earned = [x for x in vol
-                  if x.get("timestamp") is not None and (x.get("fees") or 0) > 0
-                  and int(x["timestamp"]) // DAY * DAY in dayset]
-        if not earned:
-            return None
-        # admin_fee is only needed over the span the pool actually earned in,
-        # which for the long tail is a few days rather than the whole year
-        lo = min(int(x["timestamp"]) for x in earned) // DAY * DAY
-        hi = max(int(x["timestamp"]) for x in earned) // DAY * DAY + DAY
-        snap = windows_between(lambda a, b: ((get(
-            f"/v1/snapshots/{ch}/{addr}?start={a}&end={b}")
-            or {}).get("data") or []), lo, hi)
-        af = {int(x["timestamp"]) // DAY * DAY: (x["admin_fee"] or 0) / 1e10
-              for x in snap if x.get("timestamp") is not None
-              and x.get("admin_fee") is not None}
-        keys = sorted(af)
-        tot30 = tot365 = 0.0
-        for x in earned:
-            d = int(x["timestamp"]) // DAY * DAY
-            share = af.get(d)
-            if share is None and keys:
-                # nearest snapshot IN TIME, preferring one at or before the
-                # day — never simply the newest, which would backdate a
-                # later governance change onto every earlier day
-                i = bisect.bisect_right(keys, d)
-                share = af[keys[i - 1]] if i else af[keys[0]]
-            v = (x.get("fees") or 0.0) * (share or 0.0)
-            tot365 += v
-            if d in d30:
-                tot30 += v
-        if tot365 <= 0.005:
-            return None
-        return f"{ch}:{addr}", {"n": label, "c": ch, "k": coins[:3],
-                                "d30": tot30, "d365": tot365}
+    vol = windows_between(lambda a, b: ((get(
+        f"/v1/volume/usd/{ch}/{addr}?interval=day&start={a}&end={b}")
+        or {}).get("data") or []), start, end)
+    earned = [x for x in vol
+              if x.get("timestamp") is not None and (x.get("fees") or 0) > 0
+              and int(x["timestamp"]) >= start]
+    if not earned:
+        return None
+    # admin_fee is only needed over the span the pool actually earned in,
+    # which for the long tail is a few days rather than the whole year
+    lo = min(int(x["timestamp"]) for x in earned) // DAY * DAY
+    hi = max(int(x["timestamp"]) for x in earned) // DAY * DAY + DAY
+    snap = windows_between(lambda a, b: ((get(
+        f"/v1/snapshots/{ch}/{addr}?start={a}&end={b}")
+        or {}).get("data") or []), lo, hi)
+    af = {int(x["timestamp"]) // DAY * DAY: (x["admin_fee"] or 0) / 1e10
+          for x in snap if x.get("timestamp") is not None
+          and x.get("admin_fee") is not None}
+    keys = sorted(af)
+    r: dict[str, float] = {}
+    for x in earned:
+        d = int(x["timestamp"]) // DAY * DAY
+        share = af.get(d)
+        if share is None and keys:
+            # nearest snapshot IN TIME, preferring one at or before the
+            # day — never simply the newest, which would backdate a
+            # later governance change onto every earlier day
+            i = bisect.bisect_right(keys, d)
+            share = af[keys[i - 1]] if i else af[keys[0]]
+        v = (x.get("fees") or 0.0) * (share or 0.0)
+        if v > 0:
+            r[str(d)] = round(v, 2)
+    if not r:
+        return None
+    return f"{ch}:{addr}", {"n": label, "c": ch, "k": coins[:3],
+                            "s": af[keys[-1]] if keys else 0.0, "r": r}
 
-    print(f"[dao-rev] pool leaderboard: rebuilding over {len(targets)} "
-          f"pools (a few minutes; cached for {POOL_TTL // 3600}h)", flush=True)
-    t0 = time.time()
-    out: dict = {}
+
+def lb_sweep(days: list[int], st: dict, force: bool, deadline: float) -> None:
+    """Every pool's year, resumable: a sweep takes thousands of calls, more
+    than one run's limit, so it stops at `deadline` and goes on next run. The
+    finished sweep replaces the previous one at once, so the list never shows
+    a half-built state."""
+    scan = st.get("lb_scan")
+    age = time.time() - (st.get("pools_at") or 0)
+    if not scan:
+        if st.get("pool_lb") and not force and age < POOL_TTL:
+            print(f"[dao-rev] pool sweep: last one {age / 3600:.1f}h old, "
+                  f"{len(st['pool_lb'])} pools", flush=True)
+            return
+        scan = st["lb_scan"] = {"targets": lb_universe(), "i": 0, "out": {}}
+    targets, start = scan["targets"], days[0] // DAY * DAY - DAY
+    end = days[-1] + 2 * DAY
+    t0, i0 = time.time(), scan["i"]
     with ThreadPoolExecutor(12) as ex:
-        for r in ex.map(one, targets):
-            if r:
-                out[r[0]] = r[1]
-    st["pool_lb"] = out
-    st["pools_at"] = int(time.time())
-    print(f"[dao-rev] pool leaderboard: {len(out)} pools with fees "
+        while scan["i"] < len(targets) and time.time() < deadline:
+            block = targets[scan["i"]:scan["i"] + 120]
+            for r in ex.map(lambda t: lb_pool(t, start, end), block):
+                if r:
+                    scan["out"][r[0]] = r[1]
+            scan["i"] += len(block)
+            save_state(st)
+    print(f"[dao-rev] pool sweep: {scan['i']}/{len(targets)} pools "
+          f"(+{scan['i'] - i0} in {time.time() - t0:.0f}s), "
+          f"{len(scan['out'])} with fees", flush=True)
+    if scan["i"] >= len(targets):
+        st["pool_lb"] = scan["out"]
+        st["pools_at"] = int(time.time())
+        st.pop("lb_scan", None)
+
+
+def lb_refresh(days: list[int], st: dict) -> None:
+    """Yesterday and today for every pool that earned lately, each run: the
+    sweep is far too slow to keep a window ending now up to date. A day's
+    share comes from the pool's newest admin_fee."""
+    pools = st.get("pool_lb") or {}
+    today = int(time.time()) // DAY * DAY
+    cut = str(today - LB_ACTIVE_DAYS * DAY)
+    active = [(k, e) for k, e in pools.items()
+              if "r" in e and e.get("s") and max(e["r"]) >= cut]
+
+    def one(t):
+        k, e = t
+        ch, _, addr = k.partition(":")
+        return e, (get(f"/v1/volume/usd/{ch}/{addr}?interval=day"
+                       f"&start={today - 2 * DAY}&end={today + DAY}") or {})
+
+    t0 = time.time()
+    n = 0
+    with ThreadPoolExecutor(12) as ex:
+        for e, r in ex.map(one, active):
+            for x in r.get("data") or []:
+                if x.get("timestamp") is None or x.get("fees") is None:
+                    continue
+                d = int(x["timestamp"]) // DAY * DAY
+                e["r"][str(d)] = round(x["fees"] * e["s"], 2)
+                n += 1
+    old = str(days[0] - 2 * DAY)
+    for e in pools.values():
+        if "r" in e:
+            e["r"] = {d: v for d, v in e["r"].items() if d >= old}
+    print(f"[dao-rev] pool refresh: {len(active)} recent earners, {n} days "
           f"in {time.time() - t0:.0f}s", flush=True)
-    return out
 
 
 def lend_interest(days: list[int]) -> dict:
@@ -537,7 +652,7 @@ def lend_interest(days: list[int]) -> dict:
     by_market: dict[str, list] = {}
     coins: dict[str, str] = {}
     totals: dict[int, float] = {}
-    dayset = set(days)
+    first = days[0] // DAY * DAY
     for key, m in (llm.get("markets") or {}).items():
         if m.get("group") != "LLV2":
             continue
@@ -553,7 +668,7 @@ def lend_interest(days: list[int]) -> dict:
         per: dict[int, float] = {}
         for i, ts in enumerate(t):
             d = int(ts) // DAY * DAY
-            if d not in dayset:
+            if d < first:
                 continue
             debt = du[i] if i < len(du) else None
             apr = ba[i] if i < len(ba) else None
@@ -563,6 +678,7 @@ def lend_interest(days: list[int]) -> dict:
         if per:
             mk_key = f"{m.get('name', '?')}|{key}"
             coins[mk_key] = colad.get(key.lower(), "")
+            per = spread(per, days, carry=True)
             by_market[mk_key] = [per.get(d) for d in days]
             for d, v in per.items():
                 totals[d] = totals.get(d, 0.0) + v
@@ -574,7 +690,9 @@ def lend_interest(days: list[int]) -> dict:
 
 def main() -> None:
     t0 = time.time()
-    days = day_starts(DAYS)
+    # 24 h periods ending at the last full hour
+    anchor = int(t0) // HOUR * HOUR
+    days = [anchor - i * DAY for i in range(DAYS, 0, -1)]
     st = load_state()
     force = "--pools" in sys.argv
     out = {
@@ -588,7 +706,7 @@ def main() -> None:
             "pegkeeper": pegkeeper_profit(days),
         },
     }
-    lb = pool_leaderboard(days, st, force)
+    lb = pool_leaderboard(days, st, force, t0 + LB_BUDGET_S)
     pf = out["sources"]["pool_fees"]
     pf["by_pool"] = lb
     pf["pools_at"] = st.get("pools_at")
