@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 import time
 import urllib.parse
@@ -61,7 +60,13 @@ AGED_TOL = 0.10                # an aged snapshot has not seen the interest
 
 # ---- AMM fee timeline (the ONE thing the API snapshots don't carry) --------
 # SetFee logs per chain in a single address-array getLogs pass, incremental
-# from the last scanned block — a handful of RPC calls per cycle.
+# from the last scanned block — a handful of RPC calls per cycle. After a gap
+# (a provider cap, a slow cycle) it catches up window by window: each window
+# done moves the cursor, and FEE_SCAN_S ends the pass, the next run resumes.
+FEE_WIN = 20_000        # blocks per window, split further to a provider's cap
+FEE_SCAN_S = 120        # seconds per chain per run
+
+
 def _topic(sig: str) -> str:
     from Crypto.Hash import keccak
     h = keccak.new(digest_bits=256)
@@ -87,16 +92,11 @@ def _block_at_ts(rpc, ts: int, head: int, cache: dict) -> int:
     return lo
 
 
-def _fee_logs(rpc, addrs, frm, to, topic):
-    return rpc.raw("eth_getLogs", [{
-        "fromBlock": hex(frm), "toBlock": hex(to),
-        "address": addrs, "topics": [topic]}])
-
-
 def fee_timelines(groups: dict, created: dict, st: dict) -> dict:
     """key -> {"points": [[ts, fee_pct], ...]} — deployment fee first,
     then every SetFee change. Scan state persists in st["fee_scan"]."""
     from common import sel
+    from fetch_lenders import get_logs_split
     from fetch_markets import Rpc
     topic = _topic("SetFee(uint256)")
     fs = st.setdefault("fee_scan", {})
@@ -119,19 +119,12 @@ def fee_timelines(groups: dict, created: dict, st: dict) -> dict:
                 t0 = (min(anchors) - 86400) if anchors else None
                 frm = _block_at_ts(rpc, t0, head, bts) if t0 else max(
                     1, head - 3_000_000)
-            addrs = [m["amm"] for m in ms if m.get("amm")]
-            if frm <= head:
-                try:
-                    logs = _fee_logs(rpc, addrs, frm, head, topic)
-                except Exception as e:
-                    mm = re.search(r"max(?:imum)? block range:?\s*(\d+)",
-                                   str(e))
-                    step = int(mm.group(1)) if mm else 100_000
-                    logs, b = [], frm
-                    while b <= head:
-                        logs += _fee_logs(rpc, addrs, b,
-                                          min(head, b + step - 1), topic)
-                        b += step
+            flt = {"address": [m["amm"] for m in ms if m.get("amm")],
+                   "topics": [topic]}
+            stop = time.time() + FEE_SCAN_S
+            while frm <= head and time.time() < stop:
+                to = min(head, frm + FEE_WIN - 1)
+                logs = get_logs_split(rpc, flt, frm, to)
                 for lg in sorted(logs, key=lambda x: int(
                         x["blockNumber"], 16)):
                     a = lg["address"].lower()
@@ -150,7 +143,11 @@ def fee_timelines(groups: dict, created: dict, st: dict) -> dict:
                             cst["init"][a] = round(int(r, 16) / 1e16, 4)
                         except Exception:
                             cst["init"][a] = None
-                cst["last"] = head
+                cst["last"] = to
+                frm = to + 1
+            if frm <= head:
+                print(f"[llm] fee scan {chain}: {head - frm + 1} blocks "
+                      f"left for the next run")
         except Exception as e:
             print(f"[llm] fee scan {chain} failed: {str(e)[:120]}")
         for m in ms:
