@@ -31,9 +31,13 @@ that these are NOT the same fraction of the headline number:
   LlamaLend V1     where the DAO is one of those lenders: it mints crvUSD
                    into a V1 vault through a CurveLendOperator (sreUSD/crvUSD,
                    96% of the vault on 30 Oct 2026) and what its shares earn
-                   reaches the Fee Splitter through withdraw_profit(). Read
-                   from chain by fetch_llm.py and booked when paid, so this
-                   series is bursty like the pegkeeper's.
+                   reaches the Fee Splitter through withdraw_profit(), read
+                   from chain by fetch_llm.py. The interest accrues daily but
+                   is collected weekly or after 4 weeks, so each payout is
+                   laid over the days since the one before, by that day's
+                   debt * rate * DAO share of the vault (the sum between two
+                   payouts lands within 1% of the payout on 35 of 42). What
+                   has not been collected yet is that estimate as it stands.
 
   pegkeeper        a PegKeeper mints crvUSD into its pool above peg and
                    withdraws+burns below; the value extracted doing that is
@@ -696,8 +700,10 @@ def lend_interest(days: list[int]) -> dict:
 
 
 def lend_dao_profit(days: list[int]) -> dict:
-    """What the V1 vaults the DAO lends into paid it, each payout on its own
-    timestamp. crvUSD counts as dollars, as the interest legs do."""
+    """What the V1 vaults the DAO lends into earn it per day, with every
+    payout spread over the days it was earned in and the days since the last
+    payout at the estimate. crvUSD counts as dollars, as the interest legs
+    do."""
     try:
         llm = json.loads((HERE / "data" / "llm.json").read_text())
     except OSError:
@@ -712,20 +718,44 @@ def lend_dao_profit(days: list[int]) -> dict:
     by_market: dict[str, list] = {}
     coins: dict[str, str] = {}
     totals: dict[int, float] = {}
-    start, end = days[0], days[-1] + DAY
     for key, m in (llm.get("markets") or {}).items():
         dl = m.get("dao_lender")
-        if not dl:
+        if not dl or not dl.get("tl"):
             continue
+        ch, _, ctrl = key.partition(":")
+        f = HERE / "data" / "llm_hist" / f"{ch}_{ctrl}.json"
+        h = json.loads(f.read_text()) if f.is_file() else {}
+        t, du, ba, a = (h.get(x) or [] for x in ("t", "du", "ba", "a"))
+        tl = dl["tl"]
+        est: dict[int, float] = {}
+        for i, ts in enumerate(t):
+            if i < min(len(du), len(ba), len(a)) and None not in (
+                    du[i], ba[i]) and a[i]:
+                minted = ([x[1] for x in tl if x[0] <= ts] or [0.0])[-1]
+                est[int(ts) // DAY * DAY] = (du[i] * (ba[i] / 100.0) / 365.0
+                                             * min(1.0, minted / a[i]))
+
+        def overlap(lo: int, hi: int) -> dict[int, float]:
+            """Each UTC day's estimate over the part of it inside lo..hi."""
+            return {d: v * (min(hi, d + DAY) - max(lo, d)) / DAY
+                    for d, v in est.items() if d < hi and d + DAY > lo}
+
         per: dict[int, float] = {}
+        lo = tl[0][0]
         for ts, amt in dl.get("paid") or []:
-            if start <= ts < end:
-                d = start + (ts - start) // DAY * DAY
-                per[d] = per.get(d, 0.0) + amt
-                totals[d] = totals.get(d, 0.0) + amt
+            w = overlap(lo, ts)
+            tot = sum(w.values())
+            for d, v in (w.items() if tot else [(ts // DAY * DAY, 1.0)]):
+                per[d] = per.get(d, 0.0) + amt * v / (tot or 1.0)
+            lo = max(lo, ts)
+        for d, v in overlap(lo, days[-1] + 2 * DAY).items():
+            per[d] = per.get(d, 0.0) + v
+        per = spread(per, days, carry=True)
         mk_key = f"{m.get('name', '?')}|{key}"
         coins[mk_key] = colad.get(key, "")
         by_market[mk_key] = [per.get(d) for d in days]
+        for d, v in per.items():
+            totals[d] = totals.get(d, 0.0) + v
     print(f"[dao-rev] lending V1 profit: {len(by_market)} markets", flush=True)
     return {"total": [totals.get(d) for d in days], "by_market": by_market,
             "coins": coins}

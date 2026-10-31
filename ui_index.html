@@ -931,8 +931,8 @@
      the treasury (a routing of revenue, not a reduction of it); crvUSD mint
      markets have no lenders so 100% of interest is DAO revenue; LlamaLend V2
      takes admin_percentage (10%) of borrower interest while V1 takes none,
-     the DAO earns there only as a lender of crvUSD it minted itself (booked
-     when paid); pegkeepers keep 100% of the profit they extract defending
+     the DAO earns there only as a lender of crvUSD it minted itself (each
+     payout spread over the days it was earned in); pegkeepers keep 100% of the profit they extract defending
      the crvUSD peg (claimed as LP tokens, booked on the claim day). Built by
      fetch_dao_revenue.py on the refresh cycle. -->
 <div id="view_daorev" style="display:none">
@@ -4801,10 +4801,11 @@ window.loadDaoRevTab = async function () {
           + "take no cut" },
     { k: "lend_dao_profit", label: "LlamaLend V1 lending profit",
       color: "#39C5CF",
-      short: "crvUSD the DAO mints and lends in a V1 vault, booked when paid",
+      short: "crvUSD the DAO mints and lends in a V1 vault",
       rule: "the DAO's own share of borrower interest where it lends crvUSD "
-          + "it minted into a V1 vault — paid to the Fee Splitter in lumps, "
-          + "so it is booked on the day it arrives" },
+          + "it minted into a V1 vault — it accrues daily and reaches the "
+          + "Fee Splitter weekly or later, so each payout is spread over the "
+          + "days it was earned in" },
     { k: "pegkeeper", label: "pegkeeper profit", color: "#3FB950",
       short: "100% of peg-defense profit, booked on the day it is claimed",
       rule: "100% of the profit pegkeepers extract minting/burning crvUSD "
