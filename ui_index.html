@@ -1247,6 +1247,7 @@
           <button type="button" data-v="tvlcoins">TVL coins</button>
           <button type="button" data-v="don">Donation reserve</button>
           <button type="button" data-v="pps">Profits</button>
+          <button type="button" data-v="cap">Deposit caps</button>
         </div>
       </fieldset>
       <fieldset>
@@ -1263,6 +1264,12 @@
           <button type="button" data-v="all" class="on">All Pools</button>
           <button type="button" data-v="btc">BTC Pools</button>
           <button type="button" data-v="eth">ETH Pools</button>
+        </div>
+        <!-- v1 = the 2025 pools (dashed, "old pool"), v2 = the May-2026 ones -->
+        <div class="yb-seg" id="yb_ver" data-value="all" style="margin-top:6px">
+          <button type="button" data-v="all" class="on">All Versions</button>
+          <button type="button" data-v="v1">v1 Pools</button>
+          <button type="button" data-v="v2">v2 Pools</button>
         </div>
       </fieldset>
       <div class="note" id="yb_meta">loading…</div>
@@ -5990,7 +5997,7 @@ window.loadYbTab = async function loadYbTab() {
     if (!r.width) return;
     const sc = Math.min(r.width / 900, r.height / 320);
     // padding moves a centred box by half its width -> 2 x (left - right)/2
-    const topLeft = mode === "imb" ? 46 : 62, botLeft = 62;
+    const topLeft = mode === "imb" || mode === "cap" ? 46 : 62, botLeft = 62;
     document.getElementById("yb_title1").style.paddingLeft =
       `${((topLeft - 16) * sc).toFixed(1)}px`;
     for (const id of ["yb_legend", "yb_title2"])
@@ -6007,9 +6014,13 @@ window.loadYbTab = async function loadYbTab() {
     || (d.lts || []).find(l => l.label === label) || {};
   const dashOf = pm => pm.rank >= 2 ? "1.5 3" : (pm.old ? "4 3" : "");
   const isEthPool = (d, label) => /ETH/i.test(entityMeta(d, label).symbol || label);
-  const classFilter = (d, obj, cls) => cls === "all" ? obj
-    : Object.fromEntries(Object.entries(obj)
-        .filter(([label]) => isEthPool(d, label) === (cls === "eth")));
+  // ...and the version filter: v1 = older pools / markets, v2 = newest
+  const classFilter = (d, obj, cls) => {
+    const ver = document.getElementById("yb_ver").dataset.value;
+    return Object.fromEntries(Object.entries(obj).filter(([label]) =>
+      (cls === "all" || isEthPool(d, label) === (cls === "eth"))
+      && (ver === "all" || !!entityMeta(d, label).old === (ver === "v1"))));
+  };
 
   // Profits view: a small chart per market (LT), each with its own y-axis,
   // solid = pricePerShare (unstaked growth), dashed = staked value of 1 LT
@@ -6032,18 +6043,24 @@ window.loadYbTab = async function loadYbTab() {
     const mode = document.getElementById("yb_chartsel").dataset.value;
     const usdMode = mode === "tvlusd" || mode === "don";
     const ppsMode = mode === "pps";
+    // cap = deposits as % of the cap (LT.deposit() reverts "Debt too
+    // high" past 100%), per pool: markets on one pool summed
+    const capMode = mode === "cap";
     const src = mode === "tvlusd" ? d.tvl_usd
               : mode === "don" ? d.donation_usd
+              : capMode ? d.cap_used
               : ppsMode ? d.pps : d.series;
     if (!src) { svg.innerHTML = ""; return; }
     const series = classFilter(d, src, cls);
     const fmtAxis = usdMode ? fmtUsd
-                  : ppsMode ? (v => v.toFixed(4)) : (v => `${v.toFixed(1)}%`);
+                  : ppsMode ? (v => v.toFixed(4))
+                  : capMode ? (v => `${v.toFixed(0)}%`) : (v => `${v.toFixed(1)}%`);
     document.getElementById("yb_title1").textContent = {
       imb: "Pool imbalance — crvUSD share of pool value",
       tvlusd: "TVL — whole pool in USD",
       don: "Donation reserve — value of donation_shares in USD",
       pps: "Profit per market — Fundamental PPS (LT pricePerShare), 1.0 = launch",
+      cap: "Deposit cap used — % of each pool's cap (100% = full)",
     }[mode] || "";
     svg.innerHTML = "";
     legend.innerHTML = "";
@@ -6055,6 +6072,11 @@ window.loadYbTab = async function loadYbTab() {
     for (const s of Object.values(series))
       for (const v of s) if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
     if (usdMode) { lo = 0; hi = hi > 0 ? hi * 1.06 : 1; }
+    else if (capMode) {
+      // grid every 25% so 100% is always a line, top past the highest value
+      lo = 0;
+      hi = 25 * Math.ceil(Math.max(isFinite(hi) ? hi : 0, 100) * 1.06 / 25);
+    }
     else if (ppsMode) {
       if (!isFinite(lo)) { lo = 0.99; hi = 1.01; }
       lo = Math.min(lo, 1); hi = Math.max(hi, 1);
@@ -6067,8 +6089,10 @@ window.loadYbTab = async function loadYbTab() {
     const Y = v => M.top + (1 - (v - lo) / (hi - lo)) * ph;
     let g = "";
     // y grid + labels
-    for (let k = 0; k <= 4; k++) {
-      const v = lo + (hi - lo) * k / 4;
+    const yTicks = capMode
+      ? Array.from({ length: Math.round(hi / 25) + 1 }, (_, k) => k * 25)
+      : [0, 1, 2, 3, 4].map(k => lo + (hi - lo) * k / 4);
+    for (const v of yTicks) {
       g += `<line x1="${M.left}" y1="${Y(v)}" x2="${W - M.right}" y2="${Y(v)}"
              stroke="#21262d" stroke-width="1"/>
             <text x="${M.left - 6}" y="${Y(v) + 4}" text-anchor="end"
@@ -6104,6 +6128,13 @@ window.loadYbTab = async function loadYbTab() {
                    : ppsMode ? `pps ${(last ?? 0).toFixed(5)}`
                    : `${last?.toFixed(2)}%`;
       let tip = `${pm.pool || ""} · now ${nowTxt} · pool ${fmtM(pm.tvl_crvusd)}`;
+      if (capMode) {
+        const dep = [...(d.cap_dep?.[label] || [])].reverse().find(v => v != null);
+        const cap = [...(d.cap_max?.[label] || [])].reverse().find(v => v != null);
+        tip = `market${(pm.markets || []).length > 1 ? "s" : ""} ${
+          (pm.markets || []).join(" + ")} · ${fmtUsd(dep ?? 0)} of ${
+          fmtUsd(cap ?? 0)} · ${cap > dep ? fmtUsd(cap - dep) + " room" : "full"}`;
+      }
       if (ppsMode) {
         const idx = vals.map((v, i) => v == null ? null : i).filter(i => i != null);
         const first = idx.length ? vals[idx[0]] : null;
@@ -6128,6 +6159,9 @@ window.loadYbTab = async function loadYbTab() {
                        left: M.left, right: W - M.right, t: d.t, X, Y,
                        lines: hoverLines,
                        fmt: (v, ln) => mode === "imb" ? `${v.toFixed(2)}%`
+                         : capMode
+                           ? `${v.toFixed(1)}% · ${fmtUsd(d.cap_dep?.[ln.label]?.[ln.i] ?? 0)
+                             } of ${fmtUsd(d.cap_max?.[ln.label]?.[ln.i] ?? 0)}`
                          : mode === "don"
                            ? `$${Math.round(v).toLocaleString()} (${
                                (d.donation_pct?.[ln.label]?.[ln.i] ?? 0)
@@ -6244,6 +6278,7 @@ window.loadYbTab = async function loadYbTab() {
   wireSeg("yb_chartsel", applyChartSel);
   applyChartSel(null);
   wireSeg("yb_class", d => { if (d) { renderImbalance(d); drawBalances(d); } });
+  wireSeg("yb_ver", d => { if (d) { renderImbalance(d); drawBalances(d); } });
   document.getElementById("yb_days").addEventListener("change", draw);
   draw();
   // match the server's 15-min cache: redraw on that cadence while the

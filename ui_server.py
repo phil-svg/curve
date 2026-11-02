@@ -242,7 +242,7 @@ def _yb_series(days: int, points: int) -> dict:
     for i in range(n_mk):
         r = rpc.q(FACTORY, "markets(uint256)", i)
         words = ["0x" + r[2:][k * 64:(k + 1) * 64][24:] for k in range(4)]
-        asset, pool, lt = words[0], words[1], words[3]
+        asset, pool, amm, lt = words[0], words[1], words[2], words[3]
         if int(pool, 16) == 0:
             continue
         if asset not in sym_cache:
@@ -254,8 +254,8 @@ def _yb_series(days: int, points: int) -> dict:
                 staker = "0x" + rpc.q(lt, "staker()")[-40:]
             except Exception:
                 staker = None
-            lts.append({"symbol": sym, "lt": lt, "staker": staker,
-                        "market_index": i})
+            lts.append({"symbol": sym, "lt": lt, "amm": amm, "pool": pool,
+                        "staker": staker, "market_index": i})
         if pool in seen:
             continue
         seen.add(pool)
@@ -303,6 +303,12 @@ def _yb_series(days: int, points: int) -> dict:
     for l in lts:
         calls += [(l["lt"], "pricePerShare()", None),
                   (l["staker"] or l["lt"], "previewRedeem(uint256)", 10 ** 18)]
+    # deposit cap per market: LT.deposit() reverts "Debt too high" once the
+    # AMM's value passes half of max_debt() (crvUSD lent out + crvUSD idle)
+    CAP0 = len(calls)
+    for l in lts:
+        calls += [(l["amm"], "max_debt()", None),
+                  (l["amm"], "value_oracle()", None)]
 
     # one multicall per sampled block; 8 in flight (own Rpc per thread —
     # Rpc reorders its endpoint list on failure) cuts a cold 120-point
@@ -333,6 +339,10 @@ def _yb_series(days: int, points: int) -> dict:
     xcp = {p["label"]: [] for p in pools}         # pool xcp_profit
     pps = {l["label"]: [] for l in lts}           # LT pricePerShare
     staked = {l["label"]: [] for l in lts}        # staker value of 1 LT
+    # per POOL, like the other pool charts: the markets on one pool summed
+    cap_used = {p["label"]: [] for p in pools}    # value / cap, %
+    cap_dep = {p["label"]: [] for p in pools}     # value, crvUSD
+    cap_max = {p["label"]: [] for p in pools}     # cap = max_debt / 2
     tvl = {p["label"]: None for p in pools}   # crvUSD-eq at the last sample
     times = []
     for b in blocks:
@@ -371,6 +381,8 @@ def _yb_series(days: int, points: int) -> dict:
                 don_pct[p["label"]].append(None)
             if val > 0:
                 tvl[p["label"]] = round(val / 1e18)
+        dep_p: dict = {}
+        cap_p: dict = {}
         for j, l in enumerate(lts):
             v_pps = _num(res[LT0 + 2 * j])
             v_red = _num(res[LT0 + 2 * j + 1])
@@ -378,6 +390,18 @@ def _yb_series(days: int, points: int) -> dict:
             staked[l["label"]].append(
                 round(v_red / 1e18 * v_pps / 1e18, 6)
                 if (v_pps and v_red and l["staker"]) else None)
+            md = _num(res[CAP0 + 2 * j])
+            vo = res[CAP0 + 2 * j + 1]      # OraclizedValue(p_o, value)
+            val = int(vo[66:130], 16) if vo and len(vo) >= 130 else None
+            if md and val is not None:
+                dep_p[l["pool"]] = dep_p.get(l["pool"], 0) + val / 1e18
+                cap_p[l["pool"]] = cap_p.get(l["pool"], 0) + md / 2e18
+        for p in pools:
+            c = cap_p.get(p["pool"])
+            cap_used[p["label"]].append(
+                round(dep_p[p["pool"]] / c * 100, 2) if c else None)
+            cap_dep[p["label"]].append(round(dep_p[p["pool"]]) if c else None)
+            cap_max[p["label"]].append(round(c) if c else None)
     return {"days": days, "points": len(times), "t": times,
             "series": series,
             "asset_bal": asset_bal, "asset_usd": asset_usd,
@@ -385,12 +409,15 @@ def _yb_series(days: int, points: int) -> dict:
             "donation_usd": don_usd, "donation_pct": don_pct,
             "vp": vp, "xcp_profit": xcp,
             "pps": pps, "staked": staked,
+            "cap_used": cap_used, "cap_dep": cap_dep, "cap_max": cap_max,
             "lts": [{"symbol": l["symbol"], "label": l["label"],
                      "lt": l["lt"], "staker": l["staker"],
                      "market_index": l["market_index"], "rank": l["rank"],
                      "old": l["old"]} for l in lts],
             "pools": [{"symbol": p["symbol"], "label": p["label"],
                        "pool": p["pool"], "market_index": p["market_index"],
+                       "markets": [l["market_index"] for l in lts
+                                   if l["pool"] == p["pool"]],
                        "old": p["old"], "tvl_crvusd": tvl[p["label"]]}
                       for p in pools],
             "head_block": head, "generated_at": int(time.time())}
