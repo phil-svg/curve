@@ -1211,6 +1211,24 @@ def lp_record(key: str) -> dict | None:
     return _LP_REC["pools"].get(key)
 
 
+_MIS = {"tag": None, "pools": {}}
+
+
+def mispriced(key: str) -> dict | None:
+    """A pool fetchers/mispriced.py found valued off a coin price nothing
+    backs: its record there (name, coins), or None. Parsed once per rewrite."""
+    f = HERE / "data" / "mispriced.json"
+    try:
+        st = f.stat()
+        tag = (st.st_mtime_ns, st.st_size)
+        if _MIS["tag"] != tag:
+            _MIS.update(tag=tag, pools=json.loads(f.read_text())
+                        .get("pools") or {})
+    except (OSError, ValueError):
+        return None
+    return _MIS["pools"].get(key)
+
+
 def lp_tokidx() -> tuple[bytes, str]:
     """{"sym": [[SYMBOL, address, chain], ...], "lp": {"chain:addr":
     [coin, ...]}}. sym: the first pool coin per symbol, in the pools list's
@@ -2616,6 +2634,16 @@ class Handler(BaseHTTPRequestHandler):
             rec = lp_record(f"{ch}:{pa}")
             if rec:
                 h = {**h, "lp": rec}
+            mis = mispriced(f"{ch}:{pa}")
+            if mis:
+                # its dollar figures rest on a coin price nothing backs
+                # (fetchers/mispriced.py): none of them is shown
+                n = len(h.get("t") or [])
+                h = {**h, **{k: [None] * n
+                             for k in ("tvl", "vol", "fees", "bapr")},
+                     "lp": {"label": mis["label"], "chain": ch, "pool": pa,
+                            "coins": mis["coins"], "tvl": None}}
+                h.pop("d24", None)
             # EMA-time parameters exist only on-chain (the prices API has
             # no field for them) — the impl-map cycle probes them
             try:

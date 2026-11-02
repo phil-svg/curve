@@ -7721,7 +7721,8 @@ window.loadLpTab = async function () {
   // at the bottom of the single-pool page; the landing list is a TVL
   // leaderboard and no longer draws pies.
   function lpPieCard(p) {
-    if (!p) return `<div class="note">holder data not tracked yet</div>`;
+    if (!p || p.tvl == null)
+      return `<div class="note">holder data not tracked yet</div>`;
     if (!(p.top || []).length)
       return `<div class="note">${usd(p.tvl)} TVL · holder scan pending</div>`;
     const named = p.top.filter(r => r.pct >= 3).slice(0, 4);
@@ -8255,7 +8256,7 @@ window.loadLpTab = async function () {
           style="font-family:ui-monospace,monospace; font-size:11.5px">${
           addr.slice(0, 8)}…${addr.slice(-4)}</a>
         <span id="lp_pool_tvl" style="margin-left:auto; font-size:12.5px">${
-          p ? usd(p.tvl) + " TVL" : ""}</span>
+          p && p.tvl != null ? usd(p.tvl) + " TVL" : ""}</span>
       </div>
       <div id="lp_pool_body"><div class="note">loading…</div></div>`;
     document.getElementById("lp_back").addEventListener("click", showLpList);
@@ -8274,7 +8275,7 @@ window.loadLpTab = async function () {
       document.getElementById("lp_pool_ic").innerHTML = coinIcons(p);
       document.getElementById("lp_pool_name").textContent = p.label;
       document.getElementById("lp_pool_tvl").textContent =
-        usd(p.tvl) + " TVL";
+        p.tvl != null ? usd(p.tvl) + " TVL" : "";
     }
     if (!H || H.error || !(H.t || []).length) {
       // the history API covers a fixed chain set — say so instead of

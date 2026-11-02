@@ -12,6 +12,10 @@ that these are NOT the same fraction of the headline number:
                    (fees_to_dao + fees_to_treasury) as DAO revenue — the
                    ~10% treasury slice is a routing of that revenue, not a
                    reduction of it — and record the split alongside.
+                   Pools valued off a coin price nothing backs (see
+                   mispriced.py) are left out: the hours they traded in are
+                   taken out of their chain's fees and the other hours of
+                   the day scaled up to 24, and they are not ranked.
 
   crvUSD mint      interest paid on crvUSD minted against collateral. There
                    are no lenders in a mint market, so 100% of the interest
@@ -72,6 +76,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+
+import mispriced
 
 HERE = Path(__file__).resolve().parent.parent
 OUT = HERE / "data" / "dao_revenue.json"
@@ -190,10 +196,88 @@ def fee_row(r: dict) -> dict:
             "tre": agg.get("fees_to_treasury") or 0.0,
             "ch": {c["chain"]: c.get("fees_to_dao") or 0.0 for c in rows},
             "cht": {c["chain"]: c.get("fees_to_treasury") or 0.0
-                    for c in rows}}
+                    for c in rows},
+            "chl": {c["chain"]: c.get("fees_to_lp") or 0.0 for c in rows}}
 
 
-def pool_fees(days: list[int], st: dict) -> dict:
+def fake_hours(st: dict, mis: dict, lo: int, hi: int) -> dict:
+    """The hours mispriced pools traded in, per chain: /v1/chains/fees
+    counts those trades at the coin's false price. The pool's own volume
+    endpoint finds the days, then the hours; it buckets by the hour, as
+    /v1/chains/fees does."""
+    seen = st.setdefault("mis_hours", {})
+    out: dict = {}
+    for key in mis:
+        ch, _, addr = key.partition(":")
+        e = seen.setdefault(key, {"to": lo, "h": []})
+        frm, ok = max(lo, e["to"] - DAY), True   # the last day may be open
+        rows, w_end = [], hi
+        while w_end > frm:
+            w_start = max(frm, w_end - POOL_ROWS * DAY)
+            r = get(f"/v1/volume/usd/{ch}/{addr}?interval=day"
+                    f"&start={w_start}&end={w_end}")
+            ok = ok and r is not None
+            rows += (r or {}).get("data") or []
+            w_end = w_start
+        hours = set(e["h"])
+        for x in rows:
+            if (x.get("volume") or 0) <= 0 or x.get("timestamp") is None:
+                continue
+            d = int(x["timestamp"]) // DAY * DAY
+            r = get(f"/v1/volume/usd/{ch}/{addr}?interval=hour"
+                    f"&start={d}&end={d + DAY}")
+            ok = ok and r is not None
+            hours |= {int(y["timestamp"]) // HOUR * HOUR
+                      for y in (r or {}).get("data") or []
+                      if (y.get("volume") or 0) > 0
+                      and y.get("timestamp") is not None}
+        e["h"] = sorted(h for h in hours if h >= lo - DAY)
+        if ok:
+            e["to"] = hi
+        out.setdefault(ch, set()).update(h for h in hours if lo <= h < hi)
+    for key in [k for k in seen if k not in mis]:
+        del seen[key]
+    return {c: sorted(v) for c, v in out.items() if v}
+
+
+def hour_rows(st: dict, hours: dict, lo: int) -> dict:
+    """/v1/chains/fees for each of those hours; finished hours are kept."""
+    cache = st.setdefault("fee_hours", {})
+    for h in [h for h in cache if int(h) < lo - DAY]:
+        del cache[h]
+    want = sorted({h for hs in hours.values() for h in hs})
+    out = {h: cache[str(h)] for h in want if str(h) in cache}
+    with ThreadPoolExecutor(8) as ex:
+        for h, r in ex.map(lambda h: (h, get(f"/v1/chains/fees?start={h}"
+                                             f"&end={h + HOUR}")),
+                           [h for h in want if h not in out]):
+            if r:
+                out[h] = fee_row(r)
+                if h + 2 * HOUR < time.time():
+                    cache[str(h)] = out[h]
+    return out
+
+
+def scrub(e: dict, lo: int, hi: int, hours: dict, hrow: dict) -> dict:
+    """A fee row for lo..hi without the hours mispriced pools traded in: on
+    their chain those hours come out and the other hours are scaled up to
+    the whole window. A chain with an hour missing is left as it was."""
+    e = {**e, **{f: dict(e.get(f) or {}) for f in ("ch", "cht", "chl")}}
+    n = (hi - lo) // HOUR
+    for ch, hs in hours.items():
+        hs = [h for h in hs if lo <= h < hi]
+        if not hs or any(h not in hrow for h in hs):
+            continue
+        k = n / (n - len(hs)) if len(hs) < n else 0.0
+        for f, agg in (("ch", "dao"), ("cht", "tre"), ("chl", "lp")):
+            was = e[f].get(ch) or 0.0
+            fake = sum(hrow[h][f].get(ch) or 0.0 for h in hs)
+            e[f][ch] = max(0.0, was - fake) * k
+            e[agg] += e[f][ch] - was
+    return e
+
+
+def pool_fees(days: list[int], st: dict, mis: dict) -> dict:
     """The protocol's WHOLE take per chain per day: fees_to_dao PLUS the
     ~10% fees_to_treasury slice. The DAO's revenue is 100% of what the
     admin fee collects — that 10% is routed to the treasury, not forgone —
@@ -208,8 +292,11 @@ def pool_fees(days: list[int], st: dict) -> dict:
     # refetched once.
     cache: dict = st.setdefault("pool_days", {})
     utc = day_starts(DAYS)
+    hours = fake_hours(st, mis, utc[0], days[-1] + DAY)
+    bad = {h // DAY * DAY for hs in hours.values() for h in hs}
     want = [d for d in utc
-            if str(d) not in cache or "cht" not in cache[str(d)]]
+            if str(d) not in cache or "cht" not in cache[str(d)]
+            or (d in bad and "chl" not in cache[str(d)])]
     if str(utc[-1]) in cache and utc[-1] not in want:
         want.append(utc[-1])
 
@@ -225,6 +312,11 @@ def pool_fees(days: list[int], st: dict) -> dict:
                     cache[str(d)] = fee_row(r)
     else:
         print("[dao-rev] pool fees: all days cached", flush=True)
+    hrow = hour_rows(st, hours, utc[0])
+    if hours:
+        print("[dao-rev] pool fees: mispriced pools' hours taken out: "
+              + ", ".join(f"{c} {len(hs)}" for c, hs in hours.items()),
+              flush=True)
 
     totals, lp, treasury = {}, {}, {}
     by_chain: dict[str, dict[int, float]] = {}
@@ -233,6 +325,7 @@ def pool_fees(days: list[int], st: dict) -> dict:
         e = cache.get(str(d))
         if not e:
             continue
+        e = scrub(e, d, d + DAY, hours, hrow)
         k = HALVED_FACTOR if d < HALVED_UNTIL else 1.0
         n_fixed += k != 1.0
         totals[d] = (e["dao"] + e["tre"]) * k
@@ -251,7 +344,7 @@ def pool_fees(days: list[int], st: dict) -> dict:
         for s, r in ex.map(one, days[-EXACT:]):
             if not r:
                 continue
-            e = fee_row(r)
+            e = scrub(fee_row(r), s, s + DAY, hours, hrow)
             totals[s] = e["dao"] + e["tre"]
             lp[s], treasury[s] = e["lp"], e["tre"]
             for c, v in by_chain.items():
@@ -412,7 +505,8 @@ def pegkeeper_profit(days: list[int]) -> dict:
             "coins": out_coins}
 
 
-def pool_leaderboard(days: list[int], st: dict, force: bool = False,
+def pool_leaderboard(days: list[int], st: dict, mis: dict,
+                     force: bool = False,
                      deadline: float = float("inf")) -> dict:
     """DAO swap-fee revenue per POOL, across every chain.
 
@@ -450,6 +544,8 @@ def pool_leaderboard(days: list[int], st: dict, force: bool = False,
 
     out = {}
     for key, e in (st.get("pool_lb") or {}).items():
+        if key in mis:
+            continue
         if "r" not in e:                 # built before the rows were kept
             out[key] = e
             continue
@@ -767,20 +863,21 @@ def main() -> None:
     anchor = int(t0) // HOUR * HOUR
     days = [anchor - i * DAY for i in range(DAYS, 0, -1)]
     st = load_state()
+    mis = mispriced.load()
     force = "--pools" in sys.argv
     out = {
         "fetched_at": int(time.time()),
         "fetched_at_utc": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
         "days": days,
         "sources": {
-            "pool_fees": pool_fees(days, st),
+            "pool_fees": pool_fees(days, st, mis),
             "mint_interest": mint_interest(days),
             "lend_v2_interest": lend_interest(days),
             "lend_dao_profit": lend_dao_profit(days),
             "pegkeeper": pegkeeper_profit(days),
         },
     }
-    lb = pool_leaderboard(days, st, force, t0 + LB_BUDGET_S)
+    lb = pool_leaderboard(days, st, mis, force, t0 + LB_BUDGET_S)
     pf = out["sources"]["pool_fees"]
     pf["by_pool"] = lb
     pf["pools_at"] = st.get("pools_at")

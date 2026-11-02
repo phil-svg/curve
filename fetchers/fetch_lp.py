@@ -37,6 +37,7 @@ sys.path.insert(0, str(HERE / "pylib"))
 sys.path.insert(0, str(HERE / "sim"))
 from common import sel  # noqa: E402
 from fetch_markets import Rpc, _num  # noqa: E402
+import mispriced  # noqa: E402
 from fetch_lenders import transfer_tos, creation_block, get_logs_split  # noqa: E402
 from Crypto.Hash import keccak  # noqa: E402
 
@@ -197,6 +198,7 @@ def exit_tokens() -> dict:
 
 def top_pools() -> list[dict]:
     pools = []
+    raw: dict = {}      # chain -> every pool, for the mispriced scan
     vols: dict = {}     # (chain, addr) -> daily volume USD
     for ch in http("https://api.curve.finance/v1/getPlatforms"
                    )["data"]["platforms"]:
@@ -207,8 +209,9 @@ def top_pools() -> list[dict]:
         except Exception:
             pass
         try:
-            for p in http(f"https://api.curve.finance/v1/getPools/all/{ch}"
-                          )["data"]["poolData"]:
+            raw[ch] = http(f"https://api.curve.finance/v1/getPools/all/{ch}"
+                           )["data"]["poolData"]
+            for p in raw[ch]:
                 if p.get("usdTotal") or \
                         vols.get((ch, p["address"].lower()), 0) >= MIN_VOL:
                     pools.append((p.get("usdTotal") or 0, ch, p))
@@ -216,11 +219,16 @@ def top_pools() -> list[dict]:
             pass
     for ch in CORE_CHAINS:
         try:
-            for p in http(f"{CORE_API}/getPools/all/{ch}")["data"]["poolData"]:
+            raw[ch] = http(f"{CORE_API}/getPools/all/{ch}")["data"]["poolData"]
+            for p in raw[ch]:
                 if p.get("usdTotal") or (ch, p["address"].lower()) in PINNED_POOLS:
                     pools.append((p.get("usdTotal") or 0, ch, p))
         except Exception:
             pass
+    # pools valued off a coin price nothing backs: their TVL and volume are
+    # not real, so they are not listed (mispriced.py)
+    mis = mispriced.update(raw)
+    pools = [x for x in pools if f"{x[1]}:{x[2]['address'].lower()}" not in mis]
     pools.sort(key=lambda x: -x[0])
     vol_of = lambda ch, p: vols.get((ch, p["address"].lower()), 0)
     # slim census for the LLM tab's exit-liquidity join (>= $25k TVL,
