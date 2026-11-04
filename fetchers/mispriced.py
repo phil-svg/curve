@@ -14,6 +14,12 @@ coins were DAI on Fantom at 173 and sbtcCrv at 102. A pool is mispriced when
 unbacked coins make up more than half of its value. fetch_lp.py leaves those
 pools out of the pools list and writes the set to data/mispriced.json, which
 fetch_dao_revenue.py and the server's /poolhist read.
+
+A flag stays once set: the volume and fees a pool reported while its coin
+was mispriced stay in the APIs' history after the price is gone. On 4 Nov
+2026 the APIs stopped pricing PUSSY, the scan found nothing, and the 2 Nov
+fees came back into DAO Revenue. The pools found on 2 Nov are kept in
+mispriced_seed.json next to this file, so they survive a lost data file.
 """
 from __future__ import annotations
 
@@ -24,6 +30,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
 OUT = HERE / "data" / "mispriced.json"
+SEED = Path(__file__).resolve().parent / "mispriced_seed.json"
 MIN_USD = 100_000
 RATIO = 500
 
@@ -85,18 +92,21 @@ def scan(by_chain: dict[str, list]) -> dict:
     return {"coins": coins, "pools": pools}
 
 
+def _read(f: Path) -> dict:
+    try:
+        return json.loads(f.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 def update(by_chain: dict[str, list]) -> dict:
-    """Scan, keep the last answer for chains that did not load this time,
+    """Scan, add every pool and coin flagged before (data file and seed),
     write data/mispriced.json; returns the mispriced pools."""
     res = scan(by_chain)
-    try:
-        old = json.loads(OUT.read_text())
-    except (OSError, ValueError):
-        old = {}
-    for part in ("coins", "pools"):
-        for k, v in (old.get(part) or {}).items():
-            if k.split(":")[0] not in by_chain:
-                res[part][k] = v
+    for old in (_read(OUT), _read(SEED)):
+        for part in ("coins", "pools"):
+            for k, v in (old.get(part) or {}).items():
+                res[part].setdefault(k, v)
     res["fetched_at"] = int(time.time())
     tmp = OUT.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(res, separators=(",", ":")))
@@ -109,8 +119,6 @@ def update(by_chain: dict[str, list]) -> dict:
 
 
 def load() -> dict:
-    """The mispriced pools of the last scan, keyed chain:address."""
-    try:
-        return json.loads(OUT.read_text()).get("pools") or {}
-    except (OSError, ValueError):
-        return {}
+    """Every mispriced pool flagged so far, keyed chain:address."""
+    return {**(_read(SEED).get("pools") or {}),
+            **(_read(OUT).get("pools") or {})}

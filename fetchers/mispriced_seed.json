@@ -1,0 +1,245 @@
+{
+ "note": "pools flagged by the scan of Curve's getPools on 2 Nov 2026; kept for good, their fake volume and fees stay in the APIs' history",
+ "coins": {
+  "base:0xe71b8ec4ae251df8b9dd40b8ae32d1ab4f56a40a": {
+   "symbol": "NIPZ",
+   "usd": 130185,
+   "backing": 127.88
+  },
+  "base:0xf22b8bedcd6c79cff17066e972d1199bf1f40675": {
+   "symbol": "PUSSY",
+   "usd": 38423189508,
+   "backing": 8.46
+  }
+ },
+ "pools": {
+  "base:0x590bdedb08e488a00d097067f41f20228616dda0": {
+   "label": "CoinBaseBitCoin/PUSSY",
+   "usd": 24,
+   "coins": [
+    {
+     "a": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+     "s": "cbBTC",
+     "n": "Coinbase Wrapped BTC"
+    },
+    {
+     "a": "0xf22b8bedcd6c79cff17066e972d1199bf1f40675",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    }
+   ]
+  },
+  "base:0x8154c61f36a69cc3f018a5cd19f16fdd2bce0ab8": {
+   "label": "ApeNipples",
+   "usd": 3,
+   "coins": [
+    {
+     "a": "0x4200000000000000000000000000000000000006",
+     "s": "WETH",
+     "n": "Wrapped Ether"
+    },
+    {
+     "a": "0xe71b8ec4ae251df8b9dd40b8ae32d1ab4f56a40a",
+     "s": "NIPZ",
+     "n": "Nipples"
+    },
+    {
+     "a": "0xef2b9649d32e16bc110468c811d63d55b7a5f084",
+     "s": "MXAPEMX",
+     "n": "MaxApeMax"
+    }
+   ]
+  },
+  "base:0xf908ff79fdced84184d681ee687e1bd28c2f8b7f": {
+   "label": "hairy ape nipples",
+   "usd": 555,
+   "coins": [
+    {
+     "a": "0xef2b9649d32e16bc110468c811d63d55b7a5f084",
+     "s": "MXAPEMX",
+     "n": "MaxApeMax"
+    },
+    {
+     "a": "0x9dba38e9cadcf67d1959390a8c0c1deee619f0f2",
+     "s": "TOP",
+     "n": "Toppa"
+    },
+    {
+     "a": "0xe71b8ec4ae251df8b9dd40b8ae32d1ab4f56a40a",
+     "s": "NIPZ",
+     "n": "Nipples"
+    }
+   ]
+  },
+  "base:0xbf9bad3fbf282843e5728132378d306ea36f8271": {
+   "label": "ape nipples",
+   "usd": 1134,
+   "coins": [
+    {
+     "a": "0xef2b9649d32e16bc110468c811d63d55b7a5f084",
+     "s": "MXAPEMX",
+     "n": "MaxApeMax"
+    },
+    {
+     "a": "0xe71b8ec4ae251df8b9dd40b8ae32d1ab4f56a40a",
+     "s": "NIPZ",
+     "n": "Nipples"
+    },
+    {
+     "a": "0x9dba38e9cadcf67d1959390a8c0c1deee619f0f2",
+     "s": "TOP",
+     "n": "Toppa"
+    }
+   ]
+  },
+  "base:0x0a2f5c5954ba0322a090823c16ed193a043106c1": {
+   "label": "nip$ey",
+   "usd": 128502,
+   "coins": [
+    {
+     "a": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+     "s": "USDC",
+     "n": "USD Coin"
+    },
+    {
+     "a": "0xe71b8ec4ae251df8b9dd40b8ae32d1ab4f56a40a",
+     "s": "NIPZ",
+     "n": "Nipples"
+    },
+    {
+     "a": "0xba71cb8ef2d59de7399745793657838829e0b147",
+     "s": "SIAM",
+     "n": "Siamese"
+    }
+   ]
+  },
+  "base:0x02b97435458f1d7e159c0b4c2890e21ea6d65cff": {
+   "label": "ethPUSSY/bscPUSSY",
+   "usd": 4919720087,
+   "coins": [
+    {
+     "a": "0x839aed139f6364b16cc519fc3c2aa6030e067beb",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    },
+    {
+     "a": "0xf22b8bedcd6c79cff17066e972d1199bf1f40675",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    }
+   ]
+  },
+  "base:0xea69a3677a110840bef6319ad2df9966a1312492": {
+   "label": "ethPUSSY/bscPUSSY",
+   "usd": 4919720087,
+   "coins": [
+    {
+     "a": "0x839aed139f6364b16cc519fc3c2aa6030e067beb",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    },
+    {
+     "a": "0xf22b8bedcd6c79cff17066e972d1199bf1f40675",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    }
+   ]
+  },
+  "base:0xd2aad6d041253d1c7d2508168b37e73ed0d5aa94": {
+   "label": "ethPUSSY/bscPUSSY",
+   "usd": 3985148887,
+   "coins": [
+    {
+     "a": "0x839aed139f6364b16cc519fc3c2aa6030e067beb",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    },
+    {
+     "a": "0xf22b8bedcd6c79cff17066e972d1199bf1f40675",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    }
+   ]
+  },
+  "base:0x24ec849bea0dc74eaca4eed373d81ae2901fb140": {
+   "label": "ethPUSSY/bscPUSSY",
+   "usd": 4919720087,
+   "coins": [
+    {
+     "a": "0x839aed139f6364b16cc519fc3c2aa6030e067beb",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    },
+    {
+     "a": "0xf22b8bedcd6c79cff17066e972d1199bf1f40675",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    }
+   ]
+  },
+  "base:0x55890ba64ac12731583ed1b1f44b7e8b7bdad44d": {
+   "label": "ethPUSSY/bscPUSSY",
+   "usd": 4919720087,
+   "coins": [
+    {
+     "a": "0x839aed139f6364b16cc519fc3c2aa6030e067beb",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    },
+    {
+     "a": "0xf22b8bedcd6c79cff17066e972d1199bf1f40675",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    }
+   ]
+  },
+  "base:0xb043dc8af8c98a7df78c8a6007b10d717c6628f5": {
+   "label": "ethPUSSY/bscPUSSY",
+   "usd": 4919720087,
+   "coins": [
+    {
+     "a": "0x839aed139f6364b16cc519fc3c2aa6030e067beb",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    },
+    {
+     "a": "0xf22b8bedcd6c79cff17066e972d1199bf1f40675",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    }
+   ]
+  },
+  "base:0xfc1c6a71ccc8f65679300f2a6e041bb69be2eb3b": {
+   "label": "ethPUSSY/bscPUSSY",
+   "usd": 4919720087,
+   "coins": [
+    {
+     "a": "0x839aed139f6364b16cc519fc3c2aa6030e067beb",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    },
+    {
+     "a": "0xf22b8bedcd6c79cff17066e972d1199bf1f40675",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    }
+   ]
+  },
+  "base:0x369599743ca591feaef525af9bccbbcf75b21286": {
+   "label": "ethPUSSY/bscPUSSY",
+   "usd": 4919720087,
+   "coins": [
+    {
+     "a": "0x839aed139f6364b16cc519fc3c2aa6030e067beb",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    },
+    {
+     "a": "0xf22b8bedcd6c79cff17066e972d1199bf1f40675",
+     "s": "PUSSY",
+     "n": "PUSSY token"
+    }
+   ]
+  }
+ }
+}
