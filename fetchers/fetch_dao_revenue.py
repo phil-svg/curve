@@ -443,7 +443,7 @@ def pegkeeper_profit(days: list[int]) -> dict:
         out, w_end = {}, days[-1] + DAY
         while w_end > start:
             w_start = max(start, w_end - POOL_ROWS * DAY)
-            rows = ((get(f"/v1/snapshots/ethereum/{pool}?interval=day"
+            rows = ((get(f"/v1/snapshots/ethereum/{pool}?unit=day"
                          f"&start={w_start}&end={w_end}") or {})
                     .get("data") or [])
             if not rows:
@@ -607,11 +607,12 @@ def lb_pool(t, start: int, end: int):
     def windows_between(fetch, lo, hi):
         """Walk the range backwards.
 
-        The endpoints cap at POOL_ROWS ROWS, which is not POOL_ROWS days:
-        /v1/snapshots returns ~6 rows a day even at interval=day, so a
-        300-day request comes back holding only the newest ~50 days. Step
+        The endpoints cap at POOL_ROWS ROWS, which is not POOL_ROWS days
+        unless the rows are daily: /v1/snapshots returns a row every 4 h
+        unless asked for unit=day, and since 4 Nov 2026 it refuses a
+        window of more than 300 rows ("Too big aggregation window"). Step
         by the oldest row actually returned, not by the width of the window
-        asked for, or the walk skips the 250 days in between.
+        asked for, or the walk skips whatever the cap cut off.
         """
         out = []
         w_end = hi
@@ -644,7 +645,7 @@ def lb_pool(t, start: int, end: int):
     lo = min(int(x["timestamp"]) for x in earned) // DAY * DAY
     hi = max(int(x["timestamp"]) for x in earned) // DAY * DAY + DAY
     snap = windows_between(lambda a, b: ((get(
-        f"/v1/snapshots/{ch}/{addr}?start={a}&end={b}")
+        f"/v1/snapshots/{ch}/{addr}?unit=day&start={a}&end={b}")
         or {}).get("data") or []), lo, hi)
     af = {int(x["timestamp"]) // DAY * DAY: (x["admin_fee"] or 0) / 1e10
           for x in snap if x.get("timestamp") is not None
@@ -697,9 +698,21 @@ def lb_sweep(days: list[int], st: dict, force: bool, deadline: float) -> None:
           f"(+{scan['i'] - i0} in {time.time() - t0:.0f}s), "
           f"{len(scan['out'])} with fees", flush=True)
     if scan["i"] >= len(targets):
+        # a finished sweep holding less than half the fees of the last one
+        # met failing API calls, not a quiet year (4 Nov 2026: 3pool and
+        # every other long earner missing, the list left at 510 small
+        # pools): keep the last one, the next run sweeps again
+        tot = lambda lb: sum(sum((e.get("r") or {}).values())
+                             for e in lb.values())
+        old = st.get("pool_lb") or {}
+        st.pop("lb_scan", None)
+        if old and tot(scan["out"]) < tot(old) / 2:
+            print(f"[dao-rev] pool sweep DISCARDED: ${tot(scan['out']):,.0f}"
+                  f" of fees against ${tot(old):,.0f} in the last one",
+                  flush=True)
+            return
         st["pool_lb"] = scan["out"]
         st["pools_at"] = int(time.time())
-        st.pop("lb_scan", None)
 
 
 def lb_refresh(days: list[int], st: dict) -> None:

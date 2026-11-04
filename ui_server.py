@@ -483,6 +483,11 @@ TVLFIX_RETRY_S = 3 * 86400     # re-attempt an unhealed tvl walk this often
 _PH_DAY = 86400
 
 
+# /snapshots refuses a window of more than 300 rows since 4 Nov 2026 ("Too
+# big aggregation window"); unit=day makes that 300 days, asked newest first
+_PH_SNAP_DAYS = 299
+
+
 def _ph_get(path: str, timeout: float = 45):
     import urllib.request as _u
     req = _u.Request("https://prices.curve.finance/v1" + path,
@@ -594,7 +599,8 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None,
     prev_t = (cached or {}).get("t") or []
     start = max(full_start, prev_t[-1] - _PH_DAY) if prev_t else full_start
     snaps = _ph_walk(lambda a, b: _ph_get(
-        f"/snapshots/{chain}/{addr}?interval=day&start={a}&end={b}")
+        f"/snapshots/{chain}/{addr}?unit=day"
+        f"&start={max(a, b - _PH_SNAP_DAYS * _PH_DAY)}&end={b}")
         .get("data"), start, now)
     vols = _ph_walk(lambda a, b: _ph_get(
         f"/volume/usd/{chain}/{addr}?interval=day&start={a}&end={b}")
@@ -614,7 +620,8 @@ def _ph_build(chain: str, addr: str, cached: dict | None = None,
                  or headfill > full_start + 30 * _PH_DAY):
         head_to = prev_t[0]
         snaps += _ph_walk(lambda a, b: _ph_get(
-            f"/snapshots/{chain}/{addr}?interval=day&start={a}&end={b}")
+            f"/snapshots/{chain}/{addr}?unit=day"
+            f"&start={max(a, b - _PH_SNAP_DAYS * _PH_DAY)}&end={b}")
             .get("data"), full_start, head_to)
         vols += _ph_walk(lambda a, b: _ph_get(
             f"/volume/usd/{chain}/{addr}?interval=day&start={a}&end={b}")
@@ -808,8 +815,9 @@ def _gc_refetch(chain: str, addr: str, ranges: list) -> dict:
         a, b = lo - _PH_DAY, hi + 2 * _PH_DAY
         try:
             for r in _ph_walk(lambda x, y: _ph_get(
-                    f"/snapshots/{chain}/{addr}?interval=day"
-                    f"&start={x}&end={y}").get("data"), a, b, max_calls=4):
+                    f"/snapshots/{chain}/{addr}?unit=day"
+                    f"&start={max(x, y - _PH_SNAP_DAYS * _PH_DAY)}&end={y}")
+                    .get("data"), a, b, max_calls=4):
                 row = patch.setdefault(day(r["timestamp"]), {})
                 if r.get("base_daily_apr") is not None:
                     row["bapr"] = r["base_daily_apr"]
