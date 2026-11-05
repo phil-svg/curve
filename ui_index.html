@@ -6162,10 +6162,19 @@ window.loadYbTab = async function loadYbTab() {
         : pm.old
           ? `repeating-linear-gradient(90deg,${colr} 0 4px,transparent 4px 7px)`
           : colr;
-      legend.innerHTML += `<div class="legend-item" title="${tip}">
+      // a click opens the pool's page; a market (Profits) opens the pool
+      // it trades in
+      const pa = pm.pool || ((d.pools || []).find(p =>
+        (p.markets || []).includes(pm.market_index)) || {}).pool;
+      legend.innerHTML += `<div class="legend-item"${pa
+          ? ` data-pool="${pa}" style="cursor:pointer"` : ""} title="${tip}">
         <span class="swatch" style="background:${sw}; height:8px"></span>${
           window.symImg ? symImg(sym, "ethereum", 15) : ""}${label}</div>`;
     }
+    for (const el of legend.querySelectorAll("[data-pool]"))
+      el.addEventListener("click", () => {
+        location.href = `/pools/ethereum/${el.dataset.pool}`;
+      });
     svg.innerHTML = g;
     attachHover(svg, { W, H, top: M.top, bottom: H - M.bottom,
                        left: M.left, right: W - M.right, t: d.t, X, Y,
