@@ -1054,7 +1054,7 @@
     #dr_body tr[data-tip]:hover { background:#161b22; }
     #dr_body div[data-tip]:hover { filter:brightness(1.25); }
     .lp-pool-open:hover { text-decoration:underline; }
-    #dr_body [data-pool] { cursor:pointer; }
+    #dr_body [data-href] { cursor:pointer; }
     #lm_body tr.lm-trow td { transition:background .08s; }
     #lm_body tr.lm-trow:hover td {
       box-shadow:inset 0 0 0 999px rgba(88,166,255,.09); }
@@ -4899,6 +4899,22 @@ window.loadDaoRevTab = async function () {
             short: "LlamaLend V1" },
       peg: { hue: 137, sat: 55, label: "pegkeeper profit",
              short: "pegkeeper" } };
+    // where a row opens: its pool, lending market, mint market, or the
+    // pegkeeper tab. Keys: "chain:pool", "<name>|chain:controller" (lend,
+    // V1), "<sym>|controller" (mint, ethereum), "<pool name>|pool" (peg)
+    const hrefOf = (kind, key) => {
+      const tail = (key.split("|")[1] || key).toLowerCase();
+      const [ch, a] = tail.split(":");
+      return kind === "pool" ? (a ? `/pools/${ch}/${a}` : "")
+        : kind === "lend" || kind === "v1"
+          ? (a ? `/lending-markets/${ch}/${a}` : "")
+        : kind === "mint" ? `/mint-markets/${tail}`
+        : kind === "peg" ? "/pegkeeper" : "";
+    };
+    const hrefAttr = (kind, key) => {
+      const u = hrefOf(kind, key);
+      return u ? ` data-href="${esc6(u)}"` : "";
+    };
     const contrib = [];
     for (const [k, v] of Object.entries(pfx.by_pool || {}))
       if ((v[wk] || 0) > 0)
@@ -4985,9 +5001,9 @@ window.loadDaoRevTab = async function () {
       <div${tip({ h: c.name, v: usd(c.val), i: logosFor(c),
           r: [[FAMC[c.kind], FAM[c.kind].short,
                (c.val / cTot * 100).toFixed(1) + "%"]] })}${
-        c.kind === "pool" ? ` data-pool="${esc6(c.key)}"` : ""}
+        hrefAttr(c.kind, c.key)}
         style="display:grid; align-items:center; gap:10px;
-        grid-template-columns:16px 190px 1fr 110px; cursor:default">
+        grid-template-columns:16px 190px 1fr 110px">
         <span style="color:#6e7681; font-size:11px; text-align:right">${
           i + 1}</span>
         <span style="display:flex; align-items:center; gap:1px; min-width:0">
@@ -5141,16 +5157,16 @@ window.loadDaoRevTab = async function () {
       .filter(r => r.sum > 0.5)
       .sort((a, b) => b.sum - a.sum);
     const SECT = [
-      { t: "pool swap fees", c: "#58a6ff", short: "pool",
+      { t: "pool swap fees", c: "#58a6ff", short: "pool", kind: "pool",
         rows: prowsAll, all: prowsAll.length, isPool: true },
       { t: "LlamaLend V2 interest", c: "#A78BFA", short: "LlamaLend",
-        rows: rowsOf("lend_v2_interest", "by_market") },
+        kind: "lend", rows: rowsOf("lend_v2_interest", "by_market") },
       { t: "LlamaLend V1 lending profit", c: "#39C5CF", short: "LlamaLend V1",
-        rows: rowsOf("lend_dao_profit", "by_market") },
+        kind: "v1", rows: rowsOf("lend_dao_profit", "by_market") },
       { t: "crvUSD mint interest", c: "#e3b341", short: "crvUSD mint",
-        rows: rowsOf("mint_interest", "by_market") },
+        kind: "mint", rows: rowsOf("mint_interest", "by_market") },
       { t: "pegkeeper profit", c: "#3FB950", short: "pegkeeper",
-        rows: rowsOf("pegkeeper", "by_market") } ];
+        kind: "peg", rows: rowsOf("pegkeeper", "by_market") } ];
     SECT.forEach(s => { s.tot = s.rows.reduce((a, r) => a + r.sum, 0); });
     const ico = r => (r.logos || []).slice(0, 3)
       .map(t => tokImg(t, r.chain, 14)).join("");
@@ -5170,8 +5186,7 @@ window.loadDaoRevTab = async function () {
           esc6(s.t)}</div>
         <table class="study" style="font-size:11px; width:100%">
           ${(s.isPool ? s.rows.slice(0, TOPN) : s.rows).map(r => `
-            <tr${rtip(s, r)}${s.isPool
-              ? ` data-pool="${esc6(r.key)}"` : ""}>
+            <tr${rtip(s, r)}${hrefAttr(s.kind, r.key)}>
             <td style="text-align:left; white-space:nowrap; overflow:hidden;
               text-overflow:ellipsis; max-width:150px">${ico(r)}${
               esc6(r.name)}</td>
@@ -5196,11 +5211,8 @@ window.loadDaoRevTab = async function () {
       window.__drPools = 1e9;
       render();
     });
-    for (const el of body.querySelectorAll("[data-pool]"))
-      el.addEventListener("click", () => {
-        const [pc, pa] = el.dataset.pool.split(":");
-        if (pa) location.href = `/pools/${pc}/${pa}`;
-      });
+    for (const el of body.querySelectorAll("[data-href]"))
+      el.addEventListener("click", () => { location.href = el.dataset.href; });
 
 
     // one floating tooltip for the whole tab: bars, pie slices, legend
