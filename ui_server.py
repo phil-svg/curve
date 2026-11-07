@@ -1931,7 +1931,8 @@ def _do_refresh():
     except Exception as e:
         print(f"[ui] llm refresh FAILED: {str(e)[:300]}")
     # Mint Markets and scrvUSD tabs (Curve prices API only, no RPC).
-    for script, tmo in (("fetch_mint.py", 900), ("fetch_scrvusd.py", 300)):
+    for script, tmo in (("fetch_mint.py", 900), ("fetch_scrvusd.py", 300),
+                        ("fetch_resupply.py", 300)):
         t_ = time.time()
         try:
             p = subprocess.run([PY, str(HERE / "fetchers" / script)],
@@ -2433,7 +2434,8 @@ class Handler(BaseHTTPRequestHandler):
                  "bad-debt", "sldl", "util", "pegkeeper", "yb", "lp",
                  "pools", "llm", "lending-markets", "dao-revenue",
                  "implementations", "impl",
-                 "map", "new-llamalend", "mint-markets", "scrvusd",
+                 "map", "mint-markets", "scrvusd",
+                 "resupply",
                  # legacy pre-rename paths still serve the page
                  "bad-debt-sim", "s.l.-d.l.",
                  "high-util", "yb_")
@@ -2641,6 +2643,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/scrvusd_data":
             # scrvUSD tab (fetch_scrvusd.py); the page itself lives at /scrvusd
             _http_file(self, HERE / "data" / "scrvusd.json")
+            return
+        if self.path == "/resupply_data":
+            # Resupply tab (fetch_resupply.py); the page lives at /resupply
+            _http_file(self, HERE / "data" / "resupply.json")
             return
         if self.path == "/rev24":
             # pools list: DAO revenue of the last 24 hours, per pool

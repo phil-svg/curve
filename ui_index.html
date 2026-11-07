@@ -465,8 +465,8 @@
     <button type="button" class="tab" data-view="daorev">DAO Revenue</button>
     <button type="button" class="tab" data-view="impl">Implementations</button>
     <button type="button" class="tab" data-view="yb">yb_</button>
+    <button type="button" class="tab" data-view="resupply">Resupply</button>
     <button type="button" class="tab" data-view="map">Map</button>
-    <button type="button" class="tab" data-view="nl">new-llamalend</button>
   </nav>
   <!-- Snapshot freshness belongs with the app chrome, not buried in the Market
        fieldset — it describes the whole dataset, not one field. -->
@@ -1174,11 +1174,6 @@
   <div id="sv_body">loading…</div>
 </div>
 
-<!-- new-llamalend: free-form LLV2 market workbench. Everything lives in
-     /nl/ (ES modules + css); the page only hosts the container and loads the
-     app on first open. -->
-<div id="view_nl" style="display:none"></div>
-
 <div id="view_map" style="display:none">
   <!-- curve-map bundle served from /map/; iframe src set on first open so
        the page does not load it upfront -->
@@ -1215,6 +1210,16 @@
      version, mono tree design) + search over markets/pools/contracts. -->
 <div id="view_impl" style="display:none">
   <div id="impl_root"><div class="note">loading…</div></div>
+</div>
+
+<div id="view_resupply" style="display:none">
+  <!-- crvUSD that Resupply's pairs supplied to LlamaLend and nobody has
+       borrowed, summed over the vaults (fetchers/fetch_resupply.py) -->
+  <div class="yb-title">Unborrowed crvUSD in LlamaLend markets, supplied
+    via Resupply</div>
+  <svg id="rs_chart" viewBox="0 0 900 320" preserveAspectRatio="xMidYMid meet"
+       style="width:100%; height:auto; max-height:62vh; display:block"></svg>
+  <div class="note" id="rs_meta">loading…</div>
 </div>
 
 <div id="view_yb" style="display:none">
@@ -3932,7 +3937,7 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
   // -- view switching -------------------------------------------------------
   const VIEWS = ["home", "sim", "study", "baddebt", "daorev",
                  "sldl", "pegkeeper", "lp", "llm", "mint", "scrvusd",
-                 "impl", "yb", "map", "nl"];
+                 "impl", "yb", "resupply", "map"];
   for (const t of document.querySelectorAll(".tab")) {
     t.addEventListener("click", () => {
       for (const o of document.querySelectorAll(".tab")) o.classList.toggle("on", o === t);
@@ -3951,6 +3956,8 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
           && !window.__pkLoaded) { window.__pkLoaded = true; loadPegkeeperTab(); }
       if (t.dataset.view === "yb" && typeof loadYbTab === "function"
           && !window.__ybLoaded) { window.__ybLoaded = true; loadYbTab(); }
+      if (t.dataset.view === "resupply" && typeof loadResupplyTab === "function"
+          && !window.__rsLoaded) { window.__rsLoaded = true; loadResupplyTab(); }
       if (t.dataset.view === "impl" && typeof loadImplTab === "function"
           && !window.__imLoaded) { window.__imLoaded = true; loadImplTab(); }
       if (t.dataset.view === "lp") {
@@ -3982,16 +3989,6 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
       }
       if (t.dataset.view === "scrvusd" && typeof loadScrvusdTab === "function"
           && !window.__svLoaded) { window.__svLoaded = true; loadScrvusdTab(); }
-      if (t.dataset.view === "nl" && !window.__nlMounted) {
-        window.__nlMounted = true;
-        import("/nl/app.js?v=" + Date.now())
-          .then(m => m.mount(document.getElementById("view_nl")))
-          .catch(e => {
-            window.__nlMounted = false;
-            document.getElementById("view_nl").textContent =
-              "new-llamalend failed to load: " + (e.message || e);
-          });
-      }
       if (t.dataset.view === "map") {
         const fr = document.getElementById("map_frame");
         if (fr && !fr.src) fr.src = fr.dataset.src;
@@ -4065,7 +4062,7 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
                       llm: "lending-markets", mint: "mint-markets",
                       scrvusd: "scrvusd", daorev: "dao-revenue",
                       impl: "implementations",
-                      yb: "yb", map: "map", nl: "new-llamalend" };
+                      yb: "yb", resupply: "resupply", map: "map" };
   // pre-rename bookmarks (/S.L.-D.L., /yb_ …) keep working
   const TAB_ALIASES = { "sim": "sim",
                         "s.l.-d.l.": "sldl",
@@ -6308,6 +6305,104 @@ window.loadYbTab = async function loadYbTab() {
   window.__ybTimer = setInterval(() => {
     if (document.getElementById("view_yb").style.display !== "none") draw();
   }, 900_000);
+};
+
+// ---- Resupply tab ---------------------------------------------------------
+// The crvUSD that Resupply's pairs supplied to LlamaLend vaults and nobody
+// has borrowed: per vault, the pairs' share of (totalAssets - total_debt),
+// summed (fetchers/fetch_resupply.py, one sample about every day).
+window.loadResupplyTab = async function loadResupplyTab() {
+  const svg = document.getElementById("rs_chart");
+  const meta = document.getElementById("rs_meta");
+  let d;
+  try {
+    d = await fetch("/resupply_data").then(r => r.json());
+    if (!d.rows || d.rows.length < 2) throw new Error("no samples yet");
+  } catch (e) {
+    meta.textContent = "failed: " + e.message;
+    return;
+  }
+  const mk = d.markets || [];
+  const T = d.rows.map(r => r[1]);
+  const idle = d.rows.map(r => r.slice(2).map(c => c[1]));
+  const V = idle.map(a => a.reduce((s, v) => s + v, 0));
+  const W = 900, H = 320, M = { top: 14, right: 16, bottom: 26, left: 62 };
+  const pw = W - M.left - M.right, ph = H - M.top - M.bottom;
+  const t0 = T[0], t1 = T[T.length - 1];
+  // round, evenly spaced grid: step 1 / 2 / 2.5 / 5 x 10^k, top past the max
+  const vmax = Math.max(...V) || 1;
+  const raw = vmax / 6, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map(k => k * mag).find(s => s >= raw);
+  const hi = Math.ceil(vmax * 1.04 / step) * step;
+  const X = t => M.left + (t - t0) / (t1 - t0) * pw;
+  const Y = v => M.top + (1 - v / hi) * ph;
+  const fmtM = v => `$${(v / 1e6).toFixed(step < 1e6 ? 1 : 0)}M`;
+  const fmtH = v => `$${(v / 1e6).toFixed(2)}M`;
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
+               "Oct", "Nov", "Dec"];
+  const day = t => { const x = new Date(t * 1000);
+    return `${MON[x.getUTCMonth()]} ${x.getUTCDate()}, ${x.getUTCFullYear()}`; };
+  let g = "";
+  for (let v = 0; v <= hi + step / 2; v += step)
+    g += `<line x1="${M.left}" y1="${Y(v)}" x2="${W - M.right}" y2="${Y(v)}"
+           stroke="#21262d" stroke-width="1"/>
+          <text x="${M.left - 6}" y="${Y(v) + 4}" text-anchor="end"
+           fill="#6e7681" font-size="11">${fmtM(v)}</text>`;
+  for (let k = 0; k <= 5; k++) {
+    // the last label ends at the plot's edge instead of running past it
+    const t = t0 + (t1 - t0) * k / 5, x = new Date(t * 1000);
+    g += `<text x="${X(t)}" y="${H - 8}" text-anchor="${
+           k === 5 ? "end" : "middle"}" fill="#6e7681"
+           font-size="11">${MON[x.getUTCMonth()]} '${
+           String(x.getUTCFullYear()).slice(2)}</text>`;
+  }
+  g += `<polyline fill="none" stroke="#58a6ff" stroke-width="1.8" points="${
+    T.map((t, i) => `${X(t).toFixed(1)},${Y(V[i]).toFixed(1)}`).join(" ")}"/>`;
+  svg.innerHTML = g;
+  meta.textContent = "";
+
+  // hover: the day's total and the markets it sits in, largest first
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const el = (tag, attrs, text) => {
+    const e = document.createElementNS(SVGNS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (text != null) e.textContent = text;
+    return e;
+  };
+  const clear = () => svg.querySelector("g.hover")?.remove();
+  svg.onmouseleave = clear;
+  svg.onmousemove = ev => {
+    const r = svg.getBoundingClientRect();
+    const sc = Math.min(r.width / W, r.height / H);
+    const mx = (ev.clientX - r.left - (r.width - W * sc) / 2) / sc;
+    clear();
+    if (mx < M.left - 10 || mx > W - M.right + 10) return;
+    let i = 0, best = Infinity;
+    for (let k = 0; k < T.length; k++) {
+      const dx = Math.abs(X(T[k]) - mx);
+      if (dx < best) { best = dx; i = k; }
+    }
+    const x = X(T[i]), y = Y(V[i]);
+    const lines = [`${day(T[i])} · ${fmtH(V[i])}`].concat(
+      mk.map((m, j) => [m, idle[i][j]]).filter(([, v]) => v >= 5e4)
+        .sort((a, b) => b[1] - a[1]).slice(0, 6)
+        .map(([m, v]) => `${m.name} ${m.v2 ? "V2" : "V1"} · ${fmtH(v)}`));
+    const w = Math.max(...lines.map(s => s.length)) * 6.3 + 14;
+    const h = lines.length * 15 + 8;
+    const bx = x + 12 + w > W ? x - 12 - w : x + 12;
+    const by = Math.max(M.top, Math.min(y - h / 2, H - M.bottom - h));
+    const gg = el("g", { class: "hover", "pointer-events": "none" });
+    gg.appendChild(el("line", { x1: x, y1: M.top, x2: x, y2: H - M.bottom,
+      stroke: "#6e7681", "stroke-width": 1, "stroke-dasharray": "3 3" }));
+    gg.appendChild(el("circle", { cx: x, cy: y, r: 4, fill: "#58a6ff",
+      stroke: "#0d1117", "stroke-width": 1.5 }));
+    gg.appendChild(el("rect", { x: bx, y: by, width: w, height: h, rx: 4,
+      fill: "#161b22", stroke: "#58a6ff", "stroke-width": 1 }));
+    lines.forEach((s, k) => gg.appendChild(el("text", { x: bx + 7,
+      y: by + 15 + k * 15, fill: k ? "#8b949e" : "#e6edf3",
+      "font-size": 11 }, s)));
+    svg.appendChild(gg);
+  };
 };
 
 // ---- Pegkeeper tab --------------------------------------------------------
