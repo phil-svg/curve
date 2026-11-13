@@ -4001,6 +4001,8 @@ document.getElementById("cfg_copy").addEventListener("click", async () => {
       // lands on the same tab
       if (!t.__fromUrl) {
         history.replaceState(null, "", "/" + (TAB_PATHS[t.dataset.view] || ""));
+        if (t.dataset.view === "yb" && window.__ybPath)
+          history.replaceState(null, "", window.__ybPath());
         // tabs with URL state (high util) re-append their selection
       }
       t.__fromUrl = false;
@@ -6372,7 +6374,29 @@ window.loadYbTab = async function loadYbTab() {
     if (d) { renderImbalance(d); drawBalances(d); }
     alignCaptions();
   }
-  wireSeg("yb_chartsel", applyChartSel);
+  // deep links: /yb/<chart> opens that chart, /yb alone = Imbalances
+  const YB_SLUG = { imb: "", delta: "sinked", tvlusd: "tvl-usd",
+                    tvlcoins: "tvl-coins", don: "donation-reserve",
+                    pps: "profits", cap: "deposit-caps" };
+  {
+    const want = (location.pathname.split("/").filter(Boolean)[1] || "")
+      .toLowerCase();
+    const mode = Object.keys(YB_SLUG).find(k => YB_SLUG[k] && YB_SLUG[k] === want);
+    if (mode) {
+      const sel = document.getElementById("yb_chartsel");
+      sel.dataset.value = mode;
+      for (const o of sel.querySelectorAll("button"))
+        o.classList.toggle("on", o.dataset.v === mode);
+    }
+  }
+  window.__ybPath = () => {
+    const slug = YB_SLUG[document.getElementById("yb_chartsel").dataset.value];
+    return "/yb" + (slug ? "/" + slug : "");
+  };
+  wireSeg("yb_chartsel", d => {
+    history.replaceState(null, "", window.__ybPath());
+    applyChartSel(d);
+  });
   applyChartSel(null);
   wireSeg("yb_class", d => { if (d) { renderImbalance(d); drawBalances(d); } });
   wireSeg("yb_ver", d => { if (d) { renderImbalance(d); drawBalances(d); } });
