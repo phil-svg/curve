@@ -336,6 +336,9 @@ def _yb_series(days: int, points: int) -> dict:
     don_usd = {p["label"]: [] for p in pools}     # donation reserve, USD
     don_pct = {p["label"]: [] for p in pools}     # ... as % of the pool
     vp = {p["label"]: [] for p in pools}          # pool virtual_price
+    # crvUSD held above half the pool's value (b0 - b1 x price_oracle) / 2:
+    # the imbalance in crvUSD, > 0 = surplus, < 0 = short
+    crv_delta = {p["label"]: [] for p in pools}
     xcp = {p["label"]: [] for p in pools}         # pool xcp_profit
     pps = {l["label"]: [] for l in lts}           # LT pricePerShare
     staked = {l["label"]: [] for l in lts}        # staker value of 1 LT
@@ -360,7 +363,7 @@ def _yb_series(days: int, points: int) -> dict:
                                               for k in range(NPER))
             if None in (b0, b1, po):
                 for d_ in (series, asset_bal, asset_usd, tvl_usd,
-                           don_usd, don_pct, vp, xcp):
+                           don_usd, don_pct, vp, xcp, crv_delta):
                     d_[p["label"]].append(None)   # pool not deployed yet
                 continue
             vp[p["label"]].append(round(vpr / 1e18, 6) if vpr else None)
@@ -368,6 +371,7 @@ def _yb_series(days: int, points: int) -> dict:
             val = b0 + b1 * 10 ** (18 - p["decimals"]) * po // 10 ** 18
             series[p["label"]].append(
                 round(b0 / val * 100, 3) if val > 0 else None)
+            crv_delta[p["label"]].append(round((b0 - val / 2) / 1e18))
             asset_bal[p["label"]].append(round(b1 / 10 ** p["decimals"], 4))
             asset_usd[p["label"]].append(
                 round(b1 / 10 ** p["decimals"] * po / 1e18 * usd_per_crvusd))
@@ -403,7 +407,7 @@ def _yb_series(days: int, points: int) -> dict:
             cap_dep[p["label"]].append(round(dep_p[p["pool"]]) if c else None)
             cap_max[p["label"]].append(round(c) if c else None)
     return {"days": days, "points": len(times), "t": times,
-            "series": series,
+            "series": series, "crv_delta": crv_delta,
             "asset_bal": asset_bal, "asset_usd": asset_usd,
             "tvl_usd": tvl_usd,
             "donation_usd": don_usd, "donation_pct": don_pct,

@@ -1248,6 +1248,7 @@
         <legend>Chart</legend>
         <div class="yb-seg col" id="yb_chartsel" data-value="imb">
           <button type="button" data-v="imb" class="on">Imbalances</button>
+          <button type="button" data-v="delta">crvUSD sinked</button>
           <button type="button" data-v="tvlusd">TVL USD</button>
           <button type="button" data-v="tvlcoins">TVL coins</button>
           <button type="button" data-v="don">Donation reserve</button>
@@ -5932,20 +5933,23 @@ window.loadYbTab = async function loadYbTab() {
         `${String(dt.getUTCMinutes()).padStart(2, "0")} UTC`;
       L.i = i;
       const txt = `${L.label} · ${m.fmt(v, L)} · ${when}`;
+      const rows = [txt].concat(m.extra ? m.extra(i) : []);
       const g = el("g", { class: "hover", "pointer-events": "none" });
       g.appendChild(el("line", { x1: x, y1: m.top, x2: x, y2: m.bottom,
                                  stroke: "#6e7681", "stroke-width": 1,
                                  "stroke-dasharray": "3 3" }));
       g.appendChild(el("circle", { cx: x, cy: y, r: 4, fill: L.color,
                                    stroke: "#0d1117", "stroke-width": 1.5 }));
-      const w = txt.length * 6.3 + 14, h = 20;
+      const w = Math.max(...rows.map(s => s.length)) * 6.3 + 14,
+            h = rows.length * 15 + 5;
       const bx = x + 12 + w > m.W ? x - 12 - w : x + 12;
       const by = Math.max(m.top, Math.min(y - h / 2, m.bottom - h));
       g.appendChild(el("rect", { x: bx, y: by, width: w, height: h, rx: 4,
                                  fill: "#161b22", stroke: L.color,
                                  "stroke-width": 1 }));
-      g.appendChild(el("text", { x: bx + 7, y: by + 14, fill: "#e6edf3",
-                                 "font-size": 11 }, txt));
+      rows.forEach((s, k) => g.appendChild(el("text", { x: bx + 7,
+        y: by + 14 + k * 15, fill: k ? "#8b949e" : "#e6edf3",
+        "font-size": 11 }, s)));
       svgEl.appendChild(g);
     };
   }
@@ -6047,9 +6051,84 @@ window.loadYbTab = async function loadYbTab() {
   //            (LP shares parked in the pool, released to LPs over 7 days)
   const fmtUsd = v => v >= 1e6 ? `$${(v / 1e6).toFixed(v >= 1e7 ? 0 : 1)}M`
                                : `$${(v / 1e3).toFixed(0)}k`;
+  // crvUSD sinked: per pool the crvUSD a swap back to 50/50 would put in,
+  // (b1 x price_oracle - b0) / 2 = (50% - imbalance) x pool value (the
+  // server's crv_delta with the sign flipped), summed over the pools the
+  // class / version filters keep. > 0 = the pools are short crvUSD.
+  function renderDelta(d) {
+    const cls = document.getElementById("yb_class").dataset.value;
+    const per = classFilter(d, Object.fromEntries(
+      Object.entries(d.crv_delta || {}).map(([k, a]) =>
+        [k, a.map(v => v == null ? null : -v)])), cls);
+    const labels = Object.keys(per);
+    const sum = d.t.map((_, i) => {
+      let s = null;
+      for (const k of labels) {
+        const v = per[k][i];
+        if (v != null) s = (s ?? 0) + v;
+      }
+      return s;
+    });
+    document.getElementById("yb_title1").textContent =
+      "crvUSD sinked — summed over pools";
+    legend.innerHTML = "";
+    const W = 900, H = 320, M = { top: 14, right: 16, bottom: 26, left: 62 };
+    const pw = W - M.left - M.right, ph = H - M.top - M.bottom;
+    const t0 = d.t[0], t1 = d.t[d.t.length - 1];
+    const have = sum.filter(v => v != null);
+    if (!labels.length || !have.length) { svg.innerHTML = ""; return; }
+    // round, evenly spaced grid that always holds 0
+    let lo = Math.min(0, ...have), hi = Math.max(0, ...have);
+    const raw = Math.max(hi - lo, 1) / 5, mag = 10 ** Math.floor(Math.log10(raw));
+    const step = [1, 2, 2.5, 5, 10].map(k => k * mag).find(s => s >= raw);
+    lo = Math.floor((lo - (hi - lo) * 0.04) / step) * step;
+    hi = Math.ceil((hi + (hi - lo) * 0.04) / step) * step;
+    if (lo > -step / 2 && Math.min(...have) >= 0) lo = 0;
+    const X = t => M.left + (t - t0) / (t1 - t0) * pw;
+    const Y = v => M.top + (1 - (v - lo) / (hi - lo)) * ph;
+    const sgn = v => v > 0 ? "+" : v < 0 ? "−" : "";
+    const big = Math.max(Math.abs(lo), Math.abs(hi)) >= 1e6;
+    const fmtAx = v => big
+      ? `${sgn(v)}${(Math.abs(v) / 1e6).toFixed(step < 1e6 ? 1 : 0)}M`
+      : `${sgn(v)}${(Math.abs(v) / 1e3).toFixed(0)}k`;
+    const fmtV = v => Math.abs(v) >= 1e6
+      ? `${sgn(v)}${(Math.abs(v) / 1e6).toFixed(2)}M`
+      : `${sgn(v)}${(Math.abs(v) / 1e3).toFixed(0)}k`;
+    let g = "";
+    for (let v = lo; v <= hi + step / 2; v += step) {
+      const z = Math.abs(v) < step / 2;
+      g += `<line x1="${M.left}" y1="${Y(v)}" x2="${W - M.right}" y2="${Y(v)}"
+             stroke="${z ? "#6e7681" : "#21262d"}" stroke-width="1"/>
+            <text x="${M.left - 6}" y="${Y(v) + 4}" text-anchor="end"
+             fill="#6e7681" font-size="11">${z ? "0" : fmtAx(v)}</text>`;
+    }
+    for (let k = 0; k <= 4; k++) {
+      const t = t0 + (t1 - t0) * k / 4;
+      const dt = new Date(t * 1000);
+      g += `<text x="${X(t)}" y="${H - 8}" text-anchor="middle" fill="#6e7681"
+             font-size="11">${(dt.getUTCMonth() + 1)}/${dt.getUTCDate()}</text>`;
+    }
+    const pts = sum.map((v, i) => v == null ? null
+      : `${X(d.t[i]).toFixed(1)},${Y(v).toFixed(1)}`).filter(Boolean);
+    g += `<polyline fill="none" stroke="#39C5CF" stroke-width="1.8"
+           points="${pts.join(" ")}"/>`;
+    svg.innerHTML = g;
+    attachHover(svg, { W, H, top: M.top, bottom: H - M.bottom,
+                       left: M.left, right: W - M.right, t: d.t, X, Y,
+                       lines: [{ label: "crvUSD sinked", color: "#39C5CF",
+                                 vals: sum }],
+                       fmt: v => `${fmtV(v)} crvUSD`,
+                       // the pools behind the sum, largest first
+                       extra: i => labels
+                         .map(k => [k, per[k][i]]).filter(([, v]) => v != null)
+                         .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+                         .map(([k, v]) => `${k} ${fmtV(v)}`) });
+    alignCaptions();
+  }
   function renderImbalance(d) {
     const cls = document.getElementById("yb_class").dataset.value;
     const mode = document.getElementById("yb_chartsel").dataset.value;
+    if (mode === "delta") return renderDelta(d);
     const usdMode = mode === "tvlusd" || mode === "don";
     const ppsMode = mode === "pps";
     // cap = deposits as % of the cap (LT.deposit() reverts "Debt too
