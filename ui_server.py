@@ -278,6 +278,23 @@ def _yb_series(days: int, points: int) -> dict:
             l["rank"] = rank
             l["old"] = rank > 0
             l["label"] = f"{sym_} LT #{l['market_index']}"
+    # MerklPIDDriver: YB's crvUSD incentive on the pyUSD/crvUSD sink pool,
+    # funded by a share of YB admin fees. Its crvUSD reserve, and the net
+    # pressure it adds up over its pressure_lts (YBNetPressure, per market:
+    # AMM debt - crvUSD in the LP; > 0 = crvUSD to be bought back)
+    PID_DRIVER = "0x5b13273F3B584fE6864A2fde89e8F90B7e790D1c"
+    NET_PRESSURE = "0x7FBA07C40Ad1985f023e144E5732784aD6051591"
+    plts = []
+    for i in range(16):
+        try:
+            v = rpc.q(PID_DRIVER, "pressure_lts(uint256)", i)
+        except Exception:
+            break
+        if not v or len(v) < 66 or int(v, 16) == 0:
+            break
+        plts.append("0x" + v[-40:])
+    lt_label = {l["lt"].lower(): l["label"] for l in lts}
+    plabels = [lt_label.get(a.lower(), a[:10]) for a in plts]
     blocks = [head - int((days * 7200) * (1 - k / (points - 1)))
               for k in range(points)]
     # crvUSD/USD aggregator (AggregateStablePrice) so the USD view of the
@@ -309,6 +326,10 @@ def _yb_series(days: int, points: int) -> dict:
     for l in lts:
         calls += [(l["amm"], "max_debt()", None),
                   (l["amm"], "value_oracle()", None)]
+    PID0 = len(calls)
+    calls += [(PID_DRIVER, "reserve()", None)]
+    calls += [(NET_PRESSURE, "net_pressure_and_tvl(address)", int(a, 16))
+              for a in plts]
 
     # one multicall per sampled block; 8 in flight (own Rpc per thread —
     # Rpc reorders its endpoint list on failure) cuts a cold 120-point
@@ -336,9 +357,6 @@ def _yb_series(days: int, points: int) -> dict:
     don_usd = {p["label"]: [] for p in pools}     # donation reserve, USD
     don_pct = {p["label"]: [] for p in pools}     # ... as % of the pool
     vp = {p["label"]: [] for p in pools}          # pool virtual_price
-    # crvUSD held above half the pool's value (b0 - b1 x price_oracle) / 2:
-    # the imbalance in crvUSD, > 0 = surplus, < 0 = short
-    crv_delta = {p["label"]: [] for p in pools}
     xcp = {p["label"]: [] for p in pools}         # pool xcp_profit
     pps = {l["label"]: [] for l in lts}           # LT pricePerShare
     staked = {l["label"]: [] for l in lts}        # staker value of 1 LT
@@ -346,6 +364,8 @@ def _yb_series(days: int, points: int) -> dict:
     cap_used = {p["label"]: [] for p in pools}    # value / cap, %
     cap_dep = {p["label"]: [] for p in pools}     # value, crvUSD
     cap_max = {p["label"]: [] for p in pools}     # cap = max_debt / 2
+    pid_crv, pid_usd = [], []                     # driver reserve
+    net_p = {lb: [] for lb in plabels}            # net pressure, crvUSD
     tvl = {p["label"]: None for p in pools}   # crvUSD-eq at the last sample
     times = []
     for b in blocks:
@@ -363,7 +383,7 @@ def _yb_series(days: int, points: int) -> dict:
                                               for k in range(NPER))
             if None in (b0, b1, po):
                 for d_ in (series, asset_bal, asset_usd, tvl_usd,
-                           don_usd, don_pct, vp, xcp, crv_delta):
+                           don_usd, don_pct, vp, xcp):
                     d_[p["label"]].append(None)   # pool not deployed yet
                 continue
             vp[p["label"]].append(round(vpr / 1e18, 6) if vpr else None)
@@ -371,7 +391,6 @@ def _yb_series(days: int, points: int) -> dict:
             val = b0 + b1 * 10 ** (18 - p["decimals"]) * po // 10 ** 18
             series[p["label"]].append(
                 round(b0 / val * 100, 3) if val > 0 else None)
-            crv_delta[p["label"]].append(round((b0 - val / 2) / 1e18))
             asset_bal[p["label"]].append(round(b1 / 10 ** p["decimals"], 4))
             asset_usd[p["label"]].append(
                 round(b1 / 10 ** p["decimals"] * po / 1e18 * usd_per_crvusd))
@@ -406,14 +425,27 @@ def _yb_series(days: int, points: int) -> dict:
                 round(dep_p[p["pool"]] / c * 100, 2) if c else None)
             cap_dep[p["label"]].append(round(dep_p[p["pool"]]) if c else None)
             cap_max[p["label"]].append(round(c) if c else None)
+        rv = _num(res[PID0])                     # None before deployment
+        pid_crv.append(round(rv / 1e18) if rv is not None else None)
+        pid_usd.append(round(rv / 1e18 * usd_per_crvusd)
+                       if rv is not None else None)
+        for k, lb in enumerate(plabels):
+            x = res[PID0 + 1 + k]                # (int256 net, uint256 half_tvl)
+            if x and len(x) >= 130:
+                n = int(x[2:66], 16)
+                net_p[lb].append(round((n - 2 ** 256 if n >= 2 ** 255 else n)
+                                       / 1e18))
+            else:
+                net_p[lb].append(None)
     return {"days": days, "points": len(times), "t": times,
-            "series": series, "crv_delta": crv_delta,
+            "series": series,
             "asset_bal": asset_bal, "asset_usd": asset_usd,
             "tvl_usd": tvl_usd,
             "donation_usd": don_usd, "donation_pct": don_pct,
             "vp": vp, "xcp_profit": xcp,
             "pps": pps, "staked": staked,
             "cap_used": cap_used, "cap_dep": cap_dep, "cap_max": cap_max,
+            "pid_crvusd": pid_crv, "pid_usd": pid_usd, "net_pressure": net_p,
             "lts": [{"symbol": l["symbol"], "label": l["label"],
                      "lt": l["lt"], "staker": l["staker"],
                      "market_index": l["market_index"], "rank": l["rank"],

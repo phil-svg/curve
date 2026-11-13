@@ -1248,12 +1248,13 @@
         <legend>Chart</legend>
         <div class="yb-seg col" id="yb_chartsel" data-value="imb">
           <button type="button" data-v="imb" class="on">Imbalances</button>
-          <button type="button" data-v="delta">crvUSD sinked</button>
+          <button type="button" data-v="np">Net pressure</button>
           <button type="button" data-v="tvlusd">TVL USD</button>
           <button type="button" data-v="tvlcoins">TVL coins</button>
           <button type="button" data-v="don">Donation reserve</button>
           <button type="button" data-v="pps">Profits</button>
           <button type="button" data-v="cap">Deposit caps</button>
+          <button type="button" data-v="pidbal">MerklPIDDriver USD</button>
         </div>
       </fieldset>
       <fieldset>
@@ -6053,47 +6054,37 @@ window.loadYbTab = async function loadYbTab() {
   //            (LP shares parked in the pool, released to LPs over 7 days)
   const fmtUsd = v => v >= 1e6 ? `$${(v / 1e6).toFixed(v >= 1e7 ? 0 : 1)}M`
                                : `$${(v / 1e3).toFixed(0)}k`;
-  // crvUSD sinked: per pool the crvUSD held above half its value,
-  // (b0 - b1 x price_oracle) / 2 = (imbalance - 50%) x pool value (the
-  // server's crv_delta), summed over the pools the class / version filters
-  // keep. > 0 = the pools absorbed crvUSD, < 0 = they released it.
-  function renderDelta(d) {
-    const cls = document.getElementById("yb_class").dataset.value;
-    const per = classFilter(d, d.crv_delta || {}, cls);
-    const labels = Object.keys(per);
-    const sum = d.t.map((_, i) => {
-      let s = null;
-      for (const k of labels) {
-        const v = per[k][i];
-        if (v != null) s = (s ?? 0) + v;
-      }
-      return s;
-    });
-    document.getElementById("yb_title1").textContent =
-      "crvUSD sinked — summed over pools";
+  // One line with a round, evenly spaced grid that always holds 0 (marked),
+  // for net pressure and the MerklPIDDriver balance.
+  //   o.vals  one value per sample (null = none)
+  //   o.pre   "$" for USD, "" for crvUSD; o.signed: + / − on every value
+  //   o.unit  appended in the hover; o.extra(i, fmt): more hover rows
+  function renderLine(d, o) {
+    document.getElementById("yb_title1").textContent = o.title;
     legend.innerHTML = "";
     const W = 900, H = 320, M = { top: 14, right: 16, bottom: 26, left: 62 };
     const pw = W - M.left - M.right, ph = H - M.top - M.bottom;
     const t0 = d.t[0], t1 = d.t[d.t.length - 1];
-    const have = sum.filter(v => v != null);
-    if (!labels.length || !have.length) { svg.innerHTML = ""; return; }
-    // round, evenly spaced grid that always holds 0
+    const have = (o.vals || []).filter(v => v != null);
+    if (!have.length) { svg.innerHTML = ""; return; }
     let lo = Math.min(0, ...have), hi = Math.max(0, ...have);
     const raw = Math.max(hi - lo, 1) / 5, mag = 10 ** Math.floor(Math.log10(raw));
     const step = [1, 2, 2.5, 5, 10].map(k => k * mag).find(s => s >= raw);
     lo = Math.floor((lo - (hi - lo) * 0.04) / step) * step;
     hi = Math.ceil((hi + (hi - lo) * 0.04) / step) * step;
-    if (lo > -step / 2 && Math.min(...have) >= 0) lo = 0;
+    // one-signed data: the axis ends at 0, no padding past it
+    if (Math.min(...have) >= 0) lo = 0;
+    if (Math.max(...have) <= 0) hi = 0;
     const X = t => M.left + (t - t0) / (t1 - t0) * pw;
     const Y = v => M.top + (1 - (v - lo) / (hi - lo)) * ph;
-    const sgn = v => v > 0 ? "+" : v < 0 ? "−" : "";
+    const sg = v => v < 0 ? "−" : (o.signed && v > 0 ? "+" : "");
     const big = Math.max(Math.abs(lo), Math.abs(hi)) >= 1e6;
     const fmtAx = v => big
-      ? `${sgn(v)}${(Math.abs(v) / 1e6).toFixed(step < 1e6 ? 1 : 0)}M`
-      : `${sgn(v)}${(Math.abs(v) / 1e3).toFixed(0)}k`;
+      ? `${sg(v)}${o.pre}${(Math.abs(v) / 1e6).toFixed(step < 1e6 ? 1 : 0)}M`
+      : `${sg(v)}${o.pre}${(Math.abs(v) / 1e3).toFixed(0)}k`;
     const fmtV = v => Math.abs(v) >= 1e6
-      ? `${sgn(v)}${(Math.abs(v) / 1e6).toFixed(2)}M`
-      : `${sgn(v)}${(Math.abs(v) / 1e3).toFixed(0)}k`;
+      ? `${sg(v)}${o.pre}${(Math.abs(v) / 1e6).toFixed(2)}M`
+      : `${sg(v)}${o.pre}${(Math.abs(v) / 1e3).toFixed(0)}k`;
     let g = "";
     for (let v = lo; v <= hi + step / 2; v += step) {
       const z = Math.abs(v) < step / 2;
@@ -6108,27 +6099,58 @@ window.loadYbTab = async function loadYbTab() {
       g += `<text x="${X(t)}" y="${H - 8}" text-anchor="middle" fill="#6e7681"
              font-size="11">${(dt.getUTCMonth() + 1)}/${dt.getUTCDate()}</text>`;
     }
-    const pts = sum.map((v, i) => v == null ? null
+    const pts = o.vals.map((v, i) => v == null ? null
       : `${X(d.t[i]).toFixed(1)},${Y(v).toFixed(1)}`).filter(Boolean);
     g += `<polyline fill="none" stroke="#39C5CF" stroke-width="1.8"
            points="${pts.join(" ")}"/>`;
     svg.innerHTML = g;
     attachHover(svg, { W, H, top: M.top, bottom: H - M.bottom,
                        left: M.left, right: W - M.right, t: d.t, X, Y,
-                       lines: [{ label: "crvUSD sinked", color: "#39C5CF",
-                                 vals: sum }],
-                       fmt: v => `${fmtV(v)} crvUSD`,
-                       // the pools behind the sum, largest first
-                       extra: i => labels
-                         .map(k => [k, per[k][i]]).filter(([, v]) => v != null)
-                         .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
-                         .map(([k, v]) => `${k} ${fmtV(v)}`) });
+                       lines: [{ label: o.label, color: "#39C5CF",
+                                 vals: o.vals }],
+                       fmt: v => `${fmtV(v)}${o.unit}`,
+                       extra: o.extra ? (i => o.extra(i, fmtV)) : null });
     alignCaptions();
+  }
+  // sum of per-entity series at each sample (null where none has a value)
+  const sumAt = (d, per) => d.t.map((_, i) => {
+    let s = null;
+    for (const k of Object.keys(per)) {
+      const v = per[k][i];
+      if (v != null) s = (s ?? 0) + v;
+    }
+    return s;
+  });
+  // the parts behind a summed line, largest first
+  const partsAt = (per, i, f) => Object.keys(per)
+    .map(k => [k, per[k][i]]).filter(([, v]) => v != null)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+    .map(([k, v]) => `${k} ${f(v)}`);
+  // Net pressure as MerklPIDDriver adds it up: per market in its
+  // pressure_lts, YBNetPressure's AMM debt − crvUSD inside the LP (> 0 =
+  // crvUSD to be bought back), summed. The driver's own market set, so the
+  // pool filters don't apply.
+  function renderNetPressure(d) {
+    const per = d.net_pressure || {};
+    renderLine(d, { title: "Net pressure — MerklPIDDriver, summed over its markets",
+                    label: "net pressure", vals: sumAt(d, per),
+                    pre: "", signed: true, unit: " crvUSD",
+                    extra: (i, f) => partsAt(per, i, f) });
+  }
+  // MerklPIDDriver's crvUSD reserve in USD (crvUSD x the crvUSD/USD
+  // aggregator); it holds no LT fee tokens between conversions
+  function renderPidBalance(d) {
+    renderLine(d, { title: "MerklPIDDriver balance — USD",
+                    label: "MerklPIDDriver", vals: d.pid_usd || [],
+                    pre: "$", signed: false, unit: "",
+                    extra: i => d.pid_crvusd?.[i] != null
+                      ? [`${d.pid_crvusd[i].toLocaleString()} crvUSD`] : [] });
   }
   function renderImbalance(d) {
     const cls = document.getElementById("yb_class").dataset.value;
     const mode = document.getElementById("yb_chartsel").dataset.value;
-    if (mode === "delta") return renderDelta(d);
+    if (mode === "np") return renderNetPressure(d);
+    if (mode === "pidbal") return renderPidBalance(d);
     const usdMode = mode === "tvlusd" || mode === "don";
     const ppsMode = mode === "pps";
     // cap = deposits as % of the cap (LT.deposit() reverts "Debt too
@@ -6373,9 +6395,10 @@ window.loadYbTab = async function loadYbTab() {
     alignCaptions();
   }
   // deep links: /yb/<chart> opens that chart, /yb alone = Imbalances
-  const YB_SLUG = { imb: "", delta: "sinked", tvlusd: "tvl-usd",
+  const YB_SLUG = { imb: "", tvlusd: "tvl-usd",
                     tvlcoins: "tvl-coins", don: "donation-reserve",
-                    pps: "profits", cap: "deposit-caps" };
+                    pps: "profits", cap: "deposit-caps",
+                    np: "net-pressure", pidbal: "pid-balance" };
   {
     const want = (location.pathname.split("/").filter(Boolean)[1] || "")
       .toLowerCase();
