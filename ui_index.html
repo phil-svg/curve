@@ -6053,15 +6053,13 @@ window.loadYbTab = async function loadYbTab() {
   //            (LP shares parked in the pool, released to LPs over 7 days)
   const fmtUsd = v => v >= 1e6 ? `$${(v / 1e6).toFixed(v >= 1e7 ? 0 : 1)}M`
                                : `$${(v / 1e3).toFixed(0)}k`;
-  // crvUSD sinked: per pool the crvUSD a swap back to 50/50 would put in,
-  // (b1 x price_oracle - b0) / 2 = (50% - imbalance) x pool value (the
-  // server's crv_delta with the sign flipped), summed over the pools the
-  // class / version filters keep. > 0 = the pools are short crvUSD.
+  // crvUSD sinked: per pool the crvUSD held above half its value,
+  // (b0 - b1 x price_oracle) / 2 = (imbalance - 50%) x pool value (the
+  // server's crv_delta), summed over the pools the class / version filters
+  // keep. > 0 = the pools absorbed crvUSD, < 0 = they released it.
   function renderDelta(d) {
     const cls = document.getElementById("yb_class").dataset.value;
-    const per = classFilter(d, Object.fromEntries(
-      Object.entries(d.crv_delta || {}).map(([k, a]) =>
-        [k, a.map(v => v == null ? null : -v)])), cls);
+    const per = classFilter(d, d.crv_delta || {}, cls);
     const labels = Object.keys(per);
     const sum = d.t.map((_, i) => {
       let s = null;
