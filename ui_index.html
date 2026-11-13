@@ -1255,6 +1255,7 @@
           <button type="button" data-v="pps">Profits</button>
           <button type="button" data-v="cap">Deposit caps</button>
           <button type="button" data-v="pidbal">MerklPIDDriver USD</button>
+          <button type="button" data-v="sink">pyUSD pool</button>
         </div>
       </fieldset>
       <fieldset>
@@ -1264,6 +1265,14 @@
           <option value="30" selected>30 days</option>
           <option value="90">90 days</option>
         </select>
+      </fieldset>
+      <!-- pyUSD pool chart only: which coin's balance the top chart shows -->
+      <fieldset id="yb_sinkcoin_fs" style="display:none">
+        <legend>Balance</legend>
+        <div class="yb-seg" id="yb_sinkcoin" data-value="pyusd">
+          <button type="button" data-v="pyusd" class="on">pyUSD</button>
+          <button type="button" data-v="crvusd">crvUSD</button>
+        </div>
       </fieldset>
       <fieldset>
         <legend>Pools</legend>
@@ -1293,6 +1302,11 @@
              style="width:100%; height:auto; max-height:62vh; display:block"></svg>
       </div>
       <div class="legend" id="yb_legend" style="justify-content:center; margin-top:6px"></div>
+      <div id="yb_view_apr" style="display:none">
+        <div class="yb-title" id="yb_title3">LP APR — %</div>
+        <svg id="yb_chart3" viewBox="0 0 900 240" preserveAspectRatio="xMidYMid meet"
+             style="width:100%; height:auto; max-height:62vh; display:block"></svg>
+      </div>
     </div>
   </div>
 </div>
@@ -5928,31 +5942,34 @@ window.loadYbTab = async function loadYbTab() {
         if (dy < bd) { bd = dy; L = ln; }
       }
       clear();
-      if (!L || bd > 40) return;
+      // anyY: one series, so the readout follows x anywhere on the plot
+      if (!L || (bd > 40 && !m.anyY)) return;
       const v = L.vals[i], x = m.X(m.t[i]), y = m.Y(v, L);
+      // one short row: the series name only where a chart has several
+      // lines, then the value and "Nov 13 10:45" (UTC; daily charts pass
+      // their own m.when)
       const dt = new Date(m.t[i] * 1000);
-      const when = `${dt.getUTCMonth() + 1}/${dt.getUTCDate()} ` +
+      const when = m.when ? m.when(m.t[i]) :
+        dt.toLocaleString("en-US", { month: "short", day: "numeric",
+                                     timeZone: "UTC" }) + " " +
         `${String(dt.getUTCHours()).padStart(2, "0")}:` +
-        `${String(dt.getUTCMinutes()).padStart(2, "0")} UTC`;
+        `${String(dt.getUTCMinutes()).padStart(2, "0")}`;
       L.i = i;
-      const txt = `${L.label} · ${m.fmt(v, L)} · ${when}`;
-      const rows = [txt].concat(m.extra ? m.extra(i) : []);
+      const txt = `${m.lines.length > 1 ? L.label + " " : ""}${m.fmt(v, L)} · ${when}`;
       const g = el("g", { class: "hover", "pointer-events": "none" });
       g.appendChild(el("line", { x1: x, y1: m.top, x2: x, y2: m.bottom,
                                  stroke: "#6e7681", "stroke-width": 1,
                                  "stroke-dasharray": "3 3" }));
       g.appendChild(el("circle", { cx: x, cy: y, r: 4, fill: L.color,
                                    stroke: "#0d1117", "stroke-width": 1.5 }));
-      const w = Math.max(...rows.map(s => s.length)) * 6.3 + 14,
-            h = rows.length * 15 + 5;
+      const w = txt.length * 6.3 + 14, h = 20;
       const bx = x + 12 + w > m.W ? x - 12 - w : x + 12;
       const by = Math.max(m.top, Math.min(y - h / 2, m.bottom - h));
       g.appendChild(el("rect", { x: bx, y: by, width: w, height: h, rx: 4,
                                  fill: "#161b22", stroke: L.color,
                                  "stroke-width": 1 }));
-      rows.forEach((s, k) => g.appendChild(el("text", { x: bx + 7,
-        y: by + 14 + k * 15, fill: k ? "#8b949e" : "#e6edf3",
-        "font-size": 11 }, s)));
+      g.appendChild(el("text", { x: bx + 7, y: by + 14, fill: "#e6edf3",
+                                 "font-size": 11 }, txt));
       svgEl.appendChild(g);
     };
   }
@@ -6016,7 +6033,7 @@ window.loadYbTab = async function loadYbTab() {
     const topLeft = mode === "imb" || mode === "cap" ? 46 : 62, botLeft = 62;
     document.getElementById("yb_title1").style.paddingLeft =
       `${((topLeft - 16) * sc).toFixed(1)}px`;
-    for (const id of ["yb_legend", "yb_title2"])
+    for (const id of ["yb_legend", "yb_title2", "yb_title3"])
       document.getElementById(id).style.paddingLeft =
         `${((botLeft - 16) * sc).toFixed(1)}px`;
   }
@@ -6047,7 +6064,7 @@ window.loadYbTab = async function loadYbTab() {
   // imbalance / TVL / donation, markets (LTs) for profits.
   //   pps = yieldbasis.com's "PPS (Fundamental)" (their orange line):
   //         LT.pricePerShare(), 1.0 at launch; legend tooltip carries the
-  //         window gain and its annualised value (= their Trading APY).
+  //         window gain annualised (= their Trading APY).
   //   imb    = crvUSD share of pool value (%)
   //   tvlusd = whole-pool value in USD
   //   don    = donation reserve: donation_shares / totalSupply x pool USD
@@ -6058,7 +6075,7 @@ window.loadYbTab = async function loadYbTab() {
   // for net pressure and the MerklPIDDriver balance.
   //   o.vals  one value per sample (null = none)
   //   o.pre   "$" for USD, "" for crvUSD; o.signed: + / − on every value
-  //   o.unit  appended in the hover; o.extra(i, fmt): more hover rows
+  //   o.unit  appended in the hover
   function renderLine(d, o) {
     document.getElementById("yb_title1").textContent = o.title;
     legend.innerHTML = "";
@@ -6108,8 +6125,7 @@ window.loadYbTab = async function loadYbTab() {
                        left: M.left, right: W - M.right, t: d.t, X, Y,
                        lines: [{ label: o.label, color: "#39C5CF",
                                  vals: o.vals }],
-                       fmt: v => `${fmtV(v)}${o.unit}`,
-                       extra: o.extra ? (i => o.extra(i, fmtV)) : null });
+                       fmt: v => `${fmtV(v)}${o.unit}` });
     alignCaptions();
   }
   // sum of per-entity series at each sample (null where none has a value)
@@ -6121,11 +6137,6 @@ window.loadYbTab = async function loadYbTab() {
     }
     return s;
   });
-  // the parts behind a summed line, largest first
-  const partsAt = (per, i, f) => Object.keys(per)
-    .map(k => [k, per[k][i]]).filter(([, v]) => v != null)
-    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
-    .map(([k, v]) => `${k} ${f(v)}`);
   // Net pressure as MerklPIDDriver adds it up: per market in its
   // pressure_lts, YBNetPressure's AMM debt − crvUSD inside the LP (> 0 =
   // crvUSD to be bought back), summed. The driver's own market set, so the
@@ -6134,23 +6145,180 @@ window.loadYbTab = async function loadYbTab() {
     const per = d.net_pressure || {};
     renderLine(d, { title: "Net pressure — MerklPIDDriver, summed over its markets",
                     label: "net pressure", vals: sumAt(d, per),
-                    pre: "", signed: true, unit: " crvUSD",
-                    extra: (i, f) => partsAt(per, i, f) });
+                    pre: "", signed: true, unit: " crvUSD" });
   }
   // MerklPIDDriver's crvUSD reserve in USD (crvUSD x the crvUSD/USD
   // aggregator); it holds no LT fee tokens between conversions
   function renderPidBalance(d) {
     renderLine(d, { title: "MerklPIDDriver balance — USD",
                     label: "MerklPIDDriver", vals: d.pid_usd || [],
-                    pre: "$", signed: false, unit: "",
-                    extra: i => d.pid_crvusd?.[i] != null
-                      ? [`${d.pid_crvusd[i].toLocaleString()} crvUSD`] : [] });
+                    pre: "$", signed: false, unit: "" });
+  }
+  // pyUSD/crvUSD, the pool Yield Basis pays to hold crvUSD (the
+  // MerklPIDDriver's sink pool). Top: its TVL. Bottom: what YB paid it per
+  // day in USD: YB tokens streamed on its Curve gauge, and crvUSD through
+  // the driver's Merkl campaign. Its own daily series, the last 90 days
+  // (/yb_sink), cut to the tab's window; the pool filters don't apply.
+  let sinkData = null, sinkAt = 0, sinkLoading = false;
+  const svg3 = document.getElementById("yb_chart3");
+  const SINK_LOADING = "loading the pyUSD/crvUSD history…";
+  function loadSink() {
+    if (sinkLoading) return;
+    sinkLoading = true;
+    fetch("/yb_sink").then(r => r.json()).then(j => {
+      if (j.error) throw new Error(j.error);
+      if (!j.t || j.t.length < 2) throw new Error("no days returned");
+      sinkData = j; sinkAt = Date.now();
+      // clear only our own status: the on-chain charts' "sampling…" line
+      // stays while their window is still loading
+      if (meta.textContent === SINK_LOADING) meta.textContent = "";
+      if (document.getElementById("yb_chartsel").dataset.value === "sink")
+        renderSink();
+    }).catch(e => {
+      if (document.getElementById("yb_chartsel").dataset.value === "sink")
+        meta.textContent = (sinkData ? "refresh failed, keeping the last chart: "
+                                     : "failed: ") + e.message;
+    }).finally(() => { sinkLoading = false; });
+  }
+  function renderSink() {
+    if (!sinkData) {
+      svg.innerHTML = ""; svg2.innerHTML = ""; svg3.innerHTML = "";
+      legend.innerHTML = "";
+      if (!meta.textContent) meta.textContent = SINK_LOADING;
+      loadSink();
+      return;
+    }
+    if (Date.now() - sinkAt > 900_000) loadSink();   // redraws when it lands
+    const full = sinkData;
+    // window: the last 7 / 30 / 90 days, today included
+    const from = Math.max(0,
+      full.t.length - +document.getElementById("yb_days").value);
+    const cut = a => (a || []).slice(from);
+    const d = { t: cut(full.t), tvl: cut(full.tvl), yb_usd: cut(full.yb_usd),
+                merkl_usd: cut(full.merkl_usd), fees: cut(full.fees),
+                admin_fee: cut(full.admin_fee), pyusd: cut(full.pyusd),
+                crvusd: cut(full.crvusd) };
+    const N = d.t.length, last = N - 1;
+    const spend = d.t.map((_, i) => d.yb_usd[i] == null && d.merkl_usd[i] == null
+      ? null : (d.yb_usd[i] || 0) + (d.merkl_usd[i] || 0));
+    const W = 900, M = { top: 14, right: 16, bottom: 26, left: 62 };
+    const pw = W - M.left - M.right;
+    const t0 = d.t[0], t1 = d.t[last] + 86400;
+    const X = t => M.left + (t - t0) / (t1 - t0) * pw;
+    const mid = d.t.map(t => t + 43200);           // a day's value at noon
+    const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
+                 "Sep", "Oct", "Nov", "Dec"];
+    const day = t => new Date(t * 1000).toLocaleString("en-US",
+      { month: "short", day: "numeric", timeZone: "UTC" });
+    // round grid from 0 to the top value
+    const grid = (hi, H) => {
+      const raw = Math.max(hi, 1) / 5, mag = 10 ** Math.floor(Math.log10(raw));
+      const step = [1, 2, 2.5, 5, 10].map(k => k * mag).find(s => s >= raw);
+      const top = Math.max(step, Math.ceil(hi * 1.04 / step) * step);
+      const Y = v => M.top + (1 - v / top) * (H - M.top - M.bottom);
+      return { step, top, Y };
+    };
+    // shared by both charts: gridlines, axis labels, dated day ticks
+    const frame = (H, Y, step, top, fmtAx) => {
+      let g = "";
+      for (let v = 0; v <= top + step / 2; v += step)
+        g += `<line x1="${M.left}" y1="${Y(v)}" x2="${W - M.right}" y2="${Y(v)}"
+               stroke="${v ? "#21262d" : "#6e7681"}" stroke-width="1"/>
+              <text x="${M.left - 6}" y="${Y(v) + 4}" text-anchor="end"
+               fill="#6e7681" font-size="11">${v ? fmtAx(v) : "0"}</text>`;
+      // a dated tick under the day's bar, counted back from today, at most 8
+      const ticks = [];
+      const spanD = (t1 - t0) / 86400;
+      const stepD = [1, 2, 5, 7, 14].find(k => spanD / k <= 8) || 30;
+      for (let t = d.t[last]; t >= t0; t -= stepD * 86400) {
+        const dt = new Date(t * 1000);
+        ticks.push([X(t + 43200), `${MON[dt.getUTCMonth()]} ${dt.getUTCDate()}`]);
+      }
+      for (const [x, lab] of ticks)
+        g += `<line x1="${x}" y1="${H - M.bottom}" x2="${x}" y2="${H - M.bottom + 4}"
+               stroke="#6e7681"/>
+              <text x="${x}" y="${H - 8}" text-anchor="middle" fill="#6e7681"
+               font-size="11">${lab}</text>`;
+      return g;
+    };
+    const fmtD = v => v >= 1e3 ? `$${(v / 1e3).toFixed(1)}k` : `$${Math.round(v)}`;
+
+    // top: one coin's balance in the pool (coins, not USD), picked by the
+    // Balance toggle: pyUSD (default) or crvUSD
+    {
+      const coin = document.getElementById("yb_sinkcoin").dataset.value === "crvusd"
+        ? "crvUSD" : "pyUSD";
+      const bal = coin === "crvUSD" ? d.crvusd : d.pyusd;
+      document.getElementById("yb_title1").textContent =
+        `pyUSD/crvUSD — ${coin} balance`;
+      legend.innerHTML = "";
+      const fmtC = v => v >= 1e6 ? `${(v / 1e6).toFixed(v >= 1e7 ? 1 : 2)}M`
+                                 : `${(v / 1e3).toFixed(0)}k`;
+      const H = 320, have = bal.filter(v => v != null);
+      const { step, top, Y } = grid(Math.max(...have), H);
+      let g = frame(H, Y, step, top, fmtC);
+      const pts = bal.map((v, i) => v == null ? null
+        : `${X(mid[i]).toFixed(1)},${Y(v).toFixed(1)}`).filter(Boolean);
+      g += `<polyline fill="none" stroke="#39C5CF" stroke-width="1.8"
+             points="${pts.join(" ")}"/>`;
+      svg.innerHTML = g;
+      attachHover(svg, { W, H, top: M.top, bottom: H - M.bottom, left: M.left,
+                         right: W - M.right, t: mid, X, Y, anyY: true,
+                         lines: [{ label: "in the pool", color: "#39C5CF", vals: bal }],
+                         fmt: v => `${fmtC(v)} ${coin}`, when: t => day(t - 43200) });
+    }
+    // bottom: YB's payment per day, one line; the hover says what it paid in
+    {
+      document.getElementById("yb_title2").textContent =
+        "Paid by Yield Basis — USD per day";
+      const H = 240, have = spend.filter(v => v != null);
+      const { step, top, Y } = grid(Math.max(...have), H);
+      let g = frame(H, Y, step, top, fmtD);
+      const pts = spend.map((v, i) => v == null ? null
+        : `${X(mid[i]).toFixed(1)},${Y(v).toFixed(1)}`).filter(Boolean);
+      g += `<polyline fill="none" stroke="#39C5CF" stroke-width="1.8"
+             points="${pts.join(" ")}"/>`;
+      svg2.innerHTML = g;
+      attachHover(svg2, { W, H, top: M.top, bottom: H - M.bottom, left: M.left,
+                          right: W - M.right, t: mid, X, Y, anyY: true,
+                          lines: [{ label: "YB paid", color: "#39C5CF", vals: spend }],
+                          fmt: v => fmtD(v), when: t => day(t - 43200) });
+    }
+    // LP APR: the pools tab's base APR (all fees / TVL, annualised: LPs +
+    // DAO) cut to the LPs' part (1 − admin fee, taken off once here), plus
+    // what YB pays the pool (Merkl crvUSD / YB tokens: all of it to LPs)
+    {
+      const H = 240;
+      const gross = d.t.map((_, i) => d.fees[i] != null && d.tvl[i] > 0
+        ? d.fees[i] / d.tvl[i] * 365 * 100 : null);
+      const feeApr = gross.map((g, i) => g != null && d.admin_fee[i] != null
+        ? g * (1 - d.admin_fee[i]) : null);
+      const incApr = d.t.map((_, i) => spend[i] != null && d.tvl[i] > 0
+        ? spend[i] / d.tvl[i] * 365 * 100 : null);
+      const apr = d.t.map((_, i) => feeApr[i] == null || incApr[i] == null
+        ? null : feeApr[i] + incApr[i]);
+      const have = apr.filter(v => v != null);
+      const { step, top, Y } = grid(Math.max(...have), H);
+      const fmtP = v => `${+v.toFixed(step < 1 ? 2 : 1)}%`;
+      let g = frame(H, Y, step, top, fmtP);
+      const pts = apr.map((v, i) => v == null ? null
+        : `${X(mid[i]).toFixed(1)},${Y(v).toFixed(1)}`).filter(Boolean);
+      g += `<polyline fill="none" stroke="#39C5CF" stroke-width="1.8"
+             points="${pts.join(" ")}"/>`;
+      svg3.innerHTML = g;
+      attachHover(svg3, { W, H, top: M.top, bottom: H - M.bottom, left: M.left,
+                          right: W - M.right, t: mid, X, Y, anyY: true,
+                          lines: [{ label: "LP APR", color: "#39C5CF", vals: apr }],
+                          fmt: v => `${v.toFixed(1)}%`, when: t => day(t - 43200) });
+    }
+    alignCaptions();
   }
   function renderImbalance(d) {
     const cls = document.getElementById("yb_class").dataset.value;
     const mode = document.getElementById("yb_chartsel").dataset.value;
     if (mode === "np") return renderNetPressure(d);
     if (mode === "pidbal") return renderPidBalance(d);
+    if (mode === "sink") return renderSink();
     const usdMode = mode === "tvlusd" || mode === "don";
     const ppsMode = mode === "pps";
     // cap = deposits as % of the cap (LT.deposit() reverts "Debt too
@@ -6215,10 +6383,7 @@ window.loadYbTab = async function loadYbTab() {
       g += `<text x="${X(t)}" y="${H - 8}" text-anchor="middle" fill="#6e7681"
              font-size="11">${(dt.getUTCMonth() + 1)}/${dt.getUTCDate()}</text>`;
     }
-    // newest pool per asset solid, older pools dashed (same hue); legend
-    // carries each pool's current crvUSD-eq TVL so the small old pools
-    // don't read like the big ones
-    const fmtM = v => v == null ? "?" : `$${(v / 1e6).toFixed(1)}M`;
+    // newest pool per asset solid, older pools dashed (same hue)
     const hoverLines = [];
     for (const [label, vals] of Object.entries(series)) {
       const pm = entityMeta(d, label);
@@ -6232,28 +6397,24 @@ window.loadYbTab = async function loadYbTab() {
              stroke-width="${pm.old ? 1.2 : 1.8}"
              ${dash ? `stroke-dasharray="${dash}" opacity="0.8"` : ""}
              points="${pts.join(" ")}"/>`;
-      // legend = name only; current value + address live in the tooltip
+      // legend = name only; the current value lives in the tooltip
       const last = [...vals].reverse().find(v => v != null);
       const nowTxt = usdMode ? fmtUsd(last ?? 0)
                    : ppsMode ? `pps ${(last ?? 0).toFixed(5)}`
                    : `${last?.toFixed(2)}%`;
-      let tip = `${pm.pool || ""} · now ${nowTxt} · pool ${fmtM(pm.tvl_crvusd)}`;
+      let tip = `now ${nowTxt}`;
       if (capMode) {
         const dep = [...(d.cap_dep?.[label] || [])].reverse().find(v => v != null);
         const cap = [...(d.cap_max?.[label] || [])].reverse().find(v => v != null);
-        tip = `market${(pm.markets || []).length > 1 ? "s" : ""} ${
-          (pm.markets || []).join(" + ")} · ${fmtUsd(dep ?? 0)} of ${
-          fmtUsd(cap ?? 0)} · ${cap > dep ? fmtUsd(cap - dep) + " room" : "full"}`;
+        tip = `${fmtUsd(dep ?? 0)} of ${fmtUsd(cap ?? 0)}`;
       }
       if (ppsMode) {
         const idx = vals.map((v, i) => v == null ? null : i).filter(i => i != null);
         const first = idx.length ? vals[idx[0]] : null;
         const days = idx.length > 1 ? (d.t[idx[idx.length - 1]] - d.t[idx[0]]) / 86400 : 0;
         const pct = v => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}%`;
-        const win = first ? last / first - 1 : 0;
         const apy = (first && days > 0) ? Math.pow(last / first, 365 / days) - 1 : 0;
-        tip = `market ${pm.market_index} · LT ${pm.lt || ""} · ${nowTxt} · ` +
-              `since launch ${pct((last ?? 1) - 1)} · window ${pct(win)} (APY ${pct(apy)})`;
+        tip = `APY ${pct(apy)}`;
       }
       const sw = pm.rank >= 2
         ? `repeating-linear-gradient(90deg,${colr} 0 2px,transparent 2px 5px)`
@@ -6277,17 +6438,11 @@ window.loadYbTab = async function loadYbTab() {
     attachHover(svg, { W, H, top: M.top, bottom: H - M.bottom,
                        left: M.left, right: W - M.right, t: d.t, X, Y,
                        lines: hoverLines,
-                       fmt: (v, ln) => mode === "imb" ? `${v.toFixed(2)}%`
-                         : capMode
-                           ? `${v.toFixed(1)}% · ${fmtUsd(d.cap_dep?.[ln.label]?.[ln.i] ?? 0)
-                             } of ${fmtUsd(d.cap_max?.[ln.label]?.[ln.i] ?? 0)}`
-                         : mode === "don"
-                           ? `$${Math.round(v).toLocaleString()} (${
-                               (d.donation_pct?.[ln.label]?.[ln.i] ?? 0)
-                                 .toFixed(3)}% of pool)`
-                         : ppsMode
-                           ? `pps ${v.toFixed(5)} (${((v - 1) * 100).toFixed(2)}% since launch)`
-                           : `$${Math.round(v).toLocaleString()}` });
+                       fmt: v => mode === "imb" ? `${v.toFixed(1)}%`
+                         : capMode ? `${v.toFixed(0)}%`
+                         : ppsMode ? v.toFixed(4)
+                         : v >= 1e6 ? `$${(v / 1e6).toFixed(1)}M`
+                         : `$${(v / 1e3).toFixed(0)}k` });
     alignCaptions();
   }
   // Asset-leg balance chart. Coin units: BTC-denominated pools on the left
@@ -6295,6 +6450,8 @@ window.loadYbTab = async function loadYbTab() {
   // ETH one on a shared axis). USD: one axis. Both start at 0 so a draining
   // pool reads as a drop in proportion, not a zoomed wiggle.
   function drawBalances(d) {
+    // the pyUSD pool view draws its own second chart (renderSink)
+    if (document.getElementById("yb_chartsel").dataset.value === "sink") return;
     // Chart 2 = "TVL coins": asset-leg balance of each pool in coin units
     // (BTC left axis, ETH right axis when both classes are shown)
     const unit = "asset";
@@ -6370,7 +6527,7 @@ window.loadYbTab = async function loadYbTab() {
                         fmt: (v, ln) => unit === "usd"
                           ? `$${Math.round(v).toLocaleString()}`
                           : `${v.toLocaleString(undefined,
-                              { maximumFractionDigits: 2 })} ${ln.unit}` });
+                              { maximumFractionDigits: 1 })} ${ln.unit}` });
     document.getElementById("yb_title2").textContent =
       "TVL — asset leg in coin units";
     alignCaptions();
@@ -6388,17 +6545,31 @@ window.loadYbTab = async function loadYbTab() {
   // Chart selector: one chart area, Imbalances by default; TVL reveals the
   // Coin Units | TVL sub-toggle
   function applyChartSel(d) {
-    const coins = document.getElementById("yb_chartsel").dataset.value === "tvlcoins";
+    const mode = document.getElementById("yb_chartsel").dataset.value;
+    const coins = mode === "tvlcoins", sink = mode === "sink";
     document.getElementById("yb_view_imb").style.display = coins ? "none" : "";
-    document.getElementById("yb_view_tvl").style.display = coins ? "" : "none";
-    if (d) { renderImbalance(d); drawBalances(d); }
+    document.getElementById("yb_view_tvl").style.display = coins || sink ? "" : "none";
+    document.getElementById("yb_view_apr").style.display = sink ? "" : "none";
+    document.getElementById("yb_sinkcoin_fs").style.display = sink ? "" : "none";
+    // the pyUSD pool view is one pool: the pool filters don't apply to it
+    document.getElementById("yb_class").closest("fieldset").style.display =
+      sink ? "none" : "";
+    svg2.setAttribute("viewBox", sink ? "0 0 900 240" : "0 0 900 320");
+    if (sink) renderSink();
+    else if (d) { renderImbalance(d); drawBalances(d); }
+    else {
+      // window still loading: don't leave the pyUSD pool chart standing
+      svg.innerHTML = ""; legend.innerHTML = "";
+      document.getElementById("yb_title1").textContent = "";
+    }
     alignCaptions();
   }
   // deep links: /yb/<chart> opens that chart, /yb alone = Imbalances
   const YB_SLUG = { imb: "", tvlusd: "tvl-usd",
                     tvlcoins: "tvl-coins", don: "donation-reserve",
                     pps: "profits", cap: "deposit-caps",
-                    np: "net-pressure", pidbal: "pid-balance" };
+                    np: "net-pressure", pidbal: "pid-balance",
+                    sink: "pyusd-pool" };
   {
     const want = (location.pathname.split("/").filter(Boolean)[1] || "")
       .toLowerCase();
@@ -6421,7 +6592,15 @@ window.loadYbTab = async function loadYbTab() {
   applyChartSel(null);
   wireSeg("yb_class", d => { if (d) { renderImbalance(d); drawBalances(d); } });
   wireSeg("yb_ver", d => { if (d) { renderImbalance(d); drawBalances(d); } });
-  document.getElementById("yb_days").addEventListener("change", draw);
+  wireSeg("yb_sinkcoin", () => {
+    if (document.getElementById("yb_chartsel").dataset.value === "sink") renderSink();
+  });
+  document.getElementById("yb_days").addEventListener("change", () => {
+    // the pyUSD pool chart has all 90 days at hand: redraw it right away
+    if (document.getElementById("yb_chartsel").dataset.value === "sink")
+      renderSink();
+    draw();
+  });
   draw();
   // match the server's 15-min cache: redraw on that cadence while the
   // tab is visible, so the newest sample keeps walking forward

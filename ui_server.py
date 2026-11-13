@@ -498,6 +498,223 @@ def _yb_keepwarm() -> None:
                     print(f"[ui] yb_ keep-warm {key} failed: {str(e)[:120]}")
 
 
+# ---- yb_ sink pool: pyUSD/crvUSD TVL vs what Yield Basis pays it ---------
+# One row per day over the last YB_SINK_DAYS. TVL from the pool history
+# cache (prices API). Yield Basis pays the pool in two ways:
+#   YB tokens on the pool's Curve gauge: reward_data(YB) read at the start
+#     of each day (paid Oct 2025 - 16 Apr 2026, none since), priced with
+#     the daily YB close
+#   crvUSD through MerklPIDDriver's Merkl campaign (since 24 Jul 2026):
+#     Merkl's own daily rewards of the driver's root campaigns (the gauge
+#     sub-campaign is a child of it = the same money, so not counted twice)
+# A day's start state never changes, so the gauge samples are kept in
+# data/yb_sink.json and only new days are read.
+YB_SINK_POOL = "0x625E92624Bc2D88619ACCc1788365A69767f6200"
+YB_SINK_GAUGE = "0xf69fb60b79e463384b40dbfdfb633ab5a863c9a2"
+YB_TOKEN = "0x01791F726B4103694969820be083196cC7c045fF"
+YB_PID_DRIVER = "0x5b13273F3B584fE6864A2fde89e8F90B7e790D1c"
+YB_SINK_DAYS = 90                   # the yb_ tab's longest window
+YB_SINK_FILE = HERE / "data" / "yb_sink.json"
+YB_SINK_TTL = 900
+_YB_SINK: dict = {"at": 0.0, "data": None, "merkl": None}
+_YB_SINK_LOCK = threading.Lock()
+
+
+def _yb_sink_gauge(days: list) -> tuple:
+    """reward_data(YB) of the sink pool's gauge at the start of each day,
+    {day: [ts, period_finish, rate, last_update]}, plus the same at the
+    head. Blocks for a day are interpolated between anchor blocks ~20 days
+    apart (missed slots drift a fixed 12 s/block guess by days)."""
+    from fetch_markets import Rpc, _num, MULTICALL3
+    from concurrent.futures import ThreadPoolExecutor
+    store = {}
+    try:
+        store = {int(k): v for k, v in
+                 json.loads(YB_SINK_FILE.read_text()).get("gauge", {}).items()
+                 if int(k) >= days[0]}
+    except (OSError, ValueError):
+        pass
+    rpc = Rpc("ethereum")
+    hb = rpc.raw("eth_getBlockByNumber", ["latest", False])
+    head, head_ts = int(hb["number"], 16), int(hb["timestamp"], 16)
+    calls = [(MULTICALL3, "getCurrentBlockTimestamp()", None),
+             (YB_SINK_GAUGE, "reward_data(address)", int(YB_TOKEN, 16))]
+
+    def dec(res):
+        ts = _num(res[0])
+        if ts is None:
+            return None
+        x = res[1]
+        # v6.1 layout: (?, distributor, period_finish, rate, last_update,
+        # integral); all zero before YB was added as a reward
+        w = ([int(x[2 + 64 * k:66 + 64 * k], 16) for k in range(5)]
+             if x and len(x) >= 2 + 64 * 5 else [0] * 5)
+        return [ts, w[2], w[3], w[4]]
+    head_s = dec(rpc.mq(calls))
+    need = [d for d in days if d not in store and d <= head_ts]
+    if need:
+        anchors = [(head, head_ts)]
+        while anchors[-1][1] > need[0] and anchors[-1][0] > 1:
+            b = max(1, anchors[-1][0] - 20 * 7200)
+            bt = rpc.raw("eth_getBlockByNumber", [hex(b), False])
+            anchors.append((b, int(bt["timestamp"], 16)))
+        anchors.reverse()
+
+        def block_at(t):
+            for (b0, t0), (b1, t1) in zip(anchors, anchors[1:]):
+                if t0 <= t <= t1:
+                    return b0 - (-(t - t0) * (b1 - b0) // (t1 - t0))
+            return head
+
+        def one(d):
+            try:
+                return d, dec(Rpc("ethereum").mq(calls,
+                                                 block=hex(block_at(d))))
+            except Exception:
+                return d, None
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            got = dict(ex.map(one, need))
+        for d in [d for d in need if not got.get(d)]:
+            got[d] = one(d)[1]          # one sequential retry pass
+        new = {d: v for d, v in got.items() if v}
+        if new:
+            store.update(new)
+            YB_SINK_FILE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = YB_SINK_FILE.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps({"gauge": {str(k): v for k, v in
+                                                 sorted(store.items())}}))
+            os.replace(tmp, YB_SINK_FILE)
+    return store, head_s
+
+
+def _yb_emitted(d: int, s, n):
+    """YB the gauge streamed over [d, d + 1 day) from the samples at the
+    day's start (s) and the next day's start (n; the head for today): the
+    start rate up to the last reward update inside the day, the rate after
+    it for the rest (a new deposit restarts the stream mid-day)."""
+    if not s:
+        return None
+    end = d + 86400
+    _, pf_s, r_s, _ = s
+    lu, pf_n, r_n = d, pf_s, r_s
+    if n and d < n[3] <= n[0]:
+        lu = min(n[3], end)
+        pf_n, r_n = n[1], n[2]
+
+    def ov(a, b, pf):
+        return max(0, min(b, pf) - a)
+    return (r_s * ov(d, lu, pf_s) + r_n * ov(lu, end, pf_n)) / 1e18
+
+
+def _yb_sink_merkl() -> dict:
+    """Merkl's daily rewards (USD) of MerklPIDDriver's root campaigns on the
+    pool, summed per day."""
+    import urllib.request as _u
+
+    def get(path):
+        req = _u.Request("https://api.merkl.xyz" + path,
+                         headers={"User-Agent": "curve-sim"})
+        with _u.urlopen(req, timeout=30) as r:
+            return json.loads(r.read())
+    per, seen = {}, set()
+    for o in get(f"/v4/opportunities?chainId=1&search={YB_SINK_POOL}") or []:
+        cs = get(f"/v4/opportunities/{o['id']}/campaigns").get("campaigns")
+        for c in cs or []:
+            if (c.get("creatorAddress") or "").lower() != YB_PID_DRIVER.lower():
+                continue
+            if c.get("parentCampaignId") or c["id"] in seen:
+                continue
+            seen.add(c["id"])
+            m = get(f"/v4/campaigns/{c['id']}/metrics")
+            for r in m.get("dailyRewardsRecords") or []:
+                d = int(r["timestamp"]) // 86400 * 86400
+                per[d] = per.get(d, 0.0) + float(r.get("total") or 0)
+    return per
+
+
+def _yb_sink_build() -> dict:
+    now = int(time.time())
+    today = now // 86400 * 86400
+    days = list(range(today - (YB_SINK_DAYS - 1) * 86400, today + 1, 86400))
+    h = pool_hist("ethereum", YB_SINK_POOL.lower())
+    tvl_by = {}
+    for t, v in zip(h.get("t") or [], h.get("tvl") or []):
+        if v is not None:
+            tvl_by[int(t) // 86400 * 86400] = v
+    # all fees of the day in USD (LPs + DAO, as the pools tab's base APR)
+    # and the admin fee (the DAO's share of them, 1e10-scaled on-chain)
+    fee_by, adm_by = {}, {}
+    for t, f_, a_ in zip(h.get("t") or [], h.get("fees") or [],
+                         h.get("admin") or []):
+        k = int(t) // 86400 * 86400
+        if f_ is not None:
+            fee_by[k] = f_
+        if a_ is not None:
+            adm_by[k] = a_ / 1e10
+    # the pool's balances in whole coins: coins(0) = PYUSD, coins(1) =
+    # crvUSD; "bal" rows are [coin 0, coin 1]
+    py_by, crv_by = {}, {}
+    for t, b_ in zip(h.get("t") or [], h.get("bal") or []):
+        k = int(t) // 86400 * 86400
+        if b_ and b_[0] is not None:
+            py_by[k] = b_[0]
+        if b_ and len(b_) > 1 and b_[1] is not None:
+            crv_by[k] = b_[1]
+    store, head_s = _yb_sink_gauge(days)
+    px = px_hist("ethereum", YB_TOKEN.lower())
+    px_by = {int(t) // 86400 * 86400: p
+             for t, p in zip(px.get("t") or [], px.get("px") or [])
+             if p is not None}
+    try:
+        _YB_SINK["merkl"] = _yb_sink_merkl()
+    except Exception as e:      # stale beats broken
+        print(f"[ui] yb_sink merkl failed: {str(e)[:120]}", flush=True)
+    mk = _YB_SINK["merkl"] or {}
+    tvl, yb_tok, yb_px, yb_usd, merkl = [], [], [], [], []
+    fees, admin, pyusd, crvusd = [], [], [], []
+    last_px = None
+    for k, d in enumerate(days):
+        tvl.append(round(tvl_by[d]) if d in tvl_by else None)
+        pyusd.append(round(py_by[d]) if d in py_by else None)
+        crvusd.append(round(crv_by[d]) if d in crv_by else None)
+        fees.append(round(fee_by[d], 2) if d in fee_by else None)
+        admin.append(adm_by.get(d))
+        n = store.get(d + 86400) if k + 1 < len(days) else head_s
+        v = _yb_emitted(d, store.get(d), n)
+        last_px = px_by.get(d, last_px)
+        yb_tok.append(round(v, 1) if v is not None else None)
+        yb_px.append(round(last_px, 4) if last_px is not None else None)
+        yb_usd.append(round(v * last_px) if v is not None and last_px
+                      else (0 if v == 0 else None))
+        m = mk.get(d)
+        merkl.append(round(m) if m is not None else None)
+    return {"t": days, "tvl": tvl, "yb_tokens": yb_tok, "yb_price": yb_px,
+            "yb_usd": yb_usd, "merkl_usd": merkl,
+            "fees": fees, "admin_fee": admin, "pyusd": pyusd,
+            "crvusd": crvusd,
+            "pool": YB_SINK_POOL, "gauge": YB_SINK_GAUGE,
+            "driver": YB_PID_DRIVER, "generated_at": now}
+
+
+def _yb_sink_refresh() -> None:
+    """Rebuild the sink-pool series into _YB_SINK, single-flight; a failed
+    build keeps the old entry."""
+    if not _YB_SINK_LOCK.acquire(blocking=False):
+        _YB_SINK_LOCK.acquire()      # wait for the in-flight build
+        _YB_SINK_LOCK.release()
+        if _YB_SINK["data"] is not None:
+            return
+        raise RuntimeError("yb_sink refresh failed")
+    try:
+        if _YB_SINK["data"] is not None \
+                and time.time() - _YB_SINK["at"] < YB_SINK_TTL:
+            return
+        data = _yb_sink_build()
+        _YB_SINK["data"], _YB_SINK["at"] = data, time.time()
+    finally:
+        _YB_SINK_LOCK.release()
+
+
 PY = sys.executable
 _run_lock = threading.Lock()   # serialize sims so they don't fight for CPU / cache
 
@@ -3012,6 +3229,20 @@ class Handler(BaseHTTPRequestHandler):
                 return
             _http_json(self, 200, json.loads(CANDLES_FILE.read_text()))
             return
+        if self.path == "/yb_sink":
+            # pyUSD/crvUSD TVL vs what Yield Basis pays it, daily over the
+            # last 90 days; stale-while-revalidate like /yb
+            if _YB_SINK["data"] is None:
+                try:
+                    _yb_sink_refresh()
+                except Exception as e:
+                    _http_json(self, 502, {"error": str(e)[:300]})
+                    return
+            elif time.time() - _YB_SINK["at"] > YB_SINK_TTL:
+                threading.Thread(target=_yb_sink_refresh,
+                                 daemon=True).start()
+            _http_json(self, 200, _YB_SINK["data"])
+            return
         if self.path.startswith("/yb"):
             q = parse_qs(urlparse(self.path).query)
             try:
@@ -3372,6 +3603,12 @@ def main():
             except Exception as e:
                 print(f"[ui] yb_ pre-warm {key} failed: {str(e)[:120]}",
                       flush=True)
+        try:
+            _yb_sink_refresh()
+            print("[ui] yb_ sink pool pre-warmed", flush=True)
+        except Exception as e:
+            print(f"[ui] yb_ sink pre-warm failed: {str(e)[:120]}",
+                  flush=True)
     threading.Thread(target=_yb_warm, daemon=True).start()
     threading.Thread(target=_yb_keepwarm, daemon=True).start()
     try:
