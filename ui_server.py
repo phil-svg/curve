@@ -330,6 +330,9 @@ def _yb_series(days: int, points: int) -> dict:
     calls += [(PID_DRIVER, "reserve()", None)]
     calls += [(NET_PRESSURE, "net_pressure_and_tvl(address)", int(a, 16))
               for a in plts]
+    # the driver's Merkl reward wrapper: a claim burns the wrapper it pays
+    SUP0 = len(calls)
+    calls += [(YB_PID_WRAPPER, "totalSupply()", None)]
 
     # one multicall per sampled block; 8 in flight (own Rpc per thread —
     # Rpc reorders its endpoint list on failure) cuts a cold 120-point
@@ -365,6 +368,7 @@ def _yb_series(days: int, points: int) -> dict:
     cap_dep = {p["label"]: [] for p in pools}     # value, crvUSD
     cap_max = {p["label"]: [] for p in pools}     # cap = max_debt / 2
     pid_crv, pid_usd = [], []                     # driver reserve
+    pid_pts = []          # (block, ts, crvUSD/USD, reserve, wrapper supply)
     net_p = {lb: [] for lb in plabels}            # net pressure, crvUSD
     tvl = {p["label"]: None for p in pools}   # crvUSD-eq at the last sample
     times = []
@@ -429,6 +433,7 @@ def _yb_series(days: int, points: int) -> dict:
         pid_crv.append(round(rv / 1e18) if rv is not None else None)
         pid_usd.append(round(rv / 1e18 * usd_per_crvusd)
                        if rv is not None else None)
+        pid_pts.append((b, ts, usd_per_crvusd, rv, _num(res[SUP0])))
         for k, lb in enumerate(plabels):
             x = res[PID0 + 1 + k]                # (int256 net, uint256 half_tvl)
             if x and len(x) >= 130:
@@ -446,6 +451,11 @@ def _yb_series(days: int, points: int) -> dict:
             "pps": pps, "staked": staked,
             "cap_used": cap_used, "cap_dep": cap_dep, "cap_max": cap_max,
             "pid_crvusd": pid_crv, "pid_usd": pid_usd, "net_pressure": net_p,
+            "pid": _yb_pid_series(rpc, pid_pts, [
+                (MULTICALL3, "getCurrentBlockTimestamp()", None),
+                (CRVUSD_AGG, "price()", None),
+                (PID_DRIVER, "reserve()", None),
+                (YB_PID_WRAPPER, "totalSupply()", None)]),
             "lts": [{"symbol": l["symbol"], "label": l["label"],
                      "lt": l["lt"], "staker": l["staker"],
                      "market_index": l["market_index"], "rank": l["rank"],
@@ -513,6 +523,29 @@ YB_SINK_POOL = "0x625E92624Bc2D88619ACCc1788365A69767f6200"
 YB_SINK_GAUGE = "0xf69fb60b79e463384b40dbfdfb633ab5a863c9a2"
 YB_TOKEN = "0x01791F726B4103694969820be083196cC7c045fF"
 YB_PID_DRIVER = "0x5b13273F3B584fE6864A2fde89e8F90B7e790D1c"
+# What MerklPIDDriver's balance still owes. It pays through a pull-on-claim
+# wrapper (ybwcrvUSD): create_campaign mints the campaign's whole cap (1B)
+# to Merkl, and crvUSD leaves the driver only when an LP claims, burning the
+# wrapper paid out. So the balance still holds every reward earned but not
+# claimed:
+#   left if everyone claims = reserve - (in payout list - claimed)
+#                           = reserve - wrapper supply + minted - in list
+# "in list" = the rewards in Merkl's latest payout list (merkle root, about
+# every 8 h); rewards earned since are not claimable yet and not counted.
+# reserve and supply are read on-chain at each point, so a claim moves both
+# and leaves the line where it was. "in list" comes from Merkl's API:
+#   now: summed over the wallets, snapshotted at every yb_ refresh
+#   the past: each wallet's daily earned timeline (30 days back), summed
+#     into the list's total at every UTC midnight; it holds between the
+#     last list of a day and the first of the next (~16:25 to ~00:25 UTC),
+#     which the list timestamps from /v4/roots tell
+# kept in data/yb_pid_owed.json (past days never change, so they add up
+# beyond the API's 30 days).
+YB_PID_WRAPPER = "0x5D29949F8e64fA2f9cB2B1Fa190244b9413bc3Ea"
+YB_PID_OWED_FILE = HERE / "data" / "yb_pid_owed.json"
+_YB_PID_LOCK = threading.Lock()          # the state file
+_YB_PID_HIST_RUN = threading.Lock()      # one timeline pull at a time
+_YB_PID_DAYCACHE: dict = {}              # 23:00 UTC sample -> on-chain row
 YB_SINK_DAYS = 90                   # the yb_ tab's longest window
 YB_SINK_FILE = HERE / "data" / "yb_sink.json"
 YB_SINK_TTL = 900
@@ -604,6 +637,237 @@ def _yb_emitted(d: int, s, n):
     def ov(a, b, pf):
         return max(0, min(b, pf) - a)
     return (r_s * ov(d, lu, pf_s) + r_n * ov(lu, end, pf_n)) / 1e18
+
+
+def _merkl_get(path: str):
+    import urllib.request as _u
+    err = None
+    for k in range(3):
+        try:
+            req = _u.Request("https://api.merkl.xyz" + path,
+                             headers={"User-Agent": "curve-sim"})
+            with _u.urlopen(req, timeout=30) as r:
+                return json.loads(r.read())
+        except Exception as e:
+            err = e
+            time.sleep(1 + k)
+    raise err
+
+
+def _pid_rows() -> list:
+    """Every wallet's ybwcrvUSD rewards: amount (in the payout list),
+    claimed, pending."""
+    rows, page = [], 0
+    while True:
+        b = _merkl_get(f"/v4/rewards/token/?chainId=1&address="
+                       f"{YB_PID_WRAPPER}&items=1000&page={page}") or []
+        rows += b
+        if len(b) < 1000:
+            return rows
+        page += 1
+
+
+def _pid_load() -> dict:
+    try:
+        st = json.loads(YB_PID_OWED_FILE.read_text())
+    except Exception:
+        st = {}
+    for k, v in (("snaps", []), ("cum", {}), ("roots", []),
+                 ("campaigns", [])):
+        st.setdefault(k, v)
+    return st
+
+
+def _pid_save(st: dict) -> None:
+    tmp = YB_PID_OWED_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(st))
+    tmp.replace(YB_PID_OWED_FILE)
+
+
+def _yb_pid_state() -> dict:
+    """The state file, with a fresh snapshot of the payout list total, the
+    driver's campaigns (minted cap) and any new list timestamps when the
+    last snapshot is over a minute old. A failed read keeps the old state."""
+    with _YB_PID_LOCK:
+        st = _pid_load()
+        now = int(time.time())
+        if st["snaps"] and now - st["snaps"][-1][0] < 60:
+            return st
+        try:
+            w = YB_PID_WRAPPER.lower()
+            cs = []
+            for c in _merkl_get(f"/v4/campaigns?chainId=1&creatorAddress="
+                                f"{YB_PID_DRIVER}&excludeSubCampaigns=true"
+                                f"&items=100") or []:
+                if c.get("parentCampaignId") or ((c.get("rewardToken") or {})
+                                                 .get("address") or "").lower() != w:
+                    continue
+                at = int(c["startTimestamp"])
+                try:        # minted in the creation tx: the earlier of the two
+                    at = min(at, int(datetime.fromisoformat(
+                        c["createdAt"].replace("Z", "+00:00")).timestamp()))
+                except Exception:
+                    pass
+                cs.append([at, int(c["amount"]) / 1e18])
+            in_list = sum(int(x["amount"]) for x in _pid_rows()) / 1e18
+            frm = st["roots"][-1] + 1 if st["roots"] else now - 91 * 86400
+            new, page = [], 0
+            while True:
+                b = _merkl_get(f"/v4/roots/?chainId=1&fromTimestamp={frm}"
+                               f"&toTimestamp={now}&items=100&page={page}") or []
+                new += [int(r["timestamp"]) for r in b]
+                if len(b) < 100:
+                    break
+                page += 1
+            if cs:
+                st["campaigns"] = sorted(cs)
+                st["snaps"] = [x for x in st["snaps"]
+                               if x[0] > now - 100 * 86400] + [[now, in_list]]
+                st["roots"] = sorted(set(st["roots"]) | set(new))
+                st.setdefault("roots_from", frm)
+                st["roots_until"] = now
+                _pid_save(st)
+        except Exception as e:
+            print(f"[ui] yb_ pid state: {str(e)[:120]}")
+        return st
+
+
+def _yb_pid_history() -> None:
+    """The payout list's total at each UTC midnight of the last 30 days:
+    every wallet's daily earned timeline (what each list added, by day),
+    taken off the list's total now. Past days never change; a pull that a
+    new list interrupts (the total moved meanwhile) is retried once."""
+    if not _YB_PID_HIST_RUN.acquire(blocking=False):
+        return
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        tok = ("1:" + YB_PID_WRAPPER).lower()
+
+        def tl(a):
+            d = _merkl_get(f"/v4/users/{a}/rewards/earned/timeline"
+                           f"?chainIds=1&range=30d")
+            starts, out = set(), {}
+            for b in d.get("buckets") or []:
+                starts.add(int(b["start"]))
+                for x in b.get("breakdown") or []:
+                    if (x.get("tokenId") or "").lower() == tok:
+                        out[int(b["start"])] = (out.get(int(b["start"]), 0)
+                                                + int(x["amount"]))
+            return starts, out
+        for _ in range(2):
+            rows = [x for x in _pid_rows() if int(x["amount"]) > 0]
+            tot = sum(int(x["amount"]) for x in rows)
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                outs = list(ex.map(tl, [x["recipient"] for x in rows]))
+            if sum(int(x["amount"]) for x in _pid_rows()) != tot:
+                continue
+            starts, day = set(), {}
+            for st_, out in outs:
+                starts |= st_
+                for k, v in out.items():
+                    day[k] = day.get(k, 0) + v
+            cum, later = {}, 0
+            for b in sorted(starts, reverse=True):
+                later += day.get(b, 0)
+                cum[str(b)] = (tot - later) / 1e18
+            with _YB_PID_LOCK:
+                st = _pid_load()
+                for k, v in cum.items():
+                    old = st["cum"].get(k)
+                    if old is not None and abs(old - v) > 0.01:
+                        print(f"[ui] yb_ pid history: {k} moved "
+                              f"{old:.2f} -> {v:.2f}")
+                st["cum"].update(cum)
+                st["tl_at"] = int(time.time())
+                _pid_save(st)
+            return
+        print("[ui] yb_ pid history: payout list moved twice, try later")
+    except Exception as e:
+        print(f"[ui] yb_ pid history: {str(e)[:120]}")
+    finally:
+        _YB_PID_HIST_RUN.release()
+
+
+def _pid_in_list_at(st: dict, ts: int):
+    """Rewards in Merkl's payout list at time ts, or None where not known:
+    a snapshot within 30 min with no new list in between, else a UTC
+    midnight with no new list between it and ts."""
+    import bisect
+    roots = st["roots"]
+    if not roots or not (st.get("roots_from", 0) <= ts
+                         <= st.get("roots_until", 0)):
+        return None
+
+    def lists_between(a, b):
+        a, b = min(a, b), max(a, b)
+        return bisect.bisect_right(roots, b) - bisect.bisect_right(roots, a)
+    snaps = st["snaps"]
+    j = bisect.bisect_right([x[0] for x in snaps], ts)
+    for s_t, v in sorted(snaps[max(0, j - 1):j + 1],
+                         key=lambda x: abs(x[0] - ts)):
+        if abs(s_t - ts) <= 1800 and lists_between(s_t, ts) == 0:
+            return v
+    k = bisect.bisect_right(roots, ts)
+    lo = roots[k - 1] if k else st["roots_from"] - 1
+    hi = roots[k] if k < len(roots) else st["roots_until"]
+    for b, v in st["cum"].items():
+        if lo < int(b) <= hi:
+            return v
+    return None
+
+
+def _yb_pid_series(rpc, pts: list, calls: list) -> dict:
+    """MerklPIDDriver's balance and what is left of it once every reward in
+    Merkl's payout list is claimed, both in USD, at the window's samples
+    plus one at 23:00 UTC each day whose closing list is known (on-chain
+    rows of past days are cached)."""
+    from fetch_markets import _num
+    st = _yb_pid_state()
+    if not st["cum"]:
+        _yb_pid_history()                    # first run ever: wait for it
+        st = _pid_load()
+    else:
+        now = time.time()
+        today = int(now // 86400 * 86400)
+        if now - today >= 3600 and st.get("tl_at", 0) < today + 3600:
+            threading.Thread(target=_yb_pid_history, daemon=True).start()
+    pts = [p for p in pts if p[1] is not None]
+    if len(pts) >= 2:
+        (b0, t0), (b1, t1) = pts[0][:2], pts[-1][:2]
+        spb = (t1 - t0) / max(1, b1 - b0)
+        want = [int(k) - 3600 for k in st["cum"]
+                if t0 < int(k) - 3600 < t1]
+
+        def day_row(tgt):
+            if tgt in _YB_PID_DAYCACHE:
+                return _YB_PID_DAYCACHE[tgt]
+            blk = b1 - round((t1 - tgt) / spb)
+            try:
+                r = rpc.mq(calls, block=hex(blk))
+            except Exception:
+                return None
+            ts, agg, rv, sup = (_num(x) for x in r)
+            if None in (ts, rv, sup):
+                return None
+            row = (blk, ts, agg / 1e18 if agg else 1.0, rv, sup)
+            _YB_PID_DAYCACHE[tgt] = row
+            return row
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            extra = [r for r in ex.map(day_row, want) if r]
+        have = {p[1] for p in pts}
+        pts = sorted(pts + [r for r in extra if r[1] not in have],
+                     key=lambda p: p[1])
+    out = {"t": [], "bal": [], "left": []}
+    for _, ts, usd, rv, sup in pts:
+        out["t"].append(ts)
+        out["bal"].append(round(rv / 1e18 * usd) if rv is not None else None)
+        minted = sum(a for at, a in st["campaigns"] if at <= ts)
+        lst = _pid_in_list_at(st, ts)
+        out["left"].append(
+            round(((rv - sup) / 1e18 + minted - lst) * usd)
+            if None not in (rv, sup, lst) and sup and minted else None)
+    return out
 
 
 def _yb_sink_merkl() -> dict:

@@ -6074,6 +6074,7 @@ window.loadYbTab = async function loadYbTab() {
   // One line with a round, evenly spaced grid that always holds 0 (marked),
   // for net pressure and the MerklPIDDriver balance.
   //   o.vals  one value per sample (null = none)
+  //   o.lines [{label, vals, color}] instead, for several lines (legend)
   //   o.pre   "$" for USD, "" for crvUSD; o.signed: + / − on every value
   //   o.unit  appended in the hover
   function renderLine(d, o) {
@@ -6082,7 +6083,9 @@ window.loadYbTab = async function loadYbTab() {
     const W = 900, H = 320, M = { top: 14, right: 16, bottom: 26, left: 62 };
     const pw = W - M.left - M.right, ph = H - M.top - M.bottom;
     const t0 = d.t[0], t1 = d.t[d.t.length - 1];
-    const have = (o.vals || []).filter(v => v != null);
+    const lines = o.lines ||
+      [{ label: o.label, vals: o.vals || [], color: "#39C5CF" }];
+    const have = lines.flatMap(L => L.vals).filter(v => v != null);
     if (!have.length) { svg.innerHTML = ""; return; }
     let lo = Math.min(0, ...have), hi = Math.max(0, ...have);
     const raw = Math.max(hi - lo, 1) / 5, mag = 10 ** Math.floor(Math.log10(raw));
@@ -6116,15 +6119,28 @@ window.loadYbTab = async function loadYbTab() {
       g += `<text x="${X(t)}" y="${H - 8}" text-anchor="middle" fill="#6e7681"
              font-size="11">${(dt.getUTCMonth() + 1)}/${dt.getUTCDate()}</text>`;
     }
-    const pts = o.vals.map((v, i) => v == null ? null
-      : `${X(d.t[i]).toFixed(1)},${Y(v).toFixed(1)}`).filter(Boolean);
-    g += `<polyline fill="none" stroke="#39C5CF" stroke-width="1.8"
-           points="${pts.join(" ")}"/>`;
+    for (const L of lines) {
+      const pts = L.vals.map((v, i) => v == null ? null
+        : `${X(d.t[i]).toFixed(1)},${Y(v).toFixed(1)}`).filter(Boolean);
+      g += `<polyline fill="none" stroke="${L.color}" stroke-width="1.8"
+             points="${pts.join(" ")}"/>`;
+      if (pts.length === 1) {        // a line that has only begun: a dot
+        const [cx, cy] = pts[0].split(",");
+        g += `<circle cx="${cx}" cy="${cy}" r="3" fill="${L.color}"/>`;
+      }
+      if (lines.length > 1) {
+        const last = [...L.vals].reverse().find(v => v != null);
+        legend.innerHTML += `<div class="legend-item" title="now ${
+            last == null ? "—" : fmtV(last) + o.unit}">
+          <span class="swatch" style="background:${L.color}; height:8px"></span>${
+            L.label}</div>`;
+      }
+    }
     svg.innerHTML = g;
     attachHover(svg, { W, H, top: M.top, bottom: H - M.bottom,
                        left: M.left, right: W - M.right, t: d.t, X, Y,
-                       lines: [{ label: o.label, color: "#39C5CF",
-                                 vals: o.vals }],
+                       lines: lines.map(L => ({ label: L.label,
+                                                color: L.color, vals: L.vals })),
                        fmt: v => `${fmtV(v)}${o.unit}` });
     alignCaptions();
   }
@@ -6148,11 +6164,19 @@ window.loadYbTab = async function loadYbTab() {
                     pre: "", signed: true, unit: " crvUSD" });
   }
   // MerklPIDDriver's crvUSD reserve in USD (crvUSD x the crvUSD/USD
-  // aggregator); it holds no LT fee tokens between conversions
+  // aggregator); it holds no LT fee tokens between conversions. The reserve
+  // still holds every Merkl reward earned but not claimed (crvUSD leaves
+  // only at claim), so the second line is what stays once everything in
+  // Merkl's payout list is claimed. The server sends both on their own
+  // time axis (d.pid): the window's samples plus one point per day.
   function renderPidBalance(d) {
-    renderLine(d, { title: "MerklPIDDriver balance — USD",
-                    label: "MerklPIDDriver", vals: d.pid_usd || [],
-                    pre: "$", signed: false, unit: "" });
+    const p = d.pid || { t: d.t, bal: d.pid_usd || [], left: [] };
+    renderLine({ t: p.t }, {
+      title: "MerklPIDDriver balance — USD",
+      lines: [{ label: "balance", vals: p.bal, color: "#39C5CF" },
+              { label: "left if everyone claims", vals: p.left,
+                color: "#e3b341" }],
+      pre: "$", signed: false, unit: "" });
   }
   // pyUSD/crvUSD, the pool Yield Basis pays to hold crvUSD (the
   // MerklPIDDriver's sink pool). Top: its TVL. Bottom: what YB paid it per
