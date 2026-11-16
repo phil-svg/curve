@@ -1669,56 +1669,117 @@ def _ph_open_day(chain: str, addr: str, h: dict) -> dict:
     return out
 
 
-# -- pools list: TVL change over the last 7 days ----------------------------
-# From the daily histories the server keeps warm for every listed pool
-# (data/pool_hist: prices API, or the chain for the archive-built chains):
-# the newest day with a TVL (today, or yesterday while today's row is still
-# empty) against the same pool's TVL 7 days before that day, both in USD.
-# A pool missing either end has no value. Files are re-read only when they
-# changed.
-TVL7_TTL = 600
-_TVL7 = {"at": 0.0, "pools": {}}
-_TVL7_FILES: dict = {}          # path -> (mtime, value or None)
-_TVL7_LOCK = threading.Lock()
+# -- pools list: TVL change over the last 24 hours -------------------------
+# Like the list's other metrics (DAO revenue and volume of the last 24 h):
+# the TVL the list shows (data/lp.json, the Curve API's pool TVL, rebuilt
+# every refresh cycle) against the same number 24 h earlier. Each new
+# lp.json's TVLs are kept in data/tvl_snaps.json (26 h, checked every 5 min
+# whether anyone visits or not); "24 h earlier" is the reading closest to
+# 24 h before the current one, within 90 min either side. Until such a
+# reading exists (a fresh server), every pool's daily history stands in:
+# its newest day's TVL against the day before (data/pool_hist), so the list
+# never mixes the two sources.
+TVL24_TTL = 300
+TVL_SNAPS_FILE = HERE / "data" / "tvl_snaps.json"
+_TVL24 = {"at": 0.0, "out": None}
+_TVL_HIST_FILES: dict = {}      # path -> (mtime, today, value or None)
+_TVL24_LOCK = threading.Lock()
 
 
-def pool_tvl7() -> dict:
-    with _TVL7_LOCK:
-        if _TVL7["pools"] and time.time() - _TVL7["at"] < TVL7_TTL:
-            return _TVL7
+def _lp_tvls() -> tuple:
+    """(lp.json's fetched_at, {chain:addr: TVL}) of the current lp.json."""
+    f = HERE / "data" / "lp.json"
+    d = json.loads(f.read_text())
+    at = int(d.get("fetched_at") or f.stat().st_mtime)
+    return at, {f"{p['chain']}:{p['pool'].lower()}": round(p["tvl"])
+                for p in d["pools"].values() if p.get("tvl") is not None}
+
+
+def _tvl_snaps(add: bool = True) -> list:
+    """The kept readings [[fetched_at, {key: TVL}], ...], oldest first,
+    with the current lp.json added when it is new."""
+    try:
+        snaps = json.loads(TVL_SNAPS_FILE.read_text())
+    except (OSError, ValueError):
+        snaps = []
+    if add:
         try:
-            lp = json.loads((HERE / "data" / "lp.json").read_text())["pools"]
+            at, tv = _lp_tvls()
         except (OSError, ValueError, KeyError):
-            return _TVL7
-        today = int(time.time()) // _PH_DAY * _PH_DAY
-        out = {}
-        for p in lp.values():
-            ch, a = p["chain"], p["pool"].lower()
-            f = POOL_HIST_DIR / f"{ch}_{a}.json"
+            return snaps
+        if not snaps or at > snaps[-1][0]:
+            snaps = [x for x in snaps if x[0] >= at - 26 * 3600] + [[at, tv]]
+            tmp = TVL_SNAPS_FILE.with_suffix(".tmp")
+            tmp.write_text(json.dumps(snaps))
+            tmp.replace(TVL_SNAPS_FILE)
+    return snaps
+
+
+def _tvl_snap_loop() -> None:
+    while True:
+        try:
+            with _TVL24_LOCK:
+                _tvl_snaps()
+        except Exception as e:
+            print(f"[ui] tvl snaps: {str(e)[:120]}")
+        time.sleep(300)
+
+
+def _tvl_hist_day(lp_keys: list) -> dict:
+    """Stand-in until 24 h of readings exist: per pool, [newest day's TVL,
+    the day before, day] from the daily history (today, or yesterday while
+    today's row is still empty). Files are re-read only when changed."""
+    today = int(time.time()) // _PH_DAY * _PH_DAY
+    out = {}
+    for k in lp_keys:
+        ch, _, a = k.partition(":")
+        f = POOL_HIST_DIR / f"{ch}_{a}.json"
+        try:
+            mt = f.stat().st_mtime
+        except OSError:
+            continue
+        hit = _TVL_HIST_FILES.get(f)
+        if hit is None or hit[0] != mt or hit[1] != today:
+            v = None
             try:
-                mt = f.stat().st_mtime
-            except OSError:
-                continue
-            hit = _TVL7_FILES.get(f)
-            if hit is None or hit[0] != mt or hit[2] != today:
-                v = None
-                try:
-                    c = json.loads(f.read_text())
-                    by = {int(t) // _PH_DAY * _PH_DAY: x for t, x in
-                          zip(c.get("t") or [], c.get("tvl") or [])
-                          if x is not None}
-                    end = next((d for d in (today, today - _PH_DAY)
-                                if d in by), None)
-                    if end is not None and end - 7 * _PH_DAY in by:
-                        v = [round(by[end]), round(by[end - 7 * _PH_DAY]),
-                             end]
-                except (OSError, ValueError):
-                    pass
-                hit = _TVL7_FILES[f] = (mt, v, today)
-            if hit[1]:
-                out[f"{ch}:{a}"] = hit[1]
-        _TVL7.update(at=time.time(), pools=out)
-        return _TVL7
+                c = json.loads(f.read_text())
+                by = {int(t) // _PH_DAY * _PH_DAY: x for t, x in
+                      zip(c.get("t") or [], c.get("tvl") or [])
+                      if x is not None}
+                end = next((d for d in (today, today - _PH_DAY)
+                            if d in by), None)
+                if end is not None and end - _PH_DAY in by:
+                    v = [round(by[end]), round(by[end - _PH_DAY]), end]
+            except (OSError, ValueError):
+                pass
+            hit = _TVL_HIST_FILES[f] = (mt, today, v)
+        if hit[2]:
+            out[k] = hit[2]
+    return out
+
+
+def pool_tvl24() -> dict:
+    """{"mode": "24h" | "day", "now", "then", "pools": {key: [TVL now,
+    TVL then]}}; "day" = the daily-history stand-in."""
+    with _TVL24_LOCK:
+        if _TVL24["out"] and time.time() - _TVL24["at"] < TVL24_TTL:
+            return _TVL24["out"]
+        snaps = _tvl_snaps()
+        if not snaps:
+            return _TVL24["out"] or {"mode": None, "pools": {}}
+        at, now_tv = snaps[-1]
+        best = min(snaps, key=lambda x: abs(x[0] - (at - 86400)))
+        if abs(best[0] - (at - 86400)) <= 5400:
+            pools = {k: [v, best[1][k]] for k, v in now_tv.items()
+                     if k in best[1]}
+            out = {"mode": "24h", "now": at, "then": best[0], "pools": pools}
+        else:
+            h = _tvl_hist_day(list(now_tv))
+            out = {"mode": "day", "now": at,
+                   "then": snaps[0][0],       # readings collected since
+                   "pools": {k: v[:2] for k, v in h.items()}}
+        _TVL24.update(at=time.time(), out=out)
+        return out
 
 
 # -- pools list: DAO revenue of the last 24 hours ---------------------------
@@ -3242,10 +3303,9 @@ class Handler(BaseHTTPRequestHandler):
             # Resupply tab (fetch_resupply.py); the page lives at /resupply
             _http_file(self, HERE / "data" / "resupply.json")
             return
-        if self.path == "/tvl7d":
-            # pools list: TVL now and 7 days before, per pool
-            t7 = pool_tvl7()
-            _http_json(self, 200, {"at": t7["at"], "pools": t7["pools"]})
+        if self.path == "/tvl24":
+            # pools list: TVL now and 24 hours before, per pool
+            _http_json(self, 200, pool_tvl24())
             return
         if self.path == "/rev24":
             # pools list: DAO revenue of the last 24 hours, per pool
@@ -3957,6 +4017,7 @@ def main():
                   flush=True)
     threading.Thread(target=_yb_warm, daemon=True).start()
     threading.Thread(target=_yb_keepwarm, daemon=True).start()
+    threading.Thread(target=_tvl_snap_loop, daemon=True).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

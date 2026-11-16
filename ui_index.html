@@ -1201,7 +1201,7 @@
       <button type="button" data-m="rev" class="on">DAO revenue</button>
       <button type="button" data-m="tvl">TVL</button>
       <button type="button" data-m="vol">volume</button>
-      <button type="button" data-m="tvl7">TVL gainers</button>
+      <button type="button" data-m="tvlg">TVL gainers</button>
     </div>
   </div>
   <div id="lp_body"></div>
@@ -8289,18 +8289,18 @@ window.loadLpTab = async function () {
     const metric = window.__lpMetric || "rev";
     if (metric === "vol" && !window.__lpVols) await ensureMetric(metric);
     if (metric === "rev" && !window.__lpRevs) await ensureMetric(metric);
-    if (metric === "tvl7" && !window.__lpTvl7) await ensureMetric(metric);
-    // TVL gainers: USD TVL now minus 7 days before ([now, then, day])
-    const t7 = p => (window.__lpTvl7 || {})[`${p.chain}:${p.pool}`];
+    if (metric === "tvlg" && !window.__lpTvlG) await ensureMetric(metric);
+    // TVL gainers: USD TVL now minus 24 hours before ([now, then])
+    const t7 = p => ((window.__lpTvlG || {}).pools || {})[`${p.chain}:${p.pool}`];
     const mval = p => metric === "vol"
       ? (window.__lpVols || {})[`${p.chain}:${p.pool}`]
       : metric === "rev"
         ? (window.__lpRevs || {})[`${p.chain}:${p.pool}`]
-        : metric === "tvl7"
+        : metric === "tvlg"
           ? (t7(p) ? t7(p)[0] - t7(p)[1] : null)
           : p.tvl;
     // gainers first, losers last, pools without a 7-day history after them
-    const sv = p => mval(p) ?? (metric === "tvl7" ? -Infinity : 0);
+    const sv = p => mval(p) ?? (metric === "tvlg" ? -Infinity : 0);
     const rows = Object.values(d.pools)
       .filter(p => poolMatch(p).show)
       .sort((a, b) => sv(b) - sv(a));
@@ -8309,7 +8309,7 @@ window.loadLpTab = async function () {
       ? "linear-gradient(90deg, #9e6a0388, #e3b341)"
       : metric === "vol"
         ? "linear-gradient(90deg, #23863688, #7ee787)"
-        : metric === "tvl7"
+        : metric === "tvlg"
           ? "linear-gradient(90deg, #1b7c8388, #39C5CF)"
           : "linear-gradient(90deg, #1f6feb88, #58a6ff)";
     let h = "";
@@ -8335,12 +8335,12 @@ window.loadLpTab = async function () {
           <div style="width:${(100 * Math.max(0, v || 0) / maxT).toFixed(2)}%;
             height:100%; background:${grad}"></div></div>
         <span style="width:96px; text-align:right; font-weight:600"${
-          metric === "tvl7" && t7(p) ? ` title="${usd(t7(p)[1])} → ${
+          metric === "tvlg" && t7(p) ? ` title="${usd(t7(p)[1])} → ${
             usd(t7(p)[0])}${t7(p)[1] > 0 ? ` (${v >= 0 ? "+" : "−"}${
             Math.abs(v / t7(p)[1] * 100).toFixed(1)}%)` : ""}"` : ""}>${
           v == null ? "—" : metric === "rev"
             ? "$" + Math.round(v).toLocaleString("en-US")
-            : metric === "tvl7"
+            : metric === "tvlg"
               ? (v >= 0 ? "+" : "−") + usd(Math.abs(v))
               : usd(v)}</span>
         <span style="width:64px; text-align:right; color:#8b949e;
@@ -8350,9 +8350,12 @@ window.loadLpTab = async function () {
     if (rows.length)
       h += `<div class="note" style="margin-top:6px">${metric === "vol"
         ? "bar = share of the busiest pool's 24h volume"
-        : metric === "tvl7"
-          ? "TVL now minus 7 days ago, in USD · bar = share of the " +
-            "biggest gain"
+        : metric === "tvlg"
+          ? ((window.__lpTvlG || {}).mode === "day"
+              ? "TVL change against the previous day (daily history) " +
+                "until the server has a reading from 24h ago"
+              : "TVL now minus 24h ago, in USD") +
+            " · bar = share of the biggest gain"
         : metric === "rev"
           ? "bar = share of the top earner's DAO revenue " +
             "(last 24h)"
@@ -8407,10 +8410,10 @@ window.loadLpTab = async function () {
       await sideInto(vols, "vol");
       if (ok) window.__lpVols = vols;
     }
-    if (m === "tvl7" && !window.__lpTvl7) {
+    if (m === "tvlg" && !window.__lpTvlG) {
       try {
-        const j = await fetch("/tvl7d").then(r => r.json());
-        if (j.pools) window.__lpTvl7 = j.pools;
+        const j = await fetch("/tvl24").then(r => r.json());
+        if (j.pools) window.__lpTvlG = j;
       } catch (_) { /* keep dashes, retried on the next render */ }
     }
     if (m === "rev" && !window.__lpRevs) {
