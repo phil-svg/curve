@@ -515,8 +515,13 @@ def _yb_keepwarm() -> None:
 #     of each day (paid Oct 2025 - 16 Apr 2026, none since), priced with
 #     the daily YB close
 #   crvUSD through MerklPIDDriver's Merkl campaign (since 24 Jul 2026):
-#     Merkl's own daily rewards of the driver's root campaigns (the gauge
-#     sub-campaign is a child of it = the same money, so not counted twice)
+#     what Merkl's payout lists added each UTC day, from the same history
+#     as the MerklPIDDriver chart (_yb_pid_history: the list's total at
+#     each midnight, summed from every wallet's earned timeline), priced
+#     with the daily crvUSD close. Merkl's dailyRewardsRecords are NOT
+#     used: they are a once-a-day reading of the reward rate, not what was
+#     paid (they summed to 74k when 45k had been paid). Days the history
+#     does not reach are unknown (null), not 0.
 # A day's start state never changes, so the gauge samples are kept in
 # data/yb_sink.json and only new days are read.
 YB_SINK_POOL = "0x625E92624Bc2D88619ACCc1788365A69767f6200"
@@ -542,6 +547,12 @@ YB_PID_DRIVER = "0x5b13273F3B584fE6864A2fde89e8F90B7e790D1c"
 # kept in data/yb_pid_owed.json (past days never change, so they add up
 # beyond the API's 30 days).
 YB_PID_WRAPPER = "0x5D29949F8e64fA2f9cB2B1Fa190244b9413bc3Ea"
+# the wrapper's feeRecipient(): Merkl's share of every payout list (~1.6 %
+# of what the list adds) sits in the list under this address, which has no
+# earned timeline; the history spreads its total over the days in
+# proportion to everyone else's (exact in total, ~0.1 % per day)
+YB_PID_FEE_TO = "0xeaC6A75e19beb1283352d24c0311de865a867dab"
+YB_PID_CUM_V = 2       # history format: bump to rebuild it on deploy
 YB_PID_OWED_FILE = HERE / "data" / "yb_pid_owed.json"
 _YB_PID_LOCK = threading.Lock()          # the state file
 _YB_PID_HIST_RUN = threading.Lock()      # one timeline pull at a time
@@ -732,12 +743,16 @@ def _yb_pid_state() -> dict:
         return st
 
 
-def _yb_pid_history() -> None:
+def _yb_pid_history(wait: bool = False) -> None:
     """The payout list's total at each UTC midnight of the last 30 days:
     every wallet's daily earned timeline (what each list added, by day),
-    taken off the list's total now. Past days never change; a pull that a
-    new list interrupts (the total moved meanwhile) is retried once."""
+    with Merkl's share (YB_PID_FEE_TO) on top in proportion, taken off the
+    list's total now. A pull that a new list interrupts (the total moved
+    meanwhile) is retried once."""
     if not _YB_PID_HIST_RUN.acquire(blocking=False):
+        if wait:                  # a pull is running: let it finish
+            _YB_PID_HIST_RUN.acquire()
+            _YB_PID_HIST_RUN.release()
         return
     try:
         from concurrent.futures import ThreadPoolExecutor
@@ -757,8 +772,12 @@ def _yb_pid_history() -> None:
         for _ in range(2):
             rows = [x for x in _pid_rows() if int(x["amount"]) > 0]
             tot = sum(int(x["amount"]) for x in rows)
+            fee = sum(int(x["amount"]) for x in rows
+                      if x["recipient"].lower() == YB_PID_FEE_TO.lower())
             with ThreadPoolExecutor(max_workers=4) as ex:
-                outs = list(ex.map(tl, [x["recipient"] for x in rows]))
+                outs = list(ex.map(tl, [x["recipient"] for x in rows
+                                        if x["recipient"].lower()
+                                        != YB_PID_FEE_TO.lower()]))
             if sum(int(x["amount"]) for x in _pid_rows()) != tot:
                 continue
             starts, day = set(), {}
@@ -766,18 +785,24 @@ def _yb_pid_history() -> None:
                 starts |= st_
                 for k, v in out.items():
                     day[k] = day.get(k, 0) + v
+            # each day's additions grossed up by Merkl's share
+            gross = tot / (tot - fee) if tot > fee else 1.0
             cum, later = {}, 0
             for b in sorted(starts, reverse=True):
                 later += day.get(b, 0)
-                cum[str(b)] = (tot - later) / 1e18
+                cum[str(b)] = (tot - later * gross) / 1e18
             with _YB_PID_LOCK:
                 st = _pid_load()
                 for k, v in cum.items():
                     old = st["cum"].get(k)
-                    if old is not None and abs(old - v) > 0.01:
+                    if old is not None and abs(old - v) > 50 \
+                            and st.get("cum_v") == YB_PID_CUM_V:
                         print(f"[ui] yb_ pid history: {k} moved "
                               f"{old:.2f} -> {v:.2f}")
+                if st.get("cum_v") != YB_PID_CUM_V:
+                    st["cum"] = {}
                 st["cum"].update(cum)
+                st["cum_v"] = YB_PID_CUM_V
                 st["tl_at"] = int(time.time())
                 _pid_save(st)
             return
@@ -823,8 +848,8 @@ def _yb_pid_series(rpc, pts: list, calls: list) -> dict:
     rows of past days are cached)."""
     from fetch_markets import _num
     st = _yb_pid_state()
-    if not st["cum"]:
-        _yb_pid_history()                    # first run ever: wait for it
+    if not st["cum"] or st.get("cum_v") != YB_PID_CUM_V:
+        _yb_pid_history(wait=True)       # first run ever: wait for it
         st = _pid_load()
     else:
         now = time.time()
@@ -870,30 +895,22 @@ def _yb_pid_series(rpc, pts: list, calls: list) -> dict:
     return out
 
 
-def _yb_sink_merkl() -> dict:
-    """Merkl's daily rewards (USD) of MerklPIDDriver's root campaigns on the
-    pool, summed per day."""
-    import urllib.request as _u
-
-    def get(path):
-        req = _u.Request("https://api.merkl.xyz" + path,
-                         headers={"User-Agent": "curve-sim"})
-        with _u.urlopen(req, timeout=30) as r:
-            return json.loads(r.read())
-    per, seen = {}, set()
-    for o in get(f"/v4/opportunities?chainId=1&search={YB_SINK_POOL}") or []:
-        cs = get(f"/v4/opportunities/{o['id']}/campaigns").get("campaigns")
-        for c in cs or []:
-            if (c.get("creatorAddress") or "").lower() != YB_PID_DRIVER.lower():
-                continue
-            if c.get("parentCampaignId") or c["id"] in seen:
-                continue
-            seen.add(c["id"])
-            m = get(f"/v4/campaigns/{c['id']}/metrics")
-            for r in m.get("dailyRewardsRecords") or []:
-                d = int(r["timestamp"]) // 86400 * 86400
-                per[d] = per.get(d, 0.0) + float(r.get("total") or 0)
-    return per
+def _yb_sink_merkl() -> tuple:
+    """crvUSD that MerklPIDDriver's campaign added to Merkl's payout lists
+    each UTC day: the list's total at the next midnight minus at this one;
+    today, the latest total minus this midnight's. Returns ({day: crvUSD},
+    campaign start); days the history does not reach are left out."""
+    st = _yb_pid_state()
+    if not st["cum"] or st.get("cum_v") != YB_PID_CUM_V:
+        _yb_pid_history(wait=True)
+        st = _pid_load()
+    cum = {int(k): v for k, v in st["cum"].items()}
+    per = {b: cum[b + 86400] - cum[b] for b in cum if b + 86400 in cum}
+    today = int(time.time()) // 86400 * 86400
+    if today in cum and st["snaps"] and st["snaps"][-1][0] >= today:
+        per[today] = st["snaps"][-1][1] - cum[today]
+    start = min((at for at, _ in st["campaigns"]), default=None)
+    return per, start
 
 
 def _yb_sink_build() -> dict:
@@ -933,7 +950,12 @@ def _yb_sink_build() -> dict:
         _YB_SINK["merkl"] = _yb_sink_merkl()
     except Exception as e:      # stale beats broken
         print(f"[ui] yb_sink merkl failed: {str(e)[:120]}", flush=True)
-    mk = _YB_SINK["merkl"] or {}
+    mk, mk_start = _YB_SINK["merkl"] or ({}, None)
+    cpx = px_hist("ethereum", "0xf939e0a03fb07f59a73314e73794be0e57ac1b4e")
+    cpx_by = {int(t) // 86400 * 86400: p
+              for t, p in zip(cpx.get("t") or [], cpx.get("px") or [])
+              if p is not None}
+    last_cpx = 1.0
     tvl, yb_tok, yb_px, yb_usd, merkl = [], [], [], [], []
     fees, admin, pyusd, crvusd = [], [], [], []
     last_px = None
@@ -951,7 +973,10 @@ def _yb_sink_build() -> dict:
         yb_usd.append(round(v * last_px) if v is not None and last_px
                       else (0 if v == 0 else None))
         m = mk.get(d)
-        merkl.append(round(m) if m is not None else None)
+        if m is None and mk_start is not None and d + 86400 <= mk_start:
+            m = 0.0                         # before the campaign
+        last_cpx = cpx_by.get(d, last_cpx)
+        merkl.append(round(m * last_cpx) if m is not None else None)
     return {"t": days, "tvl": tvl, "yb_tokens": yb_tok, "yb_price": yb_px,
             "yb_usd": yb_usd, "merkl_usd": merkl,
             "fees": fees, "admin_fee": admin, "pyusd": pyusd,

@@ -6223,8 +6223,10 @@ window.loadYbTab = async function loadYbTab() {
                 admin_fee: cut(full.admin_fee), pyusd: cut(full.pyusd),
                 crvusd: cut(full.crvusd) };
     const N = d.t.length, last = N - 1;
-    const spend = d.t.map((_, i) => d.yb_usd[i] == null && d.merkl_usd[i] == null
-      ? null : (d.yb_usd[i] || 0) + (d.merkl_usd[i] || 0));
+    // a day either part is unknown for (Merkl's history reaches 30 days
+    // back, then grows a day at a time) stays blank
+    const spend = d.t.map((_, i) => d.yb_usd[i] == null || d.merkl_usd[i] == null
+      ? null : d.yb_usd[i] + d.merkl_usd[i]);
     const W = 900, M = { top: 14, right: 16, bottom: 26, left: 62 };
     const pw = W - M.left - M.right;
     const t0 = d.t[0], t1 = d.t[last] + 86400;
