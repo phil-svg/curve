@@ -1669,6 +1669,58 @@ def _ph_open_day(chain: str, addr: str, h: dict) -> dict:
     return out
 
 
+# -- pools list: TVL change over the last 7 days ----------------------------
+# From the daily histories the server keeps warm for every listed pool
+# (data/pool_hist: prices API, or the chain for the archive-built chains):
+# the newest day with a TVL (today, or yesterday while today's row is still
+# empty) against the same pool's TVL 7 days before that day, both in USD.
+# A pool missing either end has no value. Files are re-read only when they
+# changed.
+TVL7_TTL = 600
+_TVL7 = {"at": 0.0, "pools": {}}
+_TVL7_FILES: dict = {}          # path -> (mtime, value or None)
+_TVL7_LOCK = threading.Lock()
+
+
+def pool_tvl7() -> dict:
+    with _TVL7_LOCK:
+        if _TVL7["pools"] and time.time() - _TVL7["at"] < TVL7_TTL:
+            return _TVL7
+        try:
+            lp = json.loads((HERE / "data" / "lp.json").read_text())["pools"]
+        except (OSError, ValueError, KeyError):
+            return _TVL7
+        today = int(time.time()) // _PH_DAY * _PH_DAY
+        out = {}
+        for p in lp.values():
+            ch, a = p["chain"], p["pool"].lower()
+            f = POOL_HIST_DIR / f"{ch}_{a}.json"
+            try:
+                mt = f.stat().st_mtime
+            except OSError:
+                continue
+            hit = _TVL7_FILES.get(f)
+            if hit is None or hit[0] != mt or hit[2] != today:
+                v = None
+                try:
+                    c = json.loads(f.read_text())
+                    by = {int(t) // _PH_DAY * _PH_DAY: x for t, x in
+                          zip(c.get("t") or [], c.get("tvl") or [])
+                          if x is not None}
+                    end = next((d for d in (today, today - _PH_DAY)
+                                if d in by), None)
+                    if end is not None and end - 7 * _PH_DAY in by:
+                        v = [round(by[end]), round(by[end - 7 * _PH_DAY]),
+                             end]
+                except (OSError, ValueError):
+                    pass
+                hit = _TVL7_FILES[f] = (mt, v, today)
+            if hit[1]:
+                out[f"{ch}:{a}"] = hit[1]
+        _TVL7.update(at=time.time(), pools=out)
+        return _TVL7
+
+
 # -- pools list: DAO revenue of the last 24 hours ---------------------------
 # /v1/chains/{chain} lists every pool of a chain with its rolling 24h
 # trading fees (its paging parameters are ignored: the whole chain comes
@@ -3189,6 +3241,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/resupply_data":
             # Resupply tab (fetch_resupply.py); the page lives at /resupply
             _http_file(self, HERE / "data" / "resupply.json")
+            return
+        if self.path == "/tvl7d":
+            # pools list: TVL now and 7 days before, per pool
+            t7 = pool_tvl7()
+            _http_json(self, 200, {"at": t7["at"], "pools": t7["pools"]})
             return
         if self.path == "/rev24":
             # pools list: DAO revenue of the last 24 hours, per pool
