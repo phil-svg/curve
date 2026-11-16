@@ -897,9 +897,12 @@ def _yb_pid_series(rpc, pts: list, calls: list) -> dict:
 
 def _yb_sink_merkl() -> tuple:
     """crvUSD that MerklPIDDriver's campaign added to Merkl's payout lists
-    each UTC day: the list's total at the next midnight minus at this one;
-    today, the latest total minus this midnight's. Returns ({day: crvUSD},
-    campaign start); days the history does not reach are left out."""
+    each UTC day: the list's total at the next midnight minus at this one.
+    Today is the last 24 hours (the latest total minus the total a day
+    before it): lists come about every 8 h, so the running day since
+    midnight holds only 0-2 of its 3 and showed a fraction of a day's pay.
+    Returns ({day: crvUSD}, campaign start); days the history does not
+    reach are left out."""
     st = _yb_pid_state()
     if not st["cum"] or st.get("cum_v") != YB_PID_CUM_V:
         _yb_pid_history(wait=True)
@@ -907,8 +910,11 @@ def _yb_sink_merkl() -> tuple:
     cum = {int(k): v for k, v in st["cum"].items()}
     per = {b: cum[b + 86400] - cum[b] for b in cum if b + 86400 in cum}
     today = int(time.time()) // 86400 * 86400
-    if today in cum and st["snaps"] and st["snaps"][-1][0] >= today:
-        per[today] = st["snaps"][-1][1] - cum[today]
+    if st["snaps"] and st["snaps"][-1][0] >= today:
+        at, v = st["snaps"][-1]
+        then = _pid_in_list_at(st, at - 86400)
+        if then is not None:
+            per[today] = v - then
     start = min((at for at, _ in st["campaigns"]), default=None)
     return per, start
 
@@ -932,6 +938,15 @@ def _yb_sink_build() -> dict:
             fee_by[k] = f_
         if a_ is not None:
             adm_by[k] = a_ / 1e10
+    # today's fees are the day so far; like the Merkl part, the running day
+    # is read as the last 24 hours: today's fees plus the share of
+    # yesterday's (spread evenly over its hours) that falls inside them
+    memo = _PH_OPEN.get(f"ethereum_{YB_SINK_POOL.lower()}")
+    as_of = max(memo[0] if memo and today in memo[1] else 0,
+                h.get("fetched_at") or 0)
+    if today in fee_by and today - 86400 in fee_by and as_of > today:
+        fee_by[today] += fee_by[today - 86400] * max(
+            0.0, 1 - (as_of - today) / 86400)
     # the pool's balances in whole coins: coins(0) = PYUSD, coins(1) =
     # crvUSD; "bal" rows are [coin 0, coin 1]
     py_by, crv_by = {}, {}
